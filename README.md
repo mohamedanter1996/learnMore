@@ -49,6 +49,28 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.
 
+## Assessments, roadmap & courses (v1.1)
+
+- **🎓 Assessment** — per-track interview MCQs (~20 each, junior→senior tiers). Scoring: junior tier ≥70% = Junior; + mid ≥60% = Mid; + senior ≥60% = Senior. Wrong answers show explanations and link to the lessons that teach them. Retake any time.
+- **🗺️ Roadmap** — each track as a Junior→Mid→Senior ladder with your assessment marker (📍 YOU ARE HERE), completed/today/upcoming lessons, and 🎯 weak-spot flags from your latest assessment misses.
+- **📚 Courses** — curated recommendations per topic per level (free, paid 💰, and Arabic 🇪🇬), shown on assessment results. Catalog: `seed/courses.json`.
+- **Motivational toasts** — streak milestones (3/7/14/30/60/100+), completion praise, near-track-finish nudges, rotating reminder messages.
+- Interview questions live in `seed/interview/*.json` (same idempotent seeding as lessons).
+
+## Auto-update
+
+The installed app checks [GitHub Releases](https://github.com/mohamedanter1996/learnMore/releases) on start and every 4 hours, downloads updates in the background, and installs on quit (or via tray → "Restart to update").
+
+Shipping a new version:
+
+```bash
+# 1. bump "version" in package.json    2. commit + push    3.
+$env:GH_TOKEN = (gh auth token)
+npm run release        # builds everything and publishes the release
+```
+
+DB migrations and new seed content apply automatically on the updated app's first launch — user progress is preserved.
+
 ## Arabic explanations (الشرح بالمصري)
 
 Every lesson ships with a condensed Egyptian-Arabic explanation. On the lesson page, click **"🇪🇬 اشرح بالمصري"** to show it below the English lesson (RTL panel; code samples stay LTR). The preference is remembered locally.

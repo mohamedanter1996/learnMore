@@ -1,7 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { AssessmentQuestion, AssessmentResult } from '../core/models';
+import { AssessmentResult } from '../core/models';
+
+interface ExamOption {
+  text: string;
+  originalIndex: number;
+}
+
+interface ExamQuestion {
+  id: number;
+  level: number;
+  question: string;
+  options: ExamOption[]; // shuffled for display; originalIndex maps back for grading
+}
 
 @Component({
   selector: 'app-assessment-exam',
@@ -28,12 +40,12 @@ import { AssessmentQuestion, AssessmentResult } from '../core/models';
               <span class="tier-tag">{{ '★'.repeat(q.level) }}</span>
             </div>
             <div class="q-text">{{ q.question }}</div>
-            @for (opt of q.options; track $index; let oi = $index) {
-              <label class="option" [class.selected]="answers()[q.id] === oi">
+            @for (opt of q.options; track opt.originalIndex) {
+              <label class="option" [class.selected]="answers()[q.id] === opt.originalIndex">
                 <input type="radio" [name]="'q' + q.id"
-                       [checked]="answers()[q.id] === oi"
-                       (change)="select(q.id, oi)" />
-                {{ opt }}
+                       [checked]="answers()[q.id] === opt.originalIndex"
+                       (change)="select(q.id, opt.originalIndex)" />
+                {{ opt.text }}
               </label>
             }
           </div>
@@ -192,7 +204,7 @@ export class AssessmentExamComponent {
   private api = inject(ApiService);
   private route = inject(ActivatedRoute);
 
-  readonly questions = signal<AssessmentQuestion[]>([]);
+  readonly questions = signal<ExamQuestion[]>([]);
   readonly answers = signal<Record<number, number>>({});
   readonly result = signal<AssessmentResult | null>(null);
   readonly submitting = signal(false);
@@ -206,7 +218,15 @@ export class AssessmentExamComponent {
       this.topicId = Number(p.get('id'));
       this.result.set(null);
       this.answers.set({});
-      this.api.getAssessmentQuestions(this.topicId).subscribe(q => this.questions.set(q));
+      this.api.getAssessmentQuestions(this.topicId).subscribe(qs =>
+        this.questions.set(qs.map(q => ({
+          id: q.id,
+          level: q.level,
+          question: q.question,
+          options: q.options
+            .map((text, originalIndex) => ({ text, originalIndex }))
+            .sort(() => Math.random() - 0.5) // display order shuffled; grading uses originalIndex
+        }))));
     });
   }
 

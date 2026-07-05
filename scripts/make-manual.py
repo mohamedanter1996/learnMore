@@ -137,13 +137,15 @@ for n, t in [
     (4, "The Dashboard"),
     (5, "Today's Lesson — Your Daily Routine"),
     (6, "Arabic Explanations (" + ar("الشرح بالمصري") + ")"),
-    (7, "Browsing Topics"),
-    (8, "Stats &amp; Streaks"),
-    (9, "Reminders, Tray &amp; Auto-Start"),
-    (10, "How the Daily Engine Picks Lessons"),
-    (11, "Adding Your Own Lessons"),
-    (12, "Troubleshooting"),
-    (13, "FAQ"),
+    (7, "Assessments, Roadmap &amp; Courses"),
+    (8, "Browsing Topics"),
+    (9, "Stats &amp; Streaks"),
+    (10, "Reminders, Tray &amp; Auto-Start"),
+    (11, "How the Daily Engine Picks Lessons"),
+    (12, "Adding Your Own Lessons"),
+    (13, "Automatic Updates"),
+    (14, "Troubleshooting"),
+    (15, "FAQ"),
 ]:
     story.append(Paragraph(f"<b>{n}.</b> {t}", styles["TocRow"]))
 story.append(PageBreak())
@@ -251,8 +253,33 @@ story.append(P("Recommended flow: read the English lesson first (the terminology
 story.append(TIP("Adding your own lessons? Put Arabic explanations in <font face='Courier' size='9'>"
                  "seed\\ar\\*.json</font> files matched by lesson title — see the README for the exact format."))
 
-# ---------------- 7. Topics ----------------
-story.append(H1("7. Browsing Topics"))
+# ---------------- 7. Assessments ----------------
+story.append(H1("7. Assessments, Roadmap &amp; Courses"))
+story.append(H2("\U0001f393 Assessment — find your level"))
+story.append(P("Each track has an interview-style assessment (~20 multiple-choice questions across "
+               "Junior/Mid/Senior difficulty). Your level per track:"))
+story.append(tbl(
+    [[cell("<b>Level</b>"), cell("<b>Requirement</b>")],
+     [cell("Junior"), cell("Junior-tier questions ≥ 70%")],
+     [cell("Mid-Level"), cell("Junior achieved AND mid-tier ≥ 60%")],
+     [cell("Senior"), cell("Mid achieved AND senior-tier ≥ 60%")]],
+    [40 * mm, 130 * mm]))
+story.append(Spacer(1, 4))
+story.append(P("After submitting you get: your level, a per-tier score breakdown, every missed question "
+               "with its explanation and a link to the lesson that teaches it, and <b>course "
+               "recommendations</b> for reaching the next level (free, paid \U0001f4b0 and Arabic \U0001f1ea\U0001f1ec options). "
+               "Retake assessments monthly to measure progress."))
+story.append(H2("\U0001f5fa Roadmap — see the whole climb"))
+story.append(B("Every track shown as a Junior → Mid → Senior ladder of lessons."))
+story.append(B("✅ completed lessons, \U0001f4d6 today's lesson, ◻ upcoming."))
+story.append(B("\U0001f4cd YOU ARE HERE marker placed from your latest assessment result."))
+story.append(B("\U0001f3af weak-spot flags on lessons matching questions you missed — the app literally "
+               "shows you what to study next."))
+story.append(TIP("Flow that works: take the assessment → check the roadmap → let the daily lessons "
+                 "close the gaps → retake in a month and watch the marker climb."))
+
+# ---------------- 8. Topics ----------------
+story.append(H1("8. Browsing Topics"))
 story.append(P("The Topics page shows the five tracks with progress bars. Click one to see its full "
                "lesson list in learning order:"))
 story.append(tbl(
@@ -266,8 +293,8 @@ story.append(P("Locking is deliberate: the app enforces <b>one lesson per day</b
                "the whole track in a weekend and forget it by Monday — spaced daily learning is the "
                "entire point of LearnMore."))
 
-# ---------------- 8. Stats ----------------
-story.append(H1("8. Stats &amp; Streaks"))
+# ---------------- 9. Stats ----------------
+story.append(H1("9. Stats &amp; Streaks"))
 story.append(B("<b>Current / longest streak</b> and <b>total lessons completed</b>."))
 story.append(B("<b>Percentage of the whole bank</b> — ~150 lessons ≈ 5 months of daily learning."))
 story.append(B("<b>Per-topic progress bars</b> — the engine rotates topics evenly, so these grow together."))
@@ -276,8 +303,11 @@ story.append(B("Complete today's quiz → streak +1 (if yesterday was also compl
 story.append(B("Miss a day → streak resets to 1 on your next completed day."))
 story.append(B("Longest streak is never lost — it's your all-time record."))
 
-# ---------------- 9. Reminders ----------------
-story.append(H1("9. Reminders, Tray &amp; Auto-Start"))
+# ---------------- 10. Reminders ----------------
+story.append(H1("10. Reminders, Tray &amp; Auto-Start"))
+story.append(P("<b>New in v1.1 — motivation, not just nagging:</b> streak-milestone celebrations "
+               "(3, 7, 14, 30, 60, 100+ days \U0001f525), a congratulation toast when you finish the day, "
+               "near-finish nudges when a track has ≤3 lessons left, and rotating reminder messages."))
 story.append(P("LearnMore is designed to be impossible to ignore:"))
 story.append(B("<b>Starts with Windows</b>, minimized to the system tray."))
 story.append(B("From <b>09:00</b> (default), if today's lesson is not done, a Windows toast notification "
@@ -296,8 +326,8 @@ story.append(Spacer(1, 4))
 story.append(P("Hover the tray icon to see the status: “today's lesson is waiting \U0001f4d6” "
                "or “done for today ✅”."))
 
-# ---------------- 10. Engine ----------------
-story.append(H1("10. How the Daily Engine Picks Lessons"))
+# ---------------- 11. Engine ----------------
+story.append(H1("11. How the Daily Engine Picks Lessons"))
 story.append(B("<b>Topic rotation:</b> round-robin — the topic that was assigned longest ago goes next, "
                "so all five tracks advance evenly (roughly each topic every 5 days)."))
 story.append(B("<b>Difficulty progression:</b> within a topic, all ★ lessons come before ★★, "
@@ -306,8 +336,8 @@ story.append(B("<b>One per day:</b> a new lesson is created the first time the a
                "Yesterday's unfinished lesson counts as missed."))
 story.append(B("<b>After the bank is finished</b> (~5 months), lessons recycle oldest-first as review days."))
 
-# ---------------- 11. Own content ----------------
-story.append(H1("11. Adding Your Own Lessons"))
+# ---------------- 12. Own content ----------------
+story.append(H1("12. Adding Your Own Lessons"))
 story.append(P("Lessons live as JSON files in the <b>seed</b> folder inside the installation directory "
                "(<i>resources\\seed</i>). Each file is one topic:"))
 story.append(CODE(
@@ -332,8 +362,18 @@ story.append(B("Add new items to an existing file (existing topic) or create a n
 story.append(B("Restart the app — the seeder adds anything with a <b>new title</b>; existing lessons are "
                "never modified or duplicated."))
 
-# ---------------- 12. Troubleshooting ----------------
-story.append(H1("12. Troubleshooting"))
+# ---------------- 13. Auto-update ----------------
+story.append(H1("13. Automatic Updates"))
+story.append(P("LearnMore updates itself. On start (and every 4 hours) it checks "
+               "<font face='Courier' size='9'>github.com/mohamedanter1996/learnMore</font> releases, "
+               "downloads new versions in the background, and installs when you quit the app."))
+story.append(B("A toast appears when an update is downloaded — keep working; it installs on quit."))
+story.append(B("Or right-click the tray icon → <b>⬆️ Restart to update</b> to apply immediately."))
+story.append(B("Your progress is always preserved: database migrations and new lessons apply "
+               "automatically on the updated version's first launch."))
+
+# ---------------- 14. Troubleshooting ----------------
+story.append(H1("14. Troubleshooting"))
 story.append(tbl(
     [[cell("<b>Problem</b>"), cell("<b>Fix</b>")],
      [cell("“API failed to start. Check that SQL Server LocalDB is installed” on launch"),
@@ -357,8 +397,8 @@ story.append(tbl(
            "Windows user. Nothing is uploaded anywhere.")]],
     [55 * mm, 115 * mm]))
 
-# ---------------- 13. FAQ ----------------
-story.append(H1("13. FAQ"))
+# ---------------- 15. FAQ ----------------
+story.append(H1("15. FAQ"))
 story.append(H2("Can I do more than one lesson per day?"))
 story.append(P("No — by design. One focused lesson daily beats binge-reading. You can, however, "
                "re-read any completed lesson from Topics."))
