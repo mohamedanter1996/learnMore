@@ -1,0 +1,44 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">📚</span>
+      <span class="logo-text">LearnMore</span>
+    </div>
+
+    <nav>
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        <span>🏠</span> Dashboard
+      </a>
+      <a routerLink="/today" routerLinkActive="active">
+        <span>📖</span> Today
+        @if (todayDone() === false) {
+          <span class="dot pending" title="Today's lesson is waiting"></span>
+        } @else if (todayDone() === true) {
+          <span class="dot done" title="Done for today"></span>
+        }
+      </a>
+      <a routerLink="/topics" routerLinkActive="active">
+        <span>🗂️</span> Topics
+      </a>
+      <a routerLink="/roadmap" routerLinkActive="active">
+        <span>🗺️</span> Roadmap
+      </a>
+      <a routerLink="/assessment" routerLinkActive="active">
+        <span>🎓</span> Assessment
+      </a>
+      <a routerLink="/stats" routerLinkActive="active">
+        <span>📈</span> Stats
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      @if (streak() > 0) {
+        <div class="streak">🔥 {{ streak() }} day{{ streak() === 1 ? '' : 's' }}</div>
+      }
+    </div>
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>

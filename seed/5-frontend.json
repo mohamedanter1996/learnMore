@@ -1,0 +1,603 @@
+{
+  "topic": "Frontend Engineering",
+  "color": "#3b82f6",
+  "icon": "🎨",
+  "items": [
+    {
+      "title": "The JavaScript Event Loop: Tasks and Microtasks",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Event Loop\n\nJavaScript runs **one thread**. Concurrency is an illusion built from a loop: run a task to completion → drain the microtask queue → maybe render → next task.\n\n## The two queues (know the order cold)\n\n- **Task (macrotask) queue**: `setTimeout`, events, I/O callbacks\n- **Microtask queue**: promise callbacks (`.then`, `await` continuations), `queueMicrotask` — drained **completely after every task, before rendering**\n\n```javascript\nconsole.log('1');\nsetTimeout(() => console.log('2'), 0);\nPromise.resolve().then(() => console.log('3'));\nconsole.log('4');\n// → 1, 4, 3, 2   (sync first, then ALL microtasks, then the next task)\n```\n\n## Why it matters in real apps\n\n- **Blocking**: a 200ms synchronous loop freezes clicks, scrolling, rendering — everything. There is no 'background' unless you create it (Web Workers) or yield (`await`, `setTimeout` chunking)\n- **Starvation**: microtasks that queue more microtasks (a promise loop) block rendering *forever* — tasks at least let the browser render between them\n- **`async/await` is sugar**: everything after `await` is a microtask continuation. `await` doesn't 'pause the thread' — it schedules the rest and returns\n- Angular's zone.js (next lessons) literally patches these APIs to know when to check for changes\n\n## Chunking long work\n\n```javascript\nasync function processBigList(items) {\n    for (let i = 0; i < items.length; i++) {\n        process(items[i]);\n        if (i % 500 === 0) await new Promise(r => setTimeout(r));  // yield a task → browser renders\n    }\n}\n// Truly heavy work → Web Worker: a separate thread with message passing\n```\n\nDevTools Performance tab: long yellow blocks = tasks over 50ms = jank you can see in this model.",
+      "practiceTask": "Predict the output order of a snippet mixing setTimeout, two chained .then()s, an async function with two awaits, and sync logs — write your prediction, then run it. Then freeze a page with a 2s sync loop and fix it with chunked yielding.",
+      "externalLinks": ["https://developer.mozilla.org/en-US/docs/Web/JavaScript/Event_loop"],
+      "quiz": [
+        {
+          "question": "Promise.resolve().then(A); setTimeout(B, 0); — which runs first after the current script?",
+          "options": ["B — timers are precise", "A — microtasks drain before the next task", "Random order", "They run in parallel"],
+          "correctIndex": 1,
+          "explanation": "The microtask queue empties completely after the current task; setTimeout callbacks wait in the task queue behind it."
+        },
+        {
+          "question": "A synchronous 300ms computation in a click handler causes:",
+          "options": ["Nothing — it's under a second", "Total UI freeze for 300ms: no rendering, no other events — one thread runs everything", "Only that button stops working", "The browser offloads it automatically"],
+          "correctIndex": 1,
+          "explanation": "Task-to-completion semantics: rendering and event handling wait until the running code finishes."
+        }
+      ]
+    },
+    {
+      "title": "Closures: The Feature Behind Everything",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Closures\n\nA function **captures the variables of the scope where it was defined** — and keeps them alive as long as the function itself lives. That's a closure. Every callback, every RxJS subscription, every event handler in your Angular app uses this.\n\n```typescript\nfunction makeCounter() {\n    let count = 0;                    // lives on after makeCounter returns\n    return () => ++count;             // closes over count\n}\nconst inc = makeCounter();\ninc(); inc();                         // 2 — private state without classes\n```\n\n## The two classic gotchas\n\n**1. Captured variable, not captured value**:\n\n```typescript\nfor (var i = 0; i < 3; i++)\n    setTimeout(() => console.log(i));   // 3, 3, 3 — one shared i, read later\nfor (let i = 0; i < 3; i++)\n    setTimeout(() => console.log(i));   // 0, 1, 2 — let = fresh binding per iteration\n```\n\nClosures capture the **variable binding**, not a snapshot. `let`'s per-iteration scoping is why modern code doesn't hit this.\n\n**2. Accidental memory retention**: a long-lived callback (subscription, global listener, cached function) closing over a big object keeps that object alive:\n\n```typescript\nngOnInit() {\n    const hugeData = await this.load();        // 50MB\n    this.socket.on('ping', () => this.log(hugeData.length));  // hugeData pinned forever\n}\n```\n\nThe subscription outlives the component → the closure outlives it → 50MB outlives it. (This is *the* mechanism behind most Angular memory leaks — the unsubscribe lesson builds on this.)\n\n## Where you use closures deliberately\n\n- Factory functions & partial application: `const forTenant = (id) => (query) => ({ ...query, tenantId: id })\n- Debounce/throttle implementations (the timer lives in the closure)\n- RxJS operators: `map(x => x * this.rate)` — captures `this`\n- Angular's `inject()` in field initializers, effect() functions capturing signals\n\nMental model: **functions carry a backpack** of the variables they reference from enclosing scopes. What's in the backpack stays reachable.",
+      "practiceTask": "Write debounce(fn, ms) from scratch using a closure for the timer id. Then find one subscription in your Angular codebase and identify exactly what its callback's 'backpack' keeps alive.",
+      "externalLinks": ["https://developer.mozilla.org/en-US/docs/Web/JavaScript/Closures"],
+      "quiz": [
+        {
+          "question": "Closures cause memory leaks when:",
+          "options": ["They capture primitives", "A long-lived callback keeps large captured objects reachable long after they're needed", "They're nested too deep", "They're used in loops"],
+          "correctIndex": 1,
+          "explanation": "GC frees only unreachable memory; a living function's captured scope is reachable — the callback's lifetime becomes the data's lifetime."
+        }
+      ]
+    },
+    {
+      "title": "TypeScript: Unions, Narrowing, and Honest Types",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# TypeScript That Pulls Its Weight\n\nTS's power isn't annotations — it's **making illegal states unrepresentable**.\n\n## Discriminated unions: the workhorse\n\n```typescript\n// ❌ the boolean soup — allows impossible combinations (loading && error && data?)\ninterface State { loading: boolean; error?: string; data?: Order[]; }\n\n// ✅ each state is exactly one shape\ntype State =\n  | { status: 'loading' }\n  | { status: 'error'; message: string }\n  | { status: 'loaded'; data: Order[] };\n\nswitch (state.status) {\n    case 'loaded': return state.data.length;   // TS KNOWS data exists here\n    case 'error':  return state.message;        // and message here\n}\n```\n\nThe compiler narrows by the discriminant — no `!`, no `?.`, no runtime surprises. Model every async UI state this way (your API-loading lesson pattern in Angular).\n\n## Narrowing toolbox\n\n`typeof x === 'string'`, `x instanceof Date`, `'prop' in obj`, truthiness — and **exhaustiveness checking**:\n\n```typescript\ndefault:\n    const _never: never = state;   // compile error if a new status is added and unhandled\n```\n\n## The honesty rules\n\n- **`unknown` over `any`**: `any` disables checking *and infects* everything it touches; `unknown` forces narrowing before use. HTTP responses are `unknown` in spirit — validate at the boundary (zod, or typed HttpClient + trust your API contract consciously)\n- **`strict: true` non-negotiable** (Angular default) — `strictNullChecks` alone eliminates the billion-dollar mistake\n- `as` assertions are promises the compiler can't verify — every `as` is a place production can disagree with you. Prefer narrowing; reserve `as` for boundaries you truly know\n- `readonly` arrays/properties for immutability intent (pairs with OnPush later!)\n\n## Generics where they earn it\n\n```typescript\nfunction groupBy<T, K extends string | number>(items: T[], key: (item: T) => K): Record<K, T[]>\n```\n\nWrite generics for reusable utilities; don't force them where a plain type reads better. Utility types worth daily use: `Partial<T>`, `Pick<T,K>`, `Omit<T,K>`, `Record<K,V>`, `ReturnType<F>`.",
+      "practiceTask": "Refactor one component's loading/error/data booleans into a discriminated union with exhaustive switch. Then enable (or verify) strict mode and fix the first five errors it surfaces — each is a latent bug.",
+      "externalLinks": ["https://www.typescriptlang.org/docs/handbook/2/narrowing.html"],
+      "quiz": [
+        {
+          "question": "Discriminated unions beat optional-property state objects because:",
+          "options": ["They serialize smaller", "Impossible state combinations (loading + data + error simultaneously) become unrepresentable, and narrowing gives safe access per state", "They're faster at runtime", "Angular requires them"],
+          "correctIndex": 1,
+          "explanation": "The type system enforces that each state carries exactly its own data — a whole bug class deleted at compile time."
+        },
+        {
+          "question": "unknown is preferred over any for external data because:",
+          "options": ["It's newer syntax", "any silently disables type checking and spreads; unknown forces explicit narrowing/validation before any use", "unknown is nullable", "any doesn't compile in strict mode"],
+          "correctIndex": 1,
+          "explanation": "unknown says 'exists, shape unproven — prove it before touching'; any says 'trust me' to a compiler that then can't help you."
+        }
+      ]
+    },
+    {
+      "title": "Angular Change Detection: Zone.js and OnPush",
+      "difficulty": 2,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# How Angular Knows to Re-render\n\n## Default mode: check everything, often\n\n**Zone.js** monkey-patches every async API (events, timers, promises, XHR). When any of them completes, Angular assumes *something may have changed* and runs change detection: walk the **entire component tree**, re-evaluate every template binding, update DOM where values differ.\n\nSmall app: fine. 500 components × every keystroke/timer/mousemove: your bindings (and any **functions called in templates!**) run constantly:\n\n```html\n<div>{{ calculateTotal() }}</div>   <!-- executes on EVERY CD cycle, app-wide -->\n```\n\nRule zero regardless of strategy: template expressions must be **cheap and pure** — precompute in the class (or use signals/pipes).\n\n## OnPush: opt into skipping\n\n```typescript\n@Component({ changeDetection: ChangeDetectionStrategy.OnPush })\n```\n\nAn OnPush component (and its subtree) is checked only when:\n1. An `@Input` **reference** changes (`===` comparison — mutation invisible!)\n2. An event originates from the component (or its subtree)\n3. An observable bound via `async` pipe emits\n4. A **signal** read by the template changes\n5. You explicitly ask (`markForCheck()`)\n\nThe contract OnPush enforces: **immutability**. `this.items.push(x)` changes nothing by reference → UI silently stale (the classic OnPush bug). `this.items = [...this.items, x]` → new reference → renders. (Same shallow-comparison logic as your Prototype-pattern lesson — records with `with`.)\n\n## The modern direction: signals make CD granular\n\nZone.js asks 'did *anything* happen?'; signals declare '*this value* changed, *these* consumers care' — fine-grained reactivity without tree walks, enabling zoneless Angular (`provideZonelessChangeDetection()`). New code: signals + OnPush everywhere is the default posture; zone.js is the compatibility bridge.\n\n## Debug kit\n\nAngular DevTools profiler shows CD cycles + per-component cost. `runOutsideAngular` for noisy non-UI work (scroll/mousemove analytics, chart libraries) — stops zone-triggered CD storms:\n\n```typescript\nthis.zone.runOutsideAngular(() => setInterval(poll, 500));\n```",
+      "practiceTask": "In your Angular app: add console.count to a getter called in a template, observe how often default CD runs it while typing in an unrelated input. Switch the component to OnPush, reproduce the stale-mutation bug with push(), then fix it immutably.",
+      "externalLinks": ["https://angular.dev/best-practices/skipping-subtrees"],
+      "quiz": [
+        {
+          "question": "An OnPush component's list doesn't update after this.items.push(newItem) because:",
+          "options": ["push() is asynchronous", "OnPush compares @Input references — mutation keeps the same array reference, so the check is skipped", "Zone.js missed the event", "The async pipe is required"],
+          "correctIndex": 1,
+          "explanation": "OnPush's contract is immutability: replace the reference (spread/concat) so the === check sees the change."
+        },
+        {
+          "question": "Calling a method in a template binding is dangerous in default CD because:",
+          "options": ["It's a syntax error", "It re-executes on every change detection cycle app-wide — every keystroke, timer, or event triggers it", "Methods can't return values in templates", "It breaks AOT"],
+          "correctIndex": 1,
+          "explanation": "Angular can't know if the method's result changed without calling it — expensive methods become per-cycle taxes."
+        }
+      ]
+    },
+    {
+      "title": "Angular Signals: Fine-Grained Reactivity",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Signals\n\nA **signal** is a value + notification: reading it registers you as a dependent; writing it notifies dependents. Reactivity as a graph, not a tree walk.\n\n```typescript\nexport class CartService {\n    private items = signal<CartItem[]>([]);\n    readonly count = computed(() => this.items().reduce((s, i) => s + i.qty, 0));\n    readonly total = computed(() => this.items().reduce((s, i) => s + i.qty * i.price, 0));\n\n    add(item: CartItem) {\n        this.items.update(list => [...list, item]);   // immutably, like OnPush taught you\n    }\n}\n```\n\n```html\nCart ({{ cart.count() }}) — {{ cart.total() | currency }}   <!-- updates exactly when these change -->\n```\n\n## The three primitives\n\n- **`signal(v)`** — writable: `.set(v)`, `.update(fn)`. Read by calling: `items()`\n- **`computed(fn)`** — derived, cached, lazy; recomputes only when *read after* a dependency changed. Dependencies tracked **automatically** from what the fn actually reads\n- **`effect(fn)`** — side effects reacting to signals (logging, localStorage sync, imperative DOM). Rule: effects for *effects*, never for deriving state (that's computed) — effect-writes-signal chains recreate the spaghetti signals fix\n\n## Component API built on them\n\n```typescript\nreadonly user = input.required<User>();          // signal inputs replace @Input\nreadonly saved = output<Order>();                 // (output isn't a signal, but pairs)\nreadonly query = model('');                       // two-way bindable signal\nreadonly items = this.api.getItems();             // + toSignal(obs) / toObservable(sig) interop\n```\n\n`linkedSignal` for 'derived but user-overridable' (selection resets when list changes); `resource`/`httpResource` for async-data-as-signal (loading/error/value states — your discriminated-union lesson, built in).\n\n## Signals vs RxJS — the division of labor\n\n| Concern | Tool |\n|---|---|\n| **State** — current value, template binding, derivation | Signals |\n| **Events over time** — debounce, cancel, retry, combine streams | RxJS |\n\nSignals have no time axis (no debounce, no switchMap); RxJS has no 'current value + glitch-free sync derivation'. Typical flow: RxJS pipeline at the edge (HTTP, user input streams) → `toSignal` → template. Don't rewrite working RxJS into signals for fashion; do stop using BehaviorSubject as 'state with .value' — that's literally what signals are for.",
+      "practiceTask": "Build a small cart or filter feature: writable signal for the list, two computed for count/total, an effect persisting to localStorage. Then convert one BehaviorSubject-based service in your codebase to signals and delete the manual subscriptions.",
+      "externalLinks": ["https://angular.dev/guide/signals"],
+      "quiz": [
+        {
+          "question": "computed() dependencies are determined by:",
+          "options": ["A dependency array you pass", "Whatever signals the function actually reads during execution — tracked automatically, even conditionally", "Class property decorators", "Template compilation"],
+          "correctIndex": 1,
+          "explanation": "Reading a signal inside a reactive context registers the dependency; branches that skip a read skip the dependency that run."
+        },
+        {
+          "question": "Deriving one signal from another inside effect() (effect writes a signal) is discouraged because:",
+          "options": ["Effects can't write signals", "It's what computed() is for — effect chains create ordering/glitch problems and hide the dependency graph", "Effects run only once", "It breaks OnPush"],
+          "correctIndex": 1,
+          "explanation": "computed is pull-based, cached, glitch-free derivation; effects are for reaching outside the graph (storage, DOM, logging)."
+        }
+      ]
+    },
+    {
+      "title": "RxJS Foundations: Observables, Subscriptions, Laziness",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Observables\n\nAn **Observable** is a lazy, cancellable stream of 0..∞ values over time. Compare your toolkit:\n\n| | Promise | Observable |\n|---|---|---|\n| Values | exactly one | any number over time |\n| Starts | immediately on creation | **on subscribe** (lazy) |\n| Cancellable | no | yes — unsubscribe |\n| Retry/compose | manual | operators |\n\n## Laziness and unicast — the two surprises\n\n```typescript\nconst save$ = this.http.post('/api/orders', order);\n// NOTHING happened yet — no request!\nsave$.subscribe();     // request #1 fires\nsave$.subscribe();     // request #2 fires — a SECOND POST! (cold = per-subscriber execution)\n```\n\nCold observables re-run their producer per subscriber. Two `async` pipes on the same raw `http.get` = two HTTP calls (fix: `shareReplay` — multicasting lesson). And an observable nobody subscribes to is dead code that looks alive — the classic 'why doesn't my save work' bug.\n\n## The contract\n\n`next*` then (`complete` | `error`) — after either terminal event, nothing more. HTTP observables emit once + complete (that's why forgetting to unsubscribe *specifically from HttpClient* rarely leaks — completion tears down). Interval/store/WebSocket streams **never complete** — those are the leaks (next lesson).\n\n## Reading pipelines\n\n```typescript\nthis.search$ = this.query$.pipe(\n    debounceTime(300),                          // time: wait for typing pause\n    distinctUntilChanged(),                     // filter: same as last? skip\n    switchMap(q => this.api.search(q)),         // flatten: new query cancels old request\n    map(res => res.items),                      // transform\n    catchError(() => of([]))                    // recover — keep the stream ALIVE\n);\n```\n\nEach operator returns a *new* observable wrapping the previous — decorators, from your patterns track. Key error subtlety: an unhandled error **kills the whole subscription permanently** (a search box that dies after one failed request!) — `catchError` placement matters: inside the `switchMap` to keep the outer stream immortal:\n\n```typescript\nswitchMap(q => this.api.search(q).pipe(catchError(() => of([]))))\n```",
+      "practiceTask": "Demonstrate cold-observable double execution: one http.get bound with two async pipes — count network requests in DevTools. Fix with shareReplay(1). Then break a search stream with a thrown error and fix it with inner catchError.",
+      "externalLinks": ["https://rxjs.dev/guide/observable"],
+      "quiz": [
+        {
+          "question": "this.http.post(...) without .subscribe() results in:",
+          "options": ["The request fires and the response is dropped", "No request at all — observables are lazy; subscription starts execution", "A memory leak", "A compile error"],
+          "correctIndex": 1,
+          "explanation": "Cold observables are recipes; subscribe is 'cook'. The silently-never-sent save is a rite of passage."
+        },
+        {
+          "question": "A search-as-you-type stream stops working forever after one API error because:",
+          "options": ["debounceTime buffers overflow", "An uncaught error terminates the subscription permanently — catchError inside the flattening operator keeps the outer stream alive", "switchMap only retries once", "The async pipe detaches"],
+          "correctIndex": 1,
+          "explanation": "error is a terminal event for the whole chain; recovering inside the inner observable contains the blast radius to one request."
+        }
+      ]
+    },
+    {
+      "title": "RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Four Flatteners\n\n'Stream of triggers → inner async work per trigger' — the only question is **what happens when a new trigger arrives while the previous inner work is still running**:\n\n| Operator | On new trigger while busy | Semantics | Canonical use |\n|---|---|---|---|\n| **switchMap** | **cancel** the running inner | 'only the latest matters' | search-as-you-type, route param → detail fetch, autocomplete |\n| **mergeMap** | run **in parallel** | 'all matter, order doesn't' | independent parallel calls (upload N files); cap: `mergeMap(fn, 4)` |\n| **concatMap** | **queue** it | 'all matter, in order' | sequential writes, audit-ordered operations, queued animations |\n| **exhaustMap** | **ignore** the new trigger | 'busy — go away' | submit buttons & double-click protection, login, refresh |\n\n## The interview-and-production classic: wrong flattener bugs\n\n```typescript\n// ❌ switchMap on a SAVE: user clicks save twice fast →\n// first POST CANCELLED mid-flight... or was it? The request may still\n// reach the server (cancellation is client-side!) — possible duplicate/lost ack\nclicks$.pipe(switchMap(() => this.api.save(order)))\n\n// ✅ exhaustMap: first save runs to completion, extra clicks ignored\nclicks$.pipe(exhaustMap(() => this.api.save(order)))\n```\n\nDecision rules of thumb:\n- **Reads** → `switchMap` (stale responses are worse than cancelled requests; also fixes the race where response #1 arrives after response #2 and overwrites newer data)\n- **Writes** → `exhaustMap` (buttons) or `concatMap` (must-all-apply, in order)\n- **Independent fan-out** → `mergeMap` with a concurrency cap (unbounded parallel = your backpressure lesson's warning, browser edition: 6-connections-per-host stall)\n\n## Under the hood\n\nAll four are `map` (trigger → inner observable) + a flattening strategy managing inner subscriptions. switchMap unsubscribes the previous inner (which for HttpClient aborts the XHR — real cancellation of the *response handling*, best-effort on the wire). That auto-unsubscribe is also leak protection: the inner never outlives its replacement.",
+      "practiceTask": "Build a demo with a slow fake API (delay 2s): wire the same button to all four flatteners and click rapidly, logging start/end per request. Then audit your codebase: find one save/submit using switchMap or mergeMap and evaluate whether exhaustMap/concatMap is more correct.",
+      "externalLinks": ["https://rxjs.dev/api/operators/switchMap"],
+      "quiz": [
+        {
+          "question": "For search-as-you-type, switchMap is right because:",
+          "options": ["It's the fastest operator", "Each new query cancels the in-flight request — no stale response can overwrite results for a newer query", "It retries failed searches", "It caches responses"],
+          "correctIndex": 1,
+          "explanation": "Out-of-order responses are the killer bug of naive typeahead; switch semantics make 'latest wins' structural."
+        },
+        {
+          "question": "A submit button wired with mergeMap lets an impatient user:",
+          "options": ["Cancel the order", "Fire multiple parallel identical POSTs — duplicate orders (exhaustMap ignores clicks while busy)", "Queue orders safely", "Nothing — HTTP dedupes"],
+          "correctIndex": 1,
+          "explanation": "merge runs every trigger concurrently; for non-idempotent writes that's duplicates by design. (Server-side idempotency keys are the belt to this suspender.)"
+        }
+      ]
+    },
+    {
+      "title": "Subjects and Multicasting: Sharing One Execution",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Subjects\n\nA **Subject** is both observer (you push: `next(v)`) and observable (others subscribe) — the bridge from imperative code into streams, and the multicast primitive (all subscribers share one execution; your Observer-pattern lesson, RxJS edition).\n\n## The family\n\n| Type | Late subscriber receives | Use |\n|---|---|---|\n| `Subject` | nothing until next emit | pure events (clicks, notifications) |\n| `BehaviorSubject(initial)` | **current value immediately** | state (but: signals now own this job) |\n| `ReplaySubject(n)` | last n values | 'what did I miss' streams |\n| `AsyncSubject` | final value on complete | rare |\n\nThe defining question: **does a late subscriber need history?** Events: no → Subject. State: yes, the latest → BehaviorSubject/signal.\n\n## Discipline: never expose the Subject\n\n```typescript\nprivate saved = new Subject<Order>();\nreadonly saved$ = this.saved.asObservable();   // consumers can listen, not emit\n```\n\nA public Subject is global mutable state — anyone can inject events into your stream.\n\n## Multicasting cold streams: shareReplay\n\nFrom the foundations lesson: two subscribers to one `http.get` = two requests. Fix:\n\n```typescript\nreadonly config$ = this.http.get<Config>('/api/config').pipe(\n    shareReplay({ bufferSize: 1, refCount: true })\n);\n```\n\nOne request; all subscribers (and late ones) share the cached emission. The **`refCount: true`** subtlety: with it, the source unsubscribes when subscriber count hits 0 (re-subscribing re-fetches — usually what you want); without it (`refCount: false`, the default via `shareReplay(1)`), the connection stays alive **forever** — which for infinite sources is a leak, and for HTTP means an eternally cached value that survives even error states awkwardly (a failed request caches the *error* — subsequent subscribers replay the error without retrying!).\n\n```typescript\n// robust config cache: retry on next subscription after failure\nshareReplay({ bufferSize: 1, refCount: true })  +  catchError placement per previous lesson\n```\n\n## When you're really building state...\n\nBehaviorSubject + scan + combineLatest service-stores were the pre-signals idiom. New code: **signals for state, subjects for events**, RxJS pipelines for time/async composition — each tool at its best position.",
+      "practiceTask": "Create an event bus service (private Subject, public asObservable) for cross-component notifications. Then take a config/lookup HTTP call used by 3+ components, add shareReplay with refCount, and verify exactly one network request in DevTools.",
+      "externalLinks": ["https://rxjs.dev/guide/subject"],
+      "quiz": [
+        {
+          "question": "BehaviorSubject differs from Subject in that it:",
+          "options": ["Can't error", "Holds a current value that late subscribers receive immediately on subscription", "Multicasts — Subject doesn't", "Completes automatically"],
+          "correctIndex": 1,
+          "explanation": "Behavior = state semantics (always a current value); Subject = event semantics (you had to be there). Both multicast."
+        },
+        {
+          "question": "shareReplay(1) without refCount on an HTTP call that errored causes:",
+          "options": ["Automatic retry", "All future subscribers replay the cached error — no new request is ever attempted", "A memory leak only", "Duplicate requests"],
+          "correctIndex": 1,
+          "explanation": "The replay buffer faithfully replays the terminal error; refCount lets the dead connection reset so a fresh subscriber triggers a retry."
+        }
+      ]
+    },
+    {
+      "title": "Subscription Leaks and Lifecycle: takeUntilDestroyed",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Angular Memory Leak\n\nThe mechanism (closures lesson + observables lesson combined): a component subscribes to a stream that **outlives it** (store, interval, router events, WebSocket, global service Subject). Component destroyed → subscription still registered → callback's closure keeps the whole component (and its injected services, its data) reachable. Navigate back and forth 50 times = 50 zombie components running their callbacks.\n\n```typescript\nngOnInit() {\n    this.store.cart$.subscribe(c => this.cart = c);          // leak: store outlives component\n    interval(1000).subscribe(() => this.tick());              // leak: never completes\n    this.http.get('/api/x').subscribe(d => this.data = d);    // NOT a leak: completes after one emit\n}\n```\n\nThe HttpClient exception explains the confusion: completion tears subscriptions down, so one-shot HTTP 'forgotten' subscribes are messy but not leaky. Infinite streams are the ones that bite.\n\n## The modern kill-switch: takeUntilDestroyed\n\n```typescript\nexport class CartBadgeComponent {\n    private store = inject(CartStore);\n    count = 0;\n    constructor() {\n        this.store.cart$.pipe(\n            map(c => c.items.length),\n            takeUntilDestroyed()                 // auto-unsubscribes on component destroy\n        ).subscribe(n => this.count = n);\n    }\n}\n```\n\nInjection-context based (constructor/field initializers); elsewhere pass `takeUntilDestroyed(this.destroyRef)`. This replaced the old `private destroy$ = new Subject()` + `ngOnDestroy` boilerplate.\n\n## Better: don't subscribe manually at all\n\nPreference ladder:\n1. **`toSignal(obs$)`** or **`async` pipe** — Angular owns the subscription lifecycle entirely; plus OnPush integration for free\n2. `takeUntilDestroyed` when you truly need imperative subscription (side effects on emission)\n3. Manual `Subscription` + `ngOnDestroy` — legacy code only\n\nMost manual subscriptions exist to copy stream values onto component fields for the template — which is exactly what `toSignal`/`async` do declaratively:\n\n```typescript\nreadonly count = toSignal(this.store.cart$.pipe(map(c => c.items.length)), { initialValue: 0 });\n```\n\n## Finding leaks\n\nDevTools → Memory → heap snapshot → navigate away/back 5× → snapshot → compare: detached component instances accumulating = leak. Filter by your component class name.",
+      "practiceTask": "Grep your codebase for '.subscribe(' — classify each: HTTP one-shot (fine), infinite stream with cleanup (fine), infinite stream WITHOUT cleanup (leak). Fix the leaks: prefer converting to toSignal/async pipe; use takeUntilDestroyed where imperative subscription is genuinely needed.",
+      "externalLinks": ["https://angular.dev/api/core/rxjs-interop/takeUntilDestroyed"],
+      "quiz": [
+        {
+          "question": "Subscribing to a global store's observable in a component without cleanup leaks because:",
+          "options": ["Stores are singletons", "The store's subscriber list holds the callback, whose closure holds the destroyed component — reachable = never garbage collected", "Angular retries the subscription", "Observables buffer values"],
+          "correctIndex": 1,
+          "explanation": "Publisher-holds-subscriber, the same leak as C# events in your patterns track — the long-lived side pins the short-lived side."
+        },
+        {
+          "question": "The most leak-proof way to render stream data in a template is:",
+          "options": ["subscribe in ngOnInit and assign to a field", "toSignal or the async pipe — the framework manages subscribe/unsubscribe with the view lifecycle", "shareReplay", "Subscribing in the constructor"],
+          "correctIndex": 1,
+          "explanation": "Declarative binding removes the manual lifecycle entirely — no subscription you write, none you can forget to dispose."
+        }
+      ]
+    },
+    {
+      "title": "Angular Dependency Injection: Providers and Hierarchy",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Angular DI — Same Principle, Different Container\n\nYour DIP lesson applies verbatim; Angular's container has its own mechanics worth mastering.\n\n## Providing\n\n```typescript\n@Injectable({ providedIn: 'root' })      // app singleton, TREE-SHAKABLE — the default choice\nexport class OrderService { }\n\n// inject() — the modern access pattern (constructor params still fine)\nexport class OrderListComponent {\n    private orders = inject(OrderService);\n    private config = inject(APP_CONFIG);\n}\n```\n\n`providedIn: 'root'` beats NgModule/`providers: []` registration because unused services get tree-shaken out of the bundle.\n\n## The injector tree — scoping like your ASP.NET lifetimes\n\nResolution walks **up**: component's injector → parent components → route (lazy boundaries create injectors) → root. Provide at a component to get **one instance per component subtree**:\n\n```typescript\n@Component({ providers: [WizardStateService] })   // each wizard instance gets its OWN state\nexport class CheckoutWizardComponent { }\n```\n\nThat's Angular's 'scoped lifetime' — scope = component subtree instead of HTTP request. Sibling wizards don't share state; destroy the component, the service goes too (its `DestroyRef` fires — pairs with the leak lesson).\n\n| ASP.NET Core | Angular analog |\n|---|---|\n| Singleton | providedIn: 'root' |\n| Scoped (per request) | component/route `providers` (per subtree) |\n| Named/keyed services | InjectionToken |\n\n## InjectionToken — DI for non-classes\n\n```typescript\nexport const API_URL = new InjectionToken<string>('API_URL');\nproviders: [{ provide: API_URL, useValue: environment.apiUrl }]\n\n// and the OCP trick you know from C# — multi providers = IEnumerable<T>:\nproviders: [\n    { provide: VALIDATOR, useClass: EmailValidator, multi: true },\n    { provide: VALIDATOR, useClass: PhoneValidator, multi: true },\n]\nconst validators = inject(VALIDATOR);   // array of all — strategies, Angular edition\n```\n\n`useClass` (swap implementation), `useFactory` (construction logic + deps), `useExisting` (alias). Testing = providing fakes: `TestBed.configureTestingModule({ providers: [{ provide: OrderService, useValue: fake }] })` — the whole testability payoff of DIP.\n\nGotcha worth knowing: providing the same service at multiple tree levels **shadows** — a component asking for it gets the nearest, which may not be the singleton your service assumed (two 'singletons' with diverging state = confusing bugs). Provide at root unless subtree scoping is the *point*.",
+      "practiceTask": "Build the multi-provider pattern: a VALIDATORS InjectionToken with 2-3 implementations, injected as an array and run in sequence (your C# IEnumerable<IValidator> pattern, ported). Then create a component-scoped state service and prove two sibling instances hold independent state.",
+      "externalLinks": ["https://angular.dev/guide/di"],
+      "quiz": [
+        {
+          "question": "providedIn: 'root' is preferred over module providers arrays because:",
+          "options": ["It's shorter syntax", "The service becomes tree-shakable — unused services drop from the bundle — while still being an app singleton", "It makes services faster", "It enables lazy loading"],
+          "correctIndex": 1,
+          "explanation": "Referencing the service from its own decorator lets the bundler prove non-use and remove it; providers arrays always retain."
+        },
+        {
+          "question": "Providing a service in a component's providers array creates:",
+          "options": ["A compile error if it's also in root", "One instance per component instance/subtree, destroyed with the component — Angular's version of a scoped lifetime", "A lazy-loaded singleton", "A shared instance for all siblings"],
+          "correctIndex": 1,
+          "explanation": "Each component instance's injector gets its own service — sibling wizards/tabs/grids stay isolated by construction."
+        }
+      ]
+    },
+    {
+      "title": "Lazy Loading and Route-Level Code Splitting",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Ship Less JavaScript First\n\nYour user's first visit downloads, parses, and executes your bundle **before the app is usable**. Every admin screen, report designer, and settings page bundled into main.js taxes every user who never opens them.\n\n## Route-level lazy loading (standalone era)\n\n```typescript\nexport const routes: Routes = [\n    { path: '', component: DashboardComponent },              // eager: the landing screen\n    {\n        path: 'admin',\n        loadChildren: () => import('./admin/admin.routes')     // separate chunk,\n            .then(m => m.ADMIN_ROUTES),                        // fetched on first navigation\n        canMatch: [adminGuard],                                // guard BEFORE download\n    },\n    { path: 'reports', loadComponent: () => import('./reports/reports.component')\n            .then(m => m.ReportsComponent) },\n];\n```\n\n`import()` is the magic: the bundler sees a dynamic import and **splits a chunk** at that boundary. `canMatch` guards prevent even *downloading* chunks the user may not access (vs `canActivate` which runs after).\n\nSmart preloading closes the latency gap — download in idle time after boot:\n\n```typescript\nprovideRouter(routes, withPreloading(PreloadAllModules))   // or custom: preload likely-next routes\n```\n\n## @defer — lazy loading inside templates (17+)\n\n```html\n@defer (on viewport) {\n    <app-sales-chart [data]=\"data()\" />        <!-- chart.js chunk loads when scrolled into view -->\n} @placeholder { <div class=\"skeleton\"></div> }\n@loading (minimum 200ms) { <app-spinner /> }\n```\n\nTriggers: `on viewport / interaction / hover / idle / timer(...)`, `when condition`. Perfect for heavy below-the-fold components (charts, editors, maps) — the library that costs 300KB loads only when needed.\n\n## Verifying (don't optimize blind)\n\n```bash\nng build && npx esbuild-visualizer   # or source-map-explorer dist/**/*.js\n```\n\nBudget enforcement in angular.json fails the build when bundles bloat:\n\n```json\n\"budgets\": [{ \"type\": \"initial\", \"maximumWarning\": \"500kB\", \"maximumError\": \"1MB\" }]\n```\n\nClassic chunk-killer to check: importing something from a lazy area into an eager file (a shared util re-exporting an admin service) silently pulls the 'lazy' code into main — the visualizer shows it instantly.",
+      "practiceTask": "Run source-map-explorer on your real app's build. Identify: the three biggest dependencies, anything in main.js that belongs to a rarely-visited route, and one below-the-fold heavy component to wrap in @defer. Implement the top fix and re-measure.",
+      "externalLinks": ["https://angular.dev/guide/defer"],
+      "quiz": [
+        {
+          "question": "canMatch beats canActivate for guarding lazy routes because:",
+          "options": ["It supports async", "It rejects before the chunk downloads — unauthorized users never even fetch the admin bundle", "It runs on the server", "canActivate is deprecated"],
+          "correctIndex": 1,
+          "explanation": "canMatch gates route matching itself (and thus loadChildren); canActivate runs after the code is already loaded."
+        }
+      ]
+    },
+    {
+      "title": "Reactive Forms: Typed, Validated, Composable",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Reactive Forms\n\nTemplate-driven forms are fine for a login box. Business forms — dynamic rows, cross-field rules, server validation — want the reactive API: the form model lives in **code** (testable, composable), the template just binds.\n\n## Typed forms (14+) — use the inference\n\n```typescript\nprivate fb = inject(NonNullableFormBuilder);   // avoids string|null everywhere\n\nform = this.fb.group({\n    customer: this.fb.control('', [Validators.required, Validators.minLength(3)]),\n    email: this.fb.control('', [Validators.required, Validators.email]),\n    lines: this.fb.array([this.buildLine()]),\n});\n\nbuildLine() {\n    return this.fb.group({ sku: [''], qty: this.fb.control(1, Validators.min(1)) });\n}\naddLine() { this.form.controls.lines.push(this.buildLine()); }   // dynamic rows = FormArray\n```\n\n`form.value` is now deeply typed; `form.getRawValue()` includes disabled controls (the difference bites on submit).\n\n## Custom + cross-field validators\n\n```typescript\n// single control\nexport function skuExists(api: CatalogApi): AsyncValidatorFn {\n    return control => api.checkSku(control.value).pipe(\n        map(exists => exists ? null : { skuUnknown: true }),\n        catchError(() => of(null)));                     // validation availability ≠ form hostage\n}\n\n// cross-field: validator on the GROUP\nconst dateRange: ValidatorFn = group => {\n    const { from, to } = group.value;\n    return from && to && from > to ? { dateRange: true } : null;\n};\n```\n\nAsync validators run **after** sync ones pass (no wasted API calls), set `control.pending` — debounce them (`updateOn: 'blur'` or stream-side) to avoid per-keystroke requests (your switchMap lesson applies inside async validators too).\n\n## Server errors belong on controls\n\n```typescript\nthis.api.save(this.form.getRawValue()).subscribe({\n    error: (err: ValidationProblem) => {\n        for (const [field, message] of Object.entries(err.errors))\n            this.form.get(field)?.setErrors({ server: message });   // ProblemDetails → field errors\n    }\n});\n```\n\nYour ASP.NET ProblemDetails validation response maps naturally onto `setErrors` — one error-display component (`@if (control.errors?.['server'])`) covers both client and server validation uniformly.\n\n## UX contract\n\nShow errors on `touched || submitted`, not while typing the first character; disable submit on `pending`, not just `invalid`; `markAllAsTouched()` on failed submit so every error surfaces. Forms + signals: `form.valueChanges` → `toSignal` for reactive summaries (totals, live previews).",
+      "practiceTask": "Build an order form: FormArray line items with add/remove, cross-field validator (discount ≤ total), one async validator with debounce, and server-error mapping from your ASP.NET ProblemDetails format onto controls. Unit test the validators — no TestBed needed, they're pure functions.",
+      "externalLinks": ["https://angular.dev/guide/forms/typed-forms"],
+      "quiz": [
+        {
+          "question": "A validator that compares two fields (password/confirm) must be attached to:",
+          "options": ["Both controls", "The FormGroup containing them — a control validator only sees its own value", "The submit handler", "An async validator"],
+          "correctIndex": 1,
+          "explanation": "Cross-field logic needs visibility of siblings; the group's value has both fields, a control's doesn't."
+        },
+        {
+          "question": "Async validators run only after sync validators pass because:",
+          "options": ["The API requires it", "No point spending an HTTP call validating uniqueness of a value that's already syntactically invalid", "They share the same queue", "Angular batches them"],
+          "correctIndex": 1,
+          "explanation": "Cheap checks gate expensive ones — the same layering instinct as your middleware pipeline."
+        }
+      ]
+    },
+    {
+      "title": "Component Architecture: Smart/Dumb and Communication",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Component Boundaries\n\n## Smart (container) vs presentational (dumb)\n\n| | Smart | Presentational |\n|---|---|---|\n| Knows about | services, routes, store | only its inputs/outputs |\n| Fetches data | yes | never |\n| Reusable | rarely | highly |\n| Testing | integration-ish | trivial (pass inputs, assert DOM/outputs) |\n\n```typescript\n// Smart: orchestrates\n@Component({ template: `\n    <app-order-list [orders]=\"orders.value()\" [loading]=\"orders.isLoading()\"\n                    (selected)=\"open($event)\" (retry)=\"orders.reload()\" />` })\nexport class OrdersPageComponent {\n    orders = httpResource<Order[]>(() => '/api/orders');\n    open(o: Order) { this.router.navigate(['orders', o.id]); }\n}\n\n// Dumb: pure input → view, interaction → output\n@Component({ changeDetection: ChangeDetectionStrategy.OnPush, template: `...` })\nexport class OrderListComponent {\n    orders = input.required<Order[]>();\n    loading = input(false);\n    selected = output<Order>();\n}\n```\n\nSRP from your patterns track: the page owns *what data and what happens*; the list owns *how it looks*. Dumb components get OnPush for free (inputs-only = reference-change detection is sufficient). Don't be religious — a mid-size app might be 30% smart / 70% dumb; forms often blur it.\n\n## Communication decision table\n\n| Relationship | Mechanism |\n|---|---|\n| Parent → child | `input()` |\n| Child → parent | `output()` |\n| Siblings under one parent | lift state to parent (props down, events up) |\n| Distant components / cross-feature | shared **service with signals** (or store) |\n| Feature subtree state (wizard, complex grid) | **component-provided service** (DI lesson's scoped lifetime!) |\n| URL-worthy state (filters, page, selected id) | **the router** — deep-linkable, back-button-friendly, survives refresh |\n\nThat last row is chronically underused: filter state in a service dies on refresh and can't be shared as a link; `?status=open&page=2` is state management with free persistence. Rule of thumb — if a user might bookmark or share it, it belongs in the URL.\n\n## Content projection — composition over configuration\n\n```html\n<app-card>\n    <h2 card-title>Revenue</h2>\n    <app-chart />                    <!-- card doesn't know or care -->\n</app-card>\n<!-- card template: <ng-content select=\"[card-title]\" /> + <ng-content /> -->\n```\n\nInstead of a card component with 12 configuration inputs, project content — the Composite/Decorator instinct applied to UI. Reusable shells (cards, dialogs, layouts) should project, not configure.",
+      "practiceTask": "Refactor one page in your app: split into a smart container + 1-2 OnPush presentational components, move its filter state into query params (router), and convert one config-heavy wrapper into ng-content projection. Note how much easier the dumb components are to test.",
+      "externalLinks": ["https://angular.dev/guide/components"],
+      "quiz": [
+        {
+          "question": "Filter/pagination state for a list screen is often best kept in:",
+          "options": ["A BehaviorSubject in the component", "The URL query params — shareable, bookmarkable, refresh-proof, back-button-integrated", "localStorage", "A root service"],
+          "correctIndex": 1,
+          "explanation": "URL state gets persistence and navigation semantics for free; services lose it on refresh, and links can't carry it."
+        },
+        {
+          "question": "Presentational components pair naturally with OnPush because:",
+          "options": ["They have no templates", "Their only change source is inputs — reference-equality checking covers them completely", "They can't inject services", "OnPush is required for output()"],
+          "correctIndex": 1,
+          "explanation": "No internal async surprises, no service state — input references change or nothing changed. The strategy's assumptions hold by construction."
+        }
+      ]
+    },
+    {
+      "title": "HTTP Interceptors and API Layer Patterns",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The HTTP Edge of Your Frontend\n\n## Functional interceptors — Chain of Responsibility, again\n\n```typescript\nexport const authInterceptor: HttpInterceptorFn = (req, next) => {\n    const token = inject(TokenStore).accessToken();\n    return next(token ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : req);\n};\n\nexport const errorInterceptor: HttpInterceptorFn = (req, next) => {\n    const toast = inject(ToastService);\n    return next(req).pipe(\n        catchError((err: HttpErrorResponse) => {\n            if (err.status === 401) inject(Router).navigate(['/login']);\n            else if (err.status >= 500) toast.error('Something went wrong');\n            return throwError(() => err);          // rethrow — callers may handle specifics\n        }));\n};\n\nprovideHttpClient(withInterceptors([authInterceptor, retryInterceptor, errorInterceptor]))\n```\n\nOrder matters exactly like ASP.NET middleware (it IS the same pattern — your chain lesson): auth adds headers before retry duplicates the request; error handling wraps everything. Requests are immutable — always `req.clone()`.\n\n## The standard stack (one of each)\n\n1. **Auth** — attach token; on 401, trigger refresh-token flow then **replay the original request** (queue concurrent 401s so ONE refresh happens — a shareReplay'd refresh observable, your multicasting lesson)\n2. **Retry** — transient GETs only (`retry({ count: 2, delay: backoff })`); never blind-retry POSTs (idempotency lesson!)\n3. **Error normalization** — ProblemDetails → typed AppError; global toasts for 5xx; rethrow for local handling\n4. **Loading/correlation** — request counter for a global busy bar; `X-Correlation-Id` header that your ASP.NET logs pick up (observability lesson, connected end-to-end!)\n\n## API layer discipline\n\nComponents never call `HttpClient` directly — a service layer per feature returns **typed domain results**:\n\n```typescript\n@Injectable({ providedIn: 'root' })\nexport class OrdersApi {\n    private http = inject(HttpClient);\n    getOrders(filter: OrderFilter) {\n        return this.http.get<OrderDto[]>('/api/orders', { params: toParams(filter) })\n            .pipe(map(dtos => dtos.map(toOrder)));    // DTO → domain mapping at the boundary\n    }\n}\n```\n\nThe Adapter instinct: backend DTO shapes stop at this layer (rename/reshape here), so an API field rename touches one file, not thirty components. Generate the DTO types from your ASP.NET OpenAPI spec (openapi-typescript / NSwag) — contract drift becomes a compile error instead of a runtime surprise.",
+      "practiceTask": "Implement the four-interceptor stack in your app, including the 401-refresh-replay with concurrent-request queueing. Then set up OpenAPI type generation from your ASP.NET Core swagger.json and replace one hand-written DTO interface.",
+      "externalLinks": ["https://angular.dev/guide/http/interceptors"],
+      "quiz": [
+        {
+          "question": "A retry interceptor must exclude POSTs by default because:",
+          "options": ["POSTs are slower", "POST is non-idempotent — a retry after an ambiguous timeout can duplicate the operation (unless idempotency keys exist)", "Angular can't clone POST bodies", "CORS blocks repeated POSTs"],
+          "correctIndex": 1,
+          "explanation": "Your idempotency lesson, client side: GET/PUT/DELETE are contract-safe to retry; POST needs explicit dedup support first."
+        },
+        {
+          "question": "Multiple simultaneous 401s should trigger how many token-refresh calls?",
+          "options": ["One per failed request", "Exactly one — concurrent failures share the single refresh observable, then all replay their original requests", "Two for redundancy", "Zero — just redirect to login"],
+          "correctIndex": 1,
+          "explanation": "A multicast (shared) refresh stream prevents the refresh stampede and the refresh-token-rotation race where parallel refreshes invalidate each other."
+        }
+      ]
+    },
+    {
+      "title": "State Management: Signals Stores vs NgRx",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Choosing Your State Architecture\n\n## First: classify the state (most 'state management problems' are misclassification)\n\n| Kind | Belongs in |\n|---|---|\n| **Server cache** (orders, products — the server owns truth) | fetch layer with caching/invalidation (httpResource, TanStack Query-style) — NOT a global store |\n| URL state (filters, selection, page) | the router (component lesson) |\n| Local UI state (open panels, form drafts) | component signals |\n| Feature state (wizard progress) | component-provided service (DI lesson) |\n| **True global client state** (auth session, cart, preferences, notifications) | a store — and it's smaller than you think |\n\nCopying server data into a global store *by default* recreates the cache-invalidation problem (your caching lessons!) with none of the tooling.\n\n## The signals store — today's default\n\n```typescript\n@Injectable({ providedIn: 'root' })\nexport class CartStore {\n    private readonly _items = signal<CartItem[]>([]);\n    readonly items = this._items.asReadonly();                 // encapsulation: read-only out\n    readonly total = computed(() => this._items().reduce((s, i) => s + i.price * i.qty, 0));\n    readonly count = computed(() => this._items().length);\n\n    add(item: CartItem) { this._items.update(xs => upsert(xs, item)); }\n    clear() { this._items.set([]); }\n}\n```\n\nPrivate writable / public readonly + methods as the only mutation path — a tiny Facade with Command-ish discipline. Covers the vast majority of apps with zero libraries. **@ngrx/signals** (SignalStore) adds structure (withState/withComputed/withMethods, entity helpers) when hand-rolled stores multiply.\n\n## Full NgRx (actions/reducers/effects) — when the ceremony pays\n\nRedux's actual selling points: **action log** (every change is a named, serializable event → time-travel DevTools, audit debugging), enforced unidirectional flow at team scale, effects as a formal async boundary. Costs: boilerplate-per-feature, learning curve, indirection (your Mediator lesson's trade-offs — dispatch obscures 'go to definition').\n\nHonest fit: large teams, long-lived complex apps, event-sourced mental models, heavy cross-feature interactions. A 5-screen business app with NgRx is ceremony without payoff (pattern-fever lesson).\n\n## Rules that outlast the library choice\n\n- State is **immutable**; every update replaces references (OnPush/signals both demand it)\n- Derive, don't duplicate: `total` is `computed`, never a second stored value that can drift\n- One writer: mutations only through store methods/reducers — components never reach in\n- Effects/async at the edge, state transitions pure and synchronous (testable without mocks)",
+      "practiceTask": "Audit your app's state: list each piece and classify per the table — count how much 'global store' content is actually server cache or URL state. Then build one signals store with the private-writable/public-readonly pattern and migrate a BehaviorSubject service to it.",
+      "externalLinks": ["https://ngrx.io/guide/signals"],
+      "quiz": [
+        {
+          "question": "Server data (product lists, orders) copied into a global client store by default is problematic because:",
+          "options": ["Stores can't hold arrays", "You've re-created cache invalidation — staleness, refetching, consistency — without the tooling a fetch-cache layer provides", "It breaks OnPush", "NgRx forbids it"],
+          "correctIndex": 1,
+          "explanation": "The server owns that truth; treating it as client state means hand-rolling TTLs, invalidation, and refetch logic your caching lessons warned about."
+        },
+        {
+          "question": "NgRx's action-log architecture earns its boilerplate primarily when:",
+          "options": ["The app has more than 3 components", "Team scale and app complexity make 'every state change is a named, traceable event' worth the ceremony", "You need computed values", "Signals aren't available"],
+          "correctIndex": 1,
+          "explanation": "Time-travel debugging and enforced flow are organizational tools; small apps pay the tax without collecting the benefit."
+        }
+      ]
+    },
+    {
+      "title": "Rendering Lists: @for, trackBy, and Virtual Scrolling",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Lists Are Where Frontend Performance Dies\n\n## track — not optional\n\n```html\n@for (order of orders(); track order.id) {\n    <app-order-row [order]=\"order\" />\n} @empty { <p>No orders found</p> }\n```\n\nWithout meaningful tracking, replacing the array (which immutability + OnPush *require* you to do!) makes Angular see all-new objects: **destroy every DOM row, recreate every component** — plus lost focus, lost scroll position, replayed animations. With `track order.id`, Angular diffs by identity: unchanged rows' DOM survives; only actual changes touch the DOM.\n\nThe new `@for` makes `track` **mandatory** — the framework learned from a decade of `*ngFor` without `trackBy` being the #1 perf review comment. `track item.id` for entities; `track $index` only for truly static primitive lists.\n\nMeasure the difference: 1,000-row table, replace array with one item changed — with id tracking: 1 row re-rendered; without: 1,000 destroys + 1,000 creates (~50-100× the work, visible as a frame hitch).\n\n## Pipes over method calls (the CD lesson's fix)\n\n```html\n{{ order.total | currency }}                    <!-- pure pipe: cached per input -->\n{{ formatTotal(order.total) }}                  <!-- method: every CD cycle -->\n```\n\nPure pipes memoize by reference — the template-expression discipline, formalized.\n\n## Virtual scrolling — when the list is genuinely huge\n\n10,000 DOM rows = slow initial render, heavy memory, sluggish scroll *regardless* of change detection. Render only the viewport:\n\n```html\n<cdk-virtual-scroll-viewport itemSize=\"48\" class=\"h-96\">\n    <div *cdkVirtualFor=\"let order of orders; trackBy: trackById\">{{ order.number }}</div>\n</cdk-virtual-scroll-viewport>\n```\n\n~20 rendered rows recycled as you scroll. Costs: fixed (or estimated) row heights, cooperation with sticky headers/accessibility needs care. Decision ladder for big data: **paginate** (best — your keyset lesson, users rarely need 10k rows) → **virtualize** (dashboards/pickers where scroll-everything UX is required) → never 'just render it all'.\n\nAnd the deferred option from the lazy lesson composes: heavy rows (`@defer (on viewport)` per card section) for feed-like UIs.",
+      "practiceTask": "Build the 1,000-row experiment: a list with track by id vs track $index (or none), replace the array immutably with one item changed, and measure both with the DevTools Performance tab. Then wrap a genuinely long list in cdk-virtual-scroll and compare initial render time.",
+      "externalLinks": ["https://angular.dev/api/core/@for"],
+      "quiz": [
+        {
+          "question": "track order.id matters most when you replace the array immutably because:",
+          "options": ["It sorts the list faster", "Without identity tracking, all-new object references = full DOM teardown and recreation; with it, unchanged rows' DOM is reused", "It prevents duplicates", "It enables @empty"],
+          "correctIndex": 1,
+          "explanation": "Immutable updates (required by OnPush/signals) produce new references by design; track restores row identity across replacements."
+        }
+      ]
+    },
+    {
+      "title": "CSS Flexbox: One-Dimensional Layout Mastery",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Flexbox\n\nLayout along **one axis** (row or column) with intelligent space distribution. 90% of component-level layout.\n\n## The mental model\n\nContainer sets the rules; items negotiate space:\n\n```css\n.toolbar {\n    display: flex;\n    flex-direction: row;        /* main axis (default) */\n    justify-content: space-between;  /* MAIN axis distribution */\n    align-items: center;             /* CROSS axis alignment */\n    gap: 12px;                       /* use gap, not margins between items */\n}\n```\n\n`justify-*` = main axis; `align-*` = cross axis; `flex-direction` swaps which is which — the eternal confusion, resolved by always asking 'which axis is main right now?'\n\n## flex: grow shrink basis — the negotiation\n\n```css\n.item { flex: 1 1 0; }       /* grow:1 shrink:1 basis:0 — equal columns */\n.sidebar { flex: 0 0 240px; } /* fixed 240px, never grows/shrinks */\n.search { flex: 1; }          /* absorbs remaining space */\n```\n\n- **basis**: starting size (`0` = ignore content size → truly equal shares; `auto` = start from content)\n- **grow**: share of *extra* space (proportional weights)\n- **shrink**: how it gives up space under pressure\n\nThe overflow classic: flex items **refuse to shrink below content size** (`min-width: auto`) — a long unbreakable string blows the layout. Fix: `min-width: 0` on the item (plus `text-overflow: ellipsis` inside):\n\n```css\n.cell { flex: 1; min-width: 0; }\n.cell span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n```\n\n## Everyday recipes\n\n```css\n/* Center anything */ .center { display: flex; justify-content: center; align-items: center; }\n/* Nav: logo left, actions right */ .nav { display: flex; } .spacer { flex: 1; }\n/* Sticky footer card */ .card { display: flex; flex-direction: column; } .card-body { flex: 1; }\n/* Wrapping tag list */ .tags { display: flex; flex-wrap: wrap; gap: 8px; }\n```\n\nFlexbox vs Grid boundary (next lesson): flex = content-driven, one dimension at a time (toolbars, nav, centering, distributing a row); grid = layout-driven, two dimensions (page scaffolding, card grids, forms).",
+      "practiceTask": "Build three classics without frameworks: a responsive navbar (logo/links/actions with spacer), a card with sticky footer via column flex, and the ellipsis-truncation fix for a flex table cell with long content. Use only gap for spacing.",
+      "externalLinks": ["https://css-tricks.com/snippets/css/a-guide-to-flexbox/"],
+      "quiz": [
+        {
+          "question": "A long unbreakable string inside a flex item overflows the container because:",
+          "options": ["Flexbox doesn't support text", "Flex items default to min-width:auto — they won't shrink below content size; min-width:0 restores shrinking", "gap is missing", "The basis is wrong"],
+          "correctIndex": 1,
+          "explanation": "The implicit minimum sizing rule is the most-hit flexbox gotcha; min-width:0 (or overflow:hidden) opts out."
+        },
+        {
+          "question": "flex: 1 1 0 on all children gives equal columns because:",
+          "options": ["It sets width: 33%", "basis 0 makes content size irrelevant — all space is 'extra', distributed equally by grow", "shrink equalizes them", "It's an alias for justify-content"],
+          "correctIndex": 1,
+          "explanation": "With basis auto, bigger content = bigger column; basis 0 zeroes the starting claim so grow weights alone decide."
+        }
+      ]
+    },
+    {
+      "title": "CSS Grid: Two-Dimensional Layout",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# CSS Grid\n\nRows AND columns from the container down — the layout tool for page scaffolding, dashboards, forms, and galleries.\n\n## Core vocabulary\n\n```css\n.layout {\n    display: grid;\n    grid-template-columns: 240px 1fr;          /* sidebar + fluid main */\n    grid-template-rows: 56px 1fr 40px;          /* header, content, footer */\n    grid-template-areas:\n        \"sidebar header\"\n        \"sidebar main\"\n        \"sidebar footer\";\n    gap: 16px;\n    min-height: 100dvh;\n}\n.sidebar { grid-area: sidebar; }\n.header  { grid-area: header; }\n```\n\n`fr` = share of free space (grow, grid edition). `grid-template-areas` makes the layout **readable as ASCII art** — and responsive redefinition is just new art in a media query.\n\n## The one-liner that replaced media queries for card grids\n\n```css\n.cards {\n    display: grid;\n    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));\n    gap: 16px;\n}\n```\n\nAs many ≥280px columns as fit, stretched equally, reflowing at every width — responsive without a single breakpoint. (`auto-fill` keeps empty tracks; `auto-fit` collapses them — visible when there are few items.)\n\n## Forms — the killer boring use case\n\n```css\n.form { display: grid; grid-template-columns: max-content 1fr; gap: 12px 16px; align-items: center; }\n/* labels column auto-sizes to the longest label; inputs share the rest — no more width guessing */\n.full-width { grid-column: 1 / -1; }    /* span all columns (textarea, buttons row) */\n```\n\n## Placement and alignment\n\n`grid-column: 1 / 3` (lines, not cells — n columns = n+1 lines), `span 2`; `justify-*` = inline axis, `align-*` = block axis (consistent with flexbox); `place-items: center` = both. Implicit rows (`grid-auto-rows`) catch overflow items.\n\n## Grid + flex together (the real answer to 'which?')\n\nGrid for the **macro** structure (page, panels, card matrix); flex for the **micro** (inside a card: header row, button group, centering an icon). They nest naturally — a grid area's content is often a flex column. Subgrid (now baseline-supported) lets nested grids align to parent tracks — card internals aligning across cards.",
+      "practiceTask": "Rebuild your app's main layout (or the LearnMore app shell) as a named-areas grid with a responsive collapse (sidebar → top bar under 768px, by redefining grid-template-areas). Then convert one form to the max-content/1fr two-column pattern.",
+      "externalLinks": ["https://css-tricks.com/snippets/css/complete-guide-grid/"],
+      "quiz": [
+        {
+          "question": "repeat(auto-fill, minmax(280px, 1fr)) achieves responsive cards without media queries because:",
+          "options": ["It uses container queries internally", "The browser fits as many ≥280px tracks as the width allows and stretches them — reflow at every size is automatic", "fr units are viewport-relative", "auto-fill reads breakpoints"],
+          "correctIndex": 1,
+          "explanation": "The constraint (min 280px, share extra equally) encodes the design intent; the engine solves it continuously instead of at discrete breakpoints."
+        }
+      ]
+    },
+    {
+      "title": "The Cascade: Specificity, Custom Properties, Layers",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Why Your CSS Doesn't Apply\n\n## The cascade's deciding order\n\nFor competing declarations: **importance** (!important reverses layering) → **origin/layer** → **specificity** → **source order**. Most confusion lives in specificity:\n\n| Selector | Score (ID, class, type) |\n|---|---|\n| `#header .nav a` | 1,1,1 |\n| `.nav a.active` | 0,2,1 |\n| `a` | 0,0,1 |\n| `:where(.nav) a` | 0,0,1 — :where contributes ZERO |\n\nHigher tuple wins regardless of order; ties → last wins. The debugging move: DevTools shows the winning rule and the crossed-out losers — read *why* it won (specificity? order? layer?), don't just pile on `!important` (which starts an arms race the next dev escalates).\n\n## Modern sanity tools\n\n**`@layer`** — declare precedence explicitly; later layers beat earlier **regardless of specificity**:\n\n```css\n@layer reset, framework, components, overrides;\n@layer components { .btn { ... } }     /* any override in 'overrides' wins, even a bare class */\n```\n\nFrameworks (Tailwind, Bootstrap 5.3+) publish layers so your unlayered styles beat theirs by default.\n\n**`:where()` / `:is()`** — group selectors; `:where` for zero-specificity defaults (design-system base styles that anything can override).\n\n## Custom properties — runtime variables (not SASS!)\n\n```css\n:root { --primary: #3b82f6; --radius: 8px; }\n.card { background: color-mix(in srgb, var(--primary) 10%, white); border-radius: var(--radius); }\n\n/* THE killer feature: they cascade and can change at runtime */\n[data-theme='dark'] { --primary: #60a5fa; --surface: #1e293b; }\n```\n\nSASS variables compile away; custom properties are live in the browser — theming (dark mode = one attribute flip), per-component overrides (`<div style=\"--accent: red\">`), and Angular component theming across encapsulation boundaries (they pierce it deliberately).\n\n## Angular encapsulation context\n\nDefault `ViewEncapsulation.Emulated` scopes component styles via generated attributes (`[_ngcontent-xyz]`) — styles don't leak out, but also can't style projected/child component internals. Tools: custom properties (preferred), `:host`, `:host-context(.dark)` — and legacy `::ng-deep` (leaks downward forever; avoid in new code, prefer exposing CSS custom-property APIs from your components).",
+      "practiceTask": "Implement dark mode in your app with custom properties: define semantic tokens (--surface, --text, --primary) on :root, flip them under [data-theme='dark'], toggle the attribute from a signal. Then organize your global styles into @layer and delete at least one !important.",
+      "externalLinks": ["https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties"],
+      "quiz": [
+        {
+          "question": "CSS custom properties beat SASS variables for theming because:",
+          "options": ["They compile faster", "They live at runtime and cascade — one attribute flip re-themes everything, no rebuild, per-subtree overrides included", "They support math", "SASS is deprecated"],
+          "correctIndex": 1,
+          "explanation": "Preprocessor variables are gone by the time the browser sees CSS; custom properties are the browser's own inheritance-aware variables."
+        },
+        {
+          "question": "@layer helps large codebases because:",
+          "options": ["It minifies CSS", "Layer order trumps specificity — override intent is declared structurally instead of via specificity arms races and !important", "It lazy-loads styles", "It scopes styles per component"],
+          "correctIndex": 1,
+          "explanation": "A bare class in a later layer beats an ID selector in an earlier one — precedence becomes architecture, not selector golf."
+        }
+      ]
+    },
+    {
+      "title": "Responsive Design: Container Queries and Fluid Sizing",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Responsive, Modernized\n\n## Media queries: viewport-based, still the frame\n\n```css\n/* Mobile-first: base styles = smallest screen, enhance upward */\n.layout { display: grid; grid-template-columns: 1fr; }\n@media (min-width: 768px) { .layout { grid-template-columns: 240px 1fr; } }\n```\n\nMobile-first (`min-width` stacking) keeps the simple case unconditional. Standard-ish breakpoints (640/768/1024/1280) matter less than **content-driven** ones: add a breakpoint where *your* layout breaks, not where an iPhone model exists.\n\n## Container queries — the component-era upgrade\n\nThe old problem: a card in the main column is wide; the *same card* in the sidebar is narrow — media queries can't tell the difference (viewport is identical!). Container queries respond to the **parent's size**:\n\n```css\n.card-host { container-type: inline-size; }\n\n.card { display: flex; flex-direction: column; }\n@container (min-width: 400px) {\n    .card { flex-direction: row; }             /* horizontal when ITS container allows */\n}\n```\n\nComponents become **self-responsive** — correct in any slot, which is exactly what a component library needs (your dumb components + this = drop-anywhere UI). Baseline-supported in all modern browsers.\n\n## Fluid sizing — fewer breakpoints overall\n\n```css\n/* clamp(min, preferred, max): typography that scales smoothly */\nh1 { font-size: clamp(1.5rem, 1rem + 2.5vw, 2.5rem); }\n.container { width: min(100% - 2rem, 1200px); margin-inline: auto; }\n```\n\n`clamp()` + `min()`/`max()` + grid's `auto-fill/minmax` (grid lesson) eliminate whole categories of breakpoint fiddling — the layout *interpolates* instead of jumping.\n\n## The units cheat sheet\n\n- `rem` — type, spacing (respects user font-size settings — accessibility!)\n- `dvh` — full-height sections (`100dvh` accounts for mobile browser chrome; `100vh` overflows on phones)\n- `cqw/cqi` — container-relative (pairs with container queries)\n- `px` — borders, shadows, fine details\n- Tap targets ≥ 44×44px; test real devices for hover-vs-touch (`@media (hover: hover)` gates hover-only affordances)",
+      "practiceTask": "Take one card/list-item component from your app and make it self-responsive with a container query (horizontal ≥400px container, vertical below). Then replace your page-title sizes with clamp() and a fixed-width container with min(100% - 2rem, maxWidth).",
+      "externalLinks": ["https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_containment/Container_queries"],
+      "quiz": [
+        {
+          "question": "Container queries solve what media queries can't:",
+          "options": ["Dark mode detection", "A component adapting to the size of its slot — the same component correct in a sidebar and a main column simultaneously", "Print styles", "Retina images"],
+          "correctIndex": 1,
+          "explanation": "Media queries see one global viewport; component reuse needs per-context sizing — the container is the context."
+        }
+      ]
+    },
+    {
+      "title": "Browser Rendering: Reflow, Repaint, Compositing",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Pixel Pipeline\n\nEach frame that changes visually runs (up to): **JS → Style → Layout → Paint → Composite**. 60fps = 16.6ms budget for all of it. Jank = blowing the budget.\n\n## The stages and what triggers them\n\n| You change | Pipeline runs | Cost |\n|---|---|---|\n| `width`, `font-size`, DOM insertion | Layout (reflow) → Paint → Composite | 💸💸💸 layout can cascade tree-wide |\n| `color`, `background`, `box-shadow` | Paint → Composite | 💸💸 |\n| **`transform`, `opacity`** | Composite only | 💸 GPU moves existing layers — the cheap ones |\n\n**Animate only transform and opacity.** A `left: 0→300px` animation reflows every frame; `transform: translateX(300px)` glides on the compositor — that's the entire difference between janky and silky, and why every animation library defaults to transforms.\n\n```css\n.drawer { transition: transform 200ms ease-out; transform: translateX(-100%); }\n.drawer.open { transform: translateX(0); }   /* not left/width! */\n```\n\n## Layout thrashing — the JS-side crime\n\n```javascript\n// ❌ read-write-read-write: each read forces a synchronous layout of pending writes\nfor (const el of items) {\n    const h = el.offsetHeight;        // READ → forces layout NOW\n    el.style.height = h * 2 + 'px';   // WRITE → invalidates layout\n}                                       // n forced layouts 💀\n\n// ✅ batch: all reads, then all writes\nconst heights = items.map(el => el.offsetHeight);\nitems.forEach((el, i) => el.style.height = heights[i] * 2 + 'px');\n```\n\nGeometry reads (`offsetHeight`, `getBoundingClientRect`, `scrollTop`...) **force synchronous layout** if styles are dirty. Interleaving reads and writes multiplies layouts. Batch, or use `requestAnimationFrame` (writes) — and `ResizeObserver`/`IntersectionObserver` instead of polling geometry (they report *after* layout, free).\n\n## Angular-flavored implications\n\n- Big list renders (your @for lesson) are layout+paint bombs — track + virtualization limit DOM churn\n- `@defer (on viewport)` uses IntersectionObserver — the observer pattern above, framework-integrated\n- Third-party charts doing per-frame geometry reads: wrap in `runOutsideAngular` (CD lesson) AND check their read/write batching\n- `content-visibility: auto` on long below-fold sections skips their rendering cost entirely until near-viewport\n\nDevTools Performance panel: purple = layout, green = paint. Record an interaction; long purple blocks after your handler = thrashing (it even flags 'Forced reflow').",
+      "practiceTask": "Build the two-drawer comparison: animate one with left, one with transform — record both in the Performance panel and compare purple/green per frame. Then write the layout-thrashing loop, capture its 'forced reflow' warnings, and fix with read/write batching.",
+      "externalLinks": ["https://web.dev/articles/rendering-performance"],
+      "quiz": [
+        {
+          "question": "transform/opacity animations stay smooth under load because:",
+          "options": ["They run in a Web Worker", "They skip layout AND paint — the compositor repositions/fades existing GPU layers, independent of main-thread jank", "The browser prioritizes them", "They batch automatically"],
+          "correctIndex": 1,
+          "explanation": "Composite-only changes don't touch geometry or pixels' rasterization — the cheapest tier of the pipeline, often off-main-thread."
+        },
+        {
+          "question": "Reading offsetHeight inside a loop that also writes styles causes:",
+          "options": ["Memory leaks", "Forced synchronous layout per iteration — the read must flush pending style writes to answer accurately", "Event loop starvation", "Paint flashing"],
+          "correctIndex": 1,
+          "explanation": "Layout thrashing: geometry queries on a dirty tree force immediate recalculation; batching reads before writes collapses n layouts into one."
+        }
+      ]
+    },
+    {
+      "title": "Core Web Vitals: Measuring What Users Feel",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Core Web Vitals\n\nGoogle's three user-experience metrics — also ranking factors, also excellent engineering KPIs:\n\n| Metric | Measures | Good |\n|---|---|---|\n| **LCP** (Largest Contentful Paint) | loading: when the main content appears | < 2.5s |\n| **INP** (Interaction to Next Paint) | responsiveness: worst-case input → visual response | < 200ms |\n| **CLS** (Cumulative Layout Shift) | stability: how much content jumps around | < 0.1 |\n\n## LCP — the loading story\n\nUsual LCP element: hero image or main heading. Attack order:\n1. Server fast (TTFB — your whole backend track!)\n2. **Ship less JS** (lazy-loading lesson) — parse/execute delays everything\n3. The LCP image: `fetchpriority=\"high\"`, `preload`, modern formats (AVIF/WebP), right-sized `srcset`; **never lazy-load the hero** (`loading=\"lazy\"` on below-fold images only)\n4. `NgOptimizedImage` (`ngSrc`) bakes these practices in — use it\n\n## INP — the responsiveness story\n\nINP is your **event loop lesson graded**: long tasks blocking input. Worst offenders: heavy handlers, oversized CD cycles (CD lesson), hydration/boot JS. Fixes: chunk work, defer non-visual updates, `@defer` heavy components, virtualize lists. DevTools Performance → interactions lane shows the anatomy of your slowest click.\n\n## CLS — the stability story\n\nContent jumps = late-arriving things pushing layout:\n- **Images without dimensions** → always `width`/`height` (or aspect-ratio) so space is reserved (NgOptimizedImage enforces this)\n- Ads/embeds/dynamic banners → reserve min-height slots\n- Web fonts swapping → `font-display: swap` + `size-adjust`/fallback metrics matching\n- Skeletons (your @defer placeholders!) must match final content dimensions — a wrong-sized skeleton IS layout shift\n\n## Lab vs field — measure both\n\n- **Lab**: Lighthouse (DevTools/CI) — reproducible, pre-ship gate (lighthouse-ci in your pipeline with budgets)\n- **Field (RUM)**: real users' devices/networks — the `web-vitals` npm package → your analytics; CrUX is what Google actually ranks on\n\nLab-good + field-bad = your dev machine is lying about your users (cheap Androids, 3G) — throttle CPU 4× in DevTools for honesty. Percentiles again, not averages (observability lesson): CWV is assessed at p75.",
+      "practiceTask": "Run Lighthouse on your app (mobile preset, throttled). Record the three CWV numbers, identify the LCP element, find one CLS source (unsized image/late banner), fix both (ngSrc + dimensions), and re-measure. Add the web-vitals package logging to console as a RUM starter.",
+      "externalLinks": ["https://web.dev/articles/vitals"],
+      "quiz": [
+        {
+          "question": "Lazy-loading the hero image hurts LCP because:",
+          "options": ["Lazy images render blurry", "loading=lazy deprioritizes/defers the fetch of exactly the element whose paint time IS the metric", "It causes layout shift", "Lighthouse penalizes the attribute"],
+          "correctIndex": 1,
+          "explanation": "Above-the-fold critical imagery needs the opposite treatment: fetchpriority=high/preload; lazy-load only below-fold media."
+        },
+        {
+          "question": "Images without explicit dimensions damage CLS because:",
+          "options": ["They load slower", "The browser can't reserve space — content below jumps down when the image arrives and claims its height", "They can't be cached", "srcset stops working"],
+          "correctIndex": 1,
+          "explanation": "width/height (or aspect-ratio) lets layout allocate the box before pixels arrive — late content fills reserved space instead of shifting it."
+        }
+      ]
+    },
+    {
+      "title": "Frontend Security: XSS, Sanitization, CSP",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# XSS and the Angular Defenses\n\n**Cross-site scripting**: attacker-controlled content executes as script in your users' sessions — reading tokens, acting as the user, exfiltrating data. The #1 frontend vulnerability class.\n\n## Angular's default protection (and how devs defeat it)\n\nInterpolation **auto-escapes**: `{{ userComment }}` renders `<script>` as text, harmless. Binding contexts are **sanitized**: `[innerHTML]` strips scripts/event handlers; URL bindings block `javascript:`.\n\nThe ways teams shoot through the armor:\n\n```typescript\n// ❌ THE red flag — tells Angular 'trust this, skip sanitization'\nthis.html = this.sanitizer.bypassSecurityTrustHtml(userContent);\n\n// ❌ direct DOM around the framework\nelement.innerHTML = data;                     // no sanitizer involved\n\n// ❌ third-party widgets injecting markup from API data\n```\n\nRules: `bypassSecurityTrust*` only for *provably* static/controlled content (code-reviewed constant, not anything that ever touched user input or your database — **stored XSS** arrives via your own API!). Rich text (comments, CMS): sanitize server-side too (DOMPurify equivalent) — defense in depth, because native mobile apps and other consumers won't have Angular's sanitizer.\n\n## Tokens and storage (auth lesson, security edition)\n\nlocalStorage is fully readable by any script that executes in your origin — one successful XSS = tokens stolen silently. Ladder: **HttpOnly cookies / BFF** (JS can't read) > in-memory (lost on refresh, still XSS-scriptable but not bulk-exfiltrable) > localStorage (last resort). With cookies: `Secure; SameSite=Lax/Strict` + ASP.NET antiforgery for state-changing requests (CSRF pairs with cookie auth).\n\n## CSP — the safety net\n\nContent-Security-Policy header (served by your ASP.NET app) restricts what can execute even if injection succeeds:\n\n```\nContent-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none';\n    base-uri 'self'; frame-ancestors 'none'\n```\n\n`script-src 'self'` (no `unsafe-inline`!) makes injected inline `<script>` dead on arrival. Angular is CSP-compatible (no runtime eval in AOT builds); inline styles may need nonces or `'unsafe-inline'` style-src pragmatism. Roll out with `Content-Security-Policy-Report-Only` first — violations report without breaking, then enforce.\n\n## The rest of the checklist\n\n- Dependencies: `npm audit` in CI; lockfiles committed; beware typosquatted packages (supply chain)\n- Don't trust the client: every authZ rule enforced server-side (hidden buttons are UX, not security)\n- Secrets never in frontend code/env — bundles are public by definition (search your dist for 'key' sometime)\n- `target=\"_blank\"` → `rel=\"noopener\"` (Angular adds it, verify on raw HTML)",
+      "practiceTask": "Audit your app: grep for bypassSecurityTrust and innerHTML usage — justify or fix each. Then add CSP in Report-Only mode to your ASP.NET Core app, browse the site, review violation reports, tighten, and enforce.",
+      "externalLinks": ["https://angular.dev/best-practices/security"],
+      "quiz": [
+        {
+          "question": "Stored XSS via your own database happens when:",
+          "options": ["SQL injection occurs", "User-submitted content saved server-side is later rendered as HTML (bypassed/unsanitized) in other users' browsers", "Cookies lack HttpOnly", "CORS is misconfigured"],
+          "correctIndex": 1,
+          "explanation": "The payload travels through your API 'legitimately'; the sink is the rendering. Sanitize on output (and input), never bypass for DB-sourced content."
+        },
+        {
+          "question": "HttpOnly cookies protect tokens against XSS because:",
+          "options": ["They're encrypted", "JavaScript cannot read them at all — even successfully injected script can't exfiltrate the session", "They expire faster", "They only work over VPN"],
+          "correctIndex": 1,
+          "explanation": "The browser attaches them to requests but denies script access — removing the bulk-theft payoff of XSS (CSRF protection then becomes necessary)."
+        }
+      ]
+    },
+    {
+      "title": "Angular Testing: Components, Harnesses, and What to Test",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Testing the Frontend That Matters\n\n## The pyramid, frontend edition\n\n| Layer | Tool | Testing what |\n|---|---|---|\n| Pure logic (validators, mappers, pipes, stores) | plain Jasmine/Jest/Vitest — no TestBed | most of your bugs, cheapest tests |\n| Components | TestBed + Harnesses | template ↔ class integration |\n| Critical user flows | Playwright/Cypress E2E | login, checkout — few, valuable, slow |\n\nInverted pyramids (all E2E) = slow, flaky suites nobody trusts. Push logic *out* of components (smart/dumb lesson pays off here: dumb components + pure services are trivially testable).\n\n## Component tests that don't lie\n\n```typescript\nit('shows orders and emits selection', async () => {\n    await TestBed.configureTestingModule({\n        imports: [OrderListComponent],\n        providers: [{ provide: OrdersApi, useValue: fakeApi }],   // DI = fake at the boundary\n    }).compileComponents();\n\n    const fixture = TestBed.createComponent(OrderListComponent);\n    fixture.componentRef.setInput('orders', [order1, order2]);    // signal inputs\n    await fixture.whenStable();\n\n    const rows = fixture.nativeElement.querySelectorAll('[data-testid=\"order-row\"]');\n    expect(rows.length).toBe(2);                                   // assert the DOM, not internals\n});\n```\n\nPrinciples: test through the **template** (what users see), not private methods/fields; select via `data-testid` (refactor-proof) not CSS classes; fake at DI boundaries (your DIP lesson's payoff), not deep internals. `provideHttpClientTesting` + `HttpTestingController` for API-layer tests: expect requests, flush responses, verify no extras.\n\n## Component harnesses — testing via the user's API\n\nMaterial/CDK ship **harnesses**: page-object-style APIs that survive internal DOM changes:\n\n```typescript\nconst select = await loader.getHarness(MatSelectHarness);\nawait select.open(); await select.clickOptions({ text: 'Shipped' });\n```\n\nWrite harnesses for your own complex components — E2E and unit tests share them.\n\n## Async & time\n\n`fakeAsync` + `tick(300)` makes debounce/timers deterministic (no real waiting, no flakes); `fixture.whenStable()` for promises; for observables prefer testing the **pipeline as a pure function** (marble tests where warranted) over spinning up components.\n\n## What NOT to test\n\nAngular itself (bindings render inputs — framework's job), implementation details (method call counts on self), snapshots-of-everything (change-detector noise, rubber-stamp updates). Coverage on logic-bearing code beats coverage theater on templates.",
+      "practiceTask": "Add three tests to your app: one pure (a validator or mapper, no TestBed), one component test with a faked service asserting rendered DOM via data-testid, one HttpTestingController test of an API service including its error path. Time how long each took to write — notice the gradient.",
+      "externalLinks": ["https://angular.dev/guide/testing"],
+      "quiz": [
+        {
+          "question": "Selecting elements by data-testid instead of CSS classes makes tests:",
+          "options": ["Faster", "Refactor-proof — styling/markup changes don't break tests; the testid documents 'this element is contractual'", "Type-safe", "Compatible with SSR"],
+          "correctIndex": 1,
+          "explanation": "Classes serve styling and change freely; a dedicated test hook decouples test stability from design churn."
+        },
+        {
+          "question": "fakeAsync with tick(300) beats waiting real time for a debounced input test because:",
+          "options": ["It tests more code paths", "Virtual time is deterministic and instant — no real 300ms wait, no timing-dependent flakiness", "It skips change detection", "Real timers don't work in tests"],
+          "correctIndex": 1,
+          "explanation": "Simulated clocks make time a controlled input instead of an environmental hazard — the cure for flaky async tests."
+        }
+      ]
+    },
+    {
+      "title": "Bundle Anatomy: Tree Shaking, Budgets, Dependency Diet",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Every Kilobyte Is Parse Time\n\nJS cost isn't just download — it's **parse + compile + execute on the user's CPU** (a cheap Android takes 3-5× your desktop). Bundle discipline is INP/LCP work (vitals lesson).\n\n## Tree shaking: how dead code dies (or doesn't)\n\nBundlers remove **provably unused exports** from ES modules. What breaks the proof:\n\n```typescript\n// ❌ namespace/barrel imports can drag everything\nimport * as _ from 'lodash';           // whole lodash: ~70KB min\nimport { debounce } from 'lodash';     // still the whole package (CJS!)\n// ✅ per-function or ESM-native\nimport debounce from 'lodash-es/debounce';   // ~2KB\n```\n\n- **CommonJS packages tree-shake poorly** (dynamic `require` defeats static analysis) — prefer ESM builds; Angular warns on CJS dependencies\n- **Side-effectful modules** can't be dropped (import runs code) — `sideEffects: false` in package.json is the library author's promise\n- **Your own barrels** (`index.ts` re-exporting a feature) can accidentally weld lazy chunks to main (lazy lesson's chunk-killer)\n\n## The dependency diet\n\nBefore `npm install`, check bundlephobia.com. Repeat offenders with light alternatives:\n\n| Heavy | Lighter |\n|---|---|\n| moment (~70KB, locale-laden) | date-fns (per-function) / Temporal / Intl.DateTimeFormat (built-in!) |\n| lodash (CJS) | lodash-es cherry-picked / native array methods |\n| Full chart libs eagerly loaded | @defer the chart component (lazy lesson) |\n| axios | fetch/HttpClient you already have |\n\nThe platform grew: `Intl` (dates, numbers, plurals, relative time), `structuredClone`, `crypto.randomUUID`, `Array.at/group` — check before adding a package.\n\n## Enforcement — budgets fail the build\n\n```json\n// angular.json\n\"budgets\": [\n  { \"type\": \"initial\", \"maximumWarning\": \"400kB\", \"maximumError\": \"600kB\" },\n  { \"type\": \"anyComponentStyle\", \"maximumWarning\": \"4kB\" }\n]\n```\n\nBudgets turn bundle regressions from 'noticed in prod next quarter' into a failed PR today — the same philosophy as your SQL before/after logical-reads log: numbers, enforced, over feelings.\n\nRoutine: `source-map-explorer` after adding any dependency; quarterly audit of the top-10 heaviest; check that polyfills aren't shipping to modern browsers (browserslist).",
+      "practiceTask": "Run bundlephobia checks on your app's five heaviest dependencies (find them via source-map-explorer). Replace or @defer one of them, set initial-bundle budgets 10% above current size, and let CI hold the line.",
+      "externalLinks": ["https://angular.dev/reference/configs/workspace-config#budgets"],
+      "quiz": [
+        {
+          "question": "import { debounce } from 'lodash' often ships far more than debounce because:",
+          "options": ["debounce is large", "lodash's CommonJS format defeats tree shaking — static analysis can't prove the rest unused; use lodash-es or per-function imports", "TypeScript includes types in the bundle", "It includes polyfills"],
+          "correctIndex": 1,
+          "explanation": "Tree shaking needs ES module static structure; CJS interop imports the whole module object."
+        }
+      ]
+    },
+    {
+      "title": "Accessibility: The Engineering Basics",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# A11y Is Correctness, Not Polish\n\n~15-20% of users have some disability (visual, motor, cognitive, situational — sunlight, injured hand, screen-reader-using power users). Also: legal exposure (EAA in the EU from 2025, ADA suits in the US), SEO overlap, and a hard truth — **keyboard support is a proxy for code quality**.\n\n## Semantic HTML does 80% of the work\n\n```html\n<!-- ❌ div soup: invisible to AT, unfocusable, no keyboard -->\n<div class=\"btn\" (click)=\"save()\">Save</div>\n\n<!-- ✅ free: focus, Enter/Space activation, screen-reader role, form semantics -->\n<button type=\"button\" (click)=\"save()\">Save</button>\n```\n\n`button`, `a` (navigation — with real href!), `nav/main/header`, `label for`, `table` for data, headings in order (h1→h2→h3, no skipping — screen-reader users navigate by heading). Every `div (click)` in your codebase is a bug: no keyboard, no role, no focus.\n\n## The keyboard test (do it today)\n\nUnplug your mouse: Tab through your app. Can you reach everything? See where you are (**never** `outline: none` without a visible replacement — `:focus-visible` styles)? Escape closes modals? No focus trapped or lost after dialogs close (return focus to the trigger)? Angular CDK's `FocusTrap` + `LiveAnnouncer` handle the hard dialog mechanics.\n\n## ARIA — the second resort\n\nFirst rule of ARIA: **don't use ARIA if HTML has the element.** For genuine widgets:\n\n```html\n<button [attr.aria-expanded]=\"open()\" aria-controls=\"menu\">Filter</button>\n<div id=\"menu\" role=\"menu\" [hidden]=\"!open()\">...</div>\n\n<!-- async results announced to screen readers (SPA route changes too!) -->\n<div aria-live=\"polite\">{{ resultsSummary() }}</div>\n```\n\nSPA-specific: route navigation doesn't announce like a page load — announce route changes (LiveAnnouncer) and move focus to the new content's heading.\n\n## Contrast & forms\n\nText contrast ≥ 4.5:1 (large ≥3:1) — DevTools color picker shows the ratio; your design-token lesson's custom properties make fixing it systemic. Forms: every input labeled (placeholder ≠ label — it vanishes on input), errors linked via `aria-describedby`, error summary focused on failed submit (forms lesson's markAllAsTouched + focus).\n\n## Automate the floor, hand-test the rest\n\naxe DevTools / Lighthouse a11y score in CI catches ~30-40% (the mechanical part: contrast, labels, roles). The keyboard walk and a screen-reader session (NVDA is free; VoiceOver on Mac) catch the experience. Definition of done for new components: axe-clean + keyboard-operable.",
+      "practiceTask": "Run the keyboard test on your app and log every failure. Fix the top three (usually: div-buttons, missing focus styles, modal focus management). Run axe DevTools and clear its critical findings. Add route-change announcements with LiveAnnouncer.",
+      "externalLinks": ["https://web.dev/learn/accessibility/"],
+      "quiz": [
+        {
+          "question": "A <div (click)=\"save()\"> instead of <button> breaks accessibility because:",
+          "options": ["Divs render differently", "It's unfocusable, ignores Enter/Space, and exposes no role — keyboard and screen-reader users can't discover or activate it", "It's slower", "Angular can't bind clicks on divs"],
+          "correctIndex": 1,
+          "explanation": "The native button carries focusability, keyboard activation, and semantics for free; recreating all of that on a div (tabindex, role, keydown handlers) is harder and usually forgotten."
+        },
+        {
+          "question": "The 'first rule of ARIA' is:",
+          "options": ["Add role attributes to all elements", "Prefer native HTML elements over ARIA re-implementations — <button> beats <div role='button'>", "aria-label everything", "ARIA is only for forms"],
+          "correctIndex": 1,
+          "explanation": "Native elements bring tested behavior + semantics; ARIA only describes — it never adds keyboard handling or focus behavior."
+        }
+      ]
+    },
+    {
+      "title": "PWA and Offline: Service Workers in Practice",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Service Workers\n\nA **service worker** is a programmable network proxy living between your app and the network — a separate thread with no DOM access that intercepts every fetch from your origin. It enables: offline, instant repeat loads, push notifications, background sync. It IS a cache layer — every strategy from your caching lessons reappears client-side.\n\n## Strategies per resource type (the same trade-offs again)\n\n| Resource | Strategy | Rationale |\n|---|---|---|\n| App shell (hashed JS/CSS) | **cache-first** | immutable by contract (CDN lesson!) |\n| API data (lists, dashboards) | **stale-while-revalidate** or network-first + timeout fallback | show something instantly, refresh behind |\n| Mutations (POST/PUT) | network-only (+ background sync queue if offline support is real) | writes need the server |\n| Images | cache-first with size-limited cache | eviction policy = your LRU knowledge |\n\n## Angular's packaged version\n\n```bash\nng add @angular/pwa    # manifest, icons, ngsw-config.json, registration\n```\n\n```json\n// ngsw-config.json — declarative strategies\n\"assetGroups\": [{ \"name\": \"app\", \"installMode\": \"prefetch\", \"resources\": { \"files\": [\"/*.js\", \"/*.css\", \"/index.html\"] } }],\n\"dataGroups\": [{\n    \"name\": \"api\", \"urls\": [\"/api/topics/**\"],\n    \"cacheConfig\": { \"strategy\": \"freshness\", \"timeout\": \"3s\", \"maxAge\": \"1h\", \"maxSize\": 100 }\n}]\n```\n\n`freshness` = network-first with timeout fallback to cache; `performance` = cache-first. The SW also makes your app **installable** (manifest + icons → Add to Home Screen — desktop-app feel, which is literally what your LearnMore Electron app approximates from the other direction).\n\n## The update problem (where every PWA team gets burned)\n\nA SW-cached app doesn't update like a website: new deploy → new SW **installs but waits** until all tabs close (\"the user is stuck on Tuesday's build\"). Handle it explicitly:\n\n```typescript\nconst updates = inject(SwUpdate);\nupdates.versionUpdates.pipe(filter(e => e.type === 'VERSION_READY'))\n    .subscribe(() => this.toast.show('Update available', 'Reload', () => document.location.reload()));\n```\n\nAlso mandatory: kill-switch awareness (`ngsw-worker.js` serving stale-forever if misconfigured — the `safety-worker` escape hatch exists for a reason) and **never cache index.html cache-first at the CDN layer** on top of a SW (double-cache lockout — CDN lesson's no-cache rule for index.html applies doubly).\n\nOffline UX honesty: showing cached data beats a dinosaur, but *label it* (last-synced timestamp) and queue writes visibly — silent staleness erodes trust (your consistency lessons' 'label the eventual' instinct).",
+      "practiceTask": "Add @angular/pwa to a project, configure a dataGroup for a read API with freshness strategy, test offline in DevTools (Network → Offline), and implement the VERSION_READY update toast. Deploy twice and verify the update flow end-to-end.",
+      "externalLinks": ["https://angular.dev/ecosystem/service-workers"],
+      "quiz": [
+        {
+          "question": "Users stay on an old version of a PWA after deploy because:",
+          "options": ["The CDN is slow", "The new service worker installs but waits for all app tabs to close before activating — without an explicit update prompt/reload flow", "Hashed filenames changed", "HTTP/2 caching"],
+          "correctIndex": 1,
+          "explanation": "SW lifecycle protects running tabs from mid-session swaps; shipping an update-available UX (SwUpdate → reload) is your job."
+        }
+      ]
+    },
+    {
+      "title": "SSR and Hydration: When the Server Renders Angular",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Server-Side Rendering\n\nA plain SPA ships an empty `<div>` + JS; users stare at white until the bundle boots (LCP pain), and crawlers/link-previews may see nothing. **SSR** renders the first HTML on the server; the browser paints it immediately, then Angular **hydrates** — attaches behavior to the existing DOM.\n\n```bash\nng add @angular/ssr   # server.ts (Node/Express), platform detection, hydration setup\n```\n\n## What changes in your code\n\nServer has no `window`/`document`/`localStorage`:\n\n```typescript\nif (isPlatformBrowser(inject(PLATFORM_ID))) { /* browser-only APIs here */ }\nafterNextRender(() => this.chart.init());   // guaranteed browser, post-paint\n```\n\nHTTP calls during SSR run **twice** (server render + client boot) unless cached — Angular's `TransferState` (automatic with provideClientHydration + HttpClient) serializes server responses into the HTML so the client reuses them: your read-through cache pattern, spanning the server/client boundary.\n\n## Hydration quality\n\n`provideClientHydration()` = **non-destructive** hydration (reuse server DOM, don't re-render) — requires server and client HTML to match (no browser-only branches changing structure; direct DOM manipulation breaks it). Mismatch = flicker + console warnings.\n\n**Incremental hydration** (`@defer (hydrate on viewport)`) ships SSR HTML but hydrates islands lazily — content visible immediately, JS cost paid per-component when needed. This is the current best-of-both frontier.\n\n## The honest decision\n\n| App type | SSR? |\n|---|---|\n| Internal dashboard / admin (your daily work) | **No** — users are logged in, SEO irrelevant, SPA + lazy loading is simpler and fine |\n| Marketing site, e-commerce, content | **Yes** — SEO + first-paint on cheap devices = revenue |\n| Mixed (public catalog + private app) | SSR the public routes; SPA the app shell |\n\nSSR costs: a Node server to run/scale/monitor (your deployment lessons apply to it!), server render time per request (cache rendered pages where personalization allows — full-page caching lesson), platform-guard discipline forever. Prerendering (SSG — `ng build` route prerendering) covers 'static-ish' public pages with zero runtime server — check it before reaching for full SSR.\n\nThe systems parallel to close on: SSR is *another* read-path cache hierarchy (CDN → prerendered HTML → SSR render → SPA boot) — the entire course's caching/consistency/latency reasoning, applied to pixels.",
+      "practiceTask": "Add SSR to a small Angular app: ng add @angular/ssr, fix the first isPlatformBrowser violations, verify TransferState prevents duplicate API calls (Network tab), and compare LCP with/without SSR under 4× CPU throttle. Decide — in writing — whether your real work app warrants it.",
+      "externalLinks": ["https://angular.dev/guide/ssr"],
+      "quiz": [
+        {
+          "question": "TransferState exists because without it:",
+          "options": ["Hydration fails entirely", "Every HTTP call made during server rendering repeats on client boot — double load on your API and a visible data flicker", "SEO breaks", "localStorage conflicts"],
+          "correctIndex": 1,
+          "explanation": "Serializing server-fetched responses into the page lets the client's HttpClient answer from the embedded cache — the SSR/SPA handoff's read-through cache."
+        },
+        {
+          "question": "An internal, auth-required admin app usually should NOT adopt SSR because:",
+          "options": ["SSR can't handle authentication", "Its benefits (SEO, anonymous first-paint) don't apply, while its costs (Node infra, platform guards, render scaling) remain", "Angular forbids it", "Hydration breaks forms"],
+          "correctIndex": 1,
+          "explanation": "Architecture serves requirements: logged-in dashboards have no crawlers and tolerate SPA boot — pay complexity only for value received."
+        }
+      ]
+    },
+    {
+      "title": "Frontend Architecture: Feature Folders, Boundaries, Scale",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Structuring Angular Apps That Age Well\n\n## Feature-first folders (not type-first)\n\n```\nsrc/app/\n├─ core/                  # singleton infrastructure: interceptors, auth, layout shell\n├─ shared/                # dumb reusable UI + pipes (NO services with state!)\n├─ features/\n│   ├─ orders/\n│   │   ├─ orders.routes.ts        # lazy entry (loadChildren)\n│   │   ├─ data/                   # OrdersApi, OrdersStore — feature-private\n│   │   ├─ ui/                     # dumb components\n│   │   └─ pages/                  # smart/routed components\n│   └─ catalog/ ...\n```\n\nType-first (`components/`, `services/` global buckets) scatters every feature across the tree — one change touches five folders, and nothing can be lazy-loaded or owned. Feature-first = cohesion (your modular-monolith lesson, frontend edition): each feature is a lazy route boundary, a team-ownership unit, and a deletion unit ('remove the feature' = remove the folder).\n\n## Enforcing boundaries (or they're fiction)\n\nRules worth enforcing mechanically (eslint-plugin-boundaries, or Nx module boundaries):\n- Features **don't import each other's internals** — cross-feature needs go through shared abstractions or events\n- `shared` imports nothing from features; features import shared/core, never vice versa\n- Barrels (`index.ts`) define each feature's public API — everything else is internal\n\nSame dependency-direction discipline as your Clean Architecture lesson — enforced imports are the frontend's `internal` keyword. Without tooling, every deadline erodes the boundaries.\n\n## Monorepo & micro-frontend reality check\n\n**Nx/Turborepo monorepo**: shared libs (design system, api-types generated from your OpenAPI!), affected-only builds/tests, one dependency version — the pragmatic multi-team answer, and it's your modular monolith again.\n\n**Micro-frontends** (module federation: independently *deployed* frontend pieces): the microservices trade with extra pain — duplicated frameworks in the browser, cross-MFE state/versioning/design consistency. Justified by the same test as microservices: **independent team deployment cadence at organizational scale**, not by architecture fashion. Most teams need feature boundaries + a monorepo, not federation.\n\n## The wrap-up thread\n\nEvery frontend lesson mapped to a principle you already knew from backend: change detection ↔ caching invalidation, RxJS flattening ↔ concurrency control, stores ↔ CQRS-lite, bundle budgets ↔ performance regression gates, feature boundaries ↔ modular monolith. **Frontend engineering is engineering** — the platform differs, the discipline doesn't. That's the mindset that makes a full-stack developer senior on both sides.",
+      "practiceTask": "Restructure one type-first area of your app into a feature folder with routes/data/ui/pages, make it lazy, and add eslint-plugin-boundaries rules banning cross-feature internal imports. Run the linter and fix the violations it finds — each one was invisible coupling.",
+      "externalLinks": ["https://nx.dev/concepts/decisions/project-dependency-rules"],
+      "quiz": [
+        {
+          "question": "Feature-first structure beats type-first (global components/services folders) because:",
+          "options": ["Shorter import paths", "Cohesion: a feature is one folder — lazy-loadable, team-ownable, deletable — instead of fragments scattered across type buckets", "Angular compiles it faster", "It requires fewer files"],
+          "correctIndex": 1,
+          "explanation": "Code that changes together lives together — the same cohesion argument as modular monoliths and bounded contexts."
+        },
+        {
+          "question": "Micro-frontends are justified by:",
+          "options": ["Large bundle sizes", "Independent deployment needs of multiple teams at organizational scale — the same test as microservices, with browser-side costs added", "Using multiple CSS frameworks", "SSR requirements"],
+          "correctIndex": 1,
+          "explanation": "Federation pays browser-weight and consistency taxes; only organizational decoupling pressure justifies them — never fashion."
+        }
+      ]
+    }
+  ]
+}

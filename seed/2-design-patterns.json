@@ -1,0 +1,509 @@
+{
+  "topic": "Design Patterns",
+  "color": "#8b5cf6",
+  "icon": "🏗️",
+  "items": [
+    {
+      "title": "SOLID I: Single Responsibility Principle",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Single Responsibility Principle\n\n\"A class should have **one reason to change**.\" Not \"does one thing\" — one *stakeholder/axis of change*.\n\n## The smell\n\n```csharp\npublic class OrderService\n{\n    public void PlaceOrder(Order o)\n    {\n        // validation rules            ← changes when business rules change\n        // EF Core persistence         ← changes when storage changes\n        // SmtpClient email            ← changes when notifications change\n        // Serilog + file logging      ← changes when ops requirements change\n    }\n}\n```\n\nFour reasons to change = four responsibilities tangled. Every change risks breaking the others; testing requires faking all of it at once.\n\n## The refactor\n\n```csharp\npublic class OrderService(\n    IOrderValidator validator,\n    IOrderRepository repository,\n    IOrderNotifier notifier)\n{\n    public async Task PlaceOrderAsync(Order o)\n    {\n        validator.Validate(o);\n        await repository.AddAsync(o);\n        await notifier.OrderPlacedAsync(o);\n    }\n}\n```\n\nOrderService now *orchestrates*; each collaborator owns one axis of change and is testable alone.\n\n## Calibration\n\nSRP over-applied creates 40 one-method classes for a CRUD form — that's worse. The test: **when requirement X changes, how many classes must I touch?** One is ideal. If one class changes for unrelated requirements, split it; if one requirement always touches five classes, you split too far.",
+      "practiceTask": "Find your project's largest service class. List every distinct 'reason to change' it has (persistence? formatting? rules? external APIs?). Extract exactly one responsibility into its own class with an interface.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Single-responsibility_principle"],
+      "quiz": [
+        {
+          "question": "SRP is best stated as:",
+          "options": ["A class should have only one method", "A class should have one reason to change", "A class should be under 100 lines", "Each class needs its own file"],
+          "correctIndex": 1,
+          "explanation": "SRP is about axes of change (stakeholders), not size or method count."
+        }
+      ]
+    },
+    {
+      "title": "SOLID II: Open/Closed Principle",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Open/Closed Principle\n\n\"Open for **extension**, closed for **modification**\" — add new behavior by adding new code, not by editing tested code.\n\n## The smell: switch that keeps growing\n\n```csharp\npublic decimal CalculateShipping(Order o) => o.Carrier switch\n{\n    \"DHL\"    => o.Weight * 2.5m,\n    \"Aramex\" => o.Weight * 2.0m + 10,\n    \"Fedex\"  => o.Weight * 3.0m,\n    _ => throw new NotSupportedException()\n};\n// every new carrier = edit + retest + redeploy this method\n```\n\n## The refactor: strategy + DI\n\n```csharp\npublic interface IShippingCalculator\n{\n    string Carrier { get; }\n    decimal Calculate(Order o);\n}\n\npublic class DhlCalculator : IShippingCalculator { /* ... */ }\n\n// Program.cs — new carrier = one new class + one registration\nservices.AddScoped<IShippingCalculator, DhlCalculator>();\nservices.AddScoped<IShippingCalculator, AramexCalculator>();\n\n// resolver\npublic class ShippingService(IEnumerable<IShippingCalculator> calculators)\n{\n    public decimal Calculate(Order o) =>\n        calculators.First(c => c.Carrier == o.Carrier).Calculate(o);\n}\n```\n\nASP.NET Core injects **all registrations** of an interface as `IEnumerable<T>` — the idiomatic OCP mechanism.\n\n## Calibration\n\nDon't abstract preemptively. A switch with 3 stable cases is fine. Apply OCP when you've seen the *second or third* change hit the same spot — that's proof the axis of change is real.",
+      "practiceTask": "Find a switch/if-else chain in your codebase that has grown over time (payment types, document types, statuses). Refactor it to strategies resolved via IEnumerable<T> injection.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection"],
+      "quiz": [
+        {
+          "question": "In ASP.NET Core, registering multiple implementations of IShippingCalculator and injecting IEnumerable<IShippingCalculator> demonstrates OCP because:",
+          "options": ["It's faster than a switch", "Adding a carrier means adding a class + registration — no existing code modified", "Interfaces compile faster", "It reduces memory allocations"],
+          "correctIndex": 1,
+          "explanation": "Extension happens through new code only; the resolver and existing calculators remain untouched."
+        }
+      ]
+    },
+    {
+      "title": "SOLID III: Liskov Substitution Principle",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Liskov Substitution Principle\n\nAny subtype must be usable **wherever its base type is expected, without surprises**. If calling code needs `if (x is SpecificType)` checks or try/catch to survive a subtype — LSP is broken.\n\n## Classic violations\n\n```csharp\npublic class ReadOnlyRepository : IRepository\n{\n    public Task AddAsync(Entity e) => throw new NotSupportedException(); // ❌\n}\n```\n\nA subtype that **throws on a base-class operation** breaks every caller written against the interface. (The famous example: `Square : Rectangle` where setting Width also sets Height — mutating one property has surprise side effects.)\n\n## The contract rules\n\nA subtype must not:\n- **Strengthen preconditions** (base accepts any string; subtype throws on lowercase)\n- **Weaken postconditions** (base guarantees sorted output; subtype doesn't)\n- **Throw new exception types** the base contract doesn't declare\n- Surprise: no unexpected side effects\n\n## The real fix: split the interface\n\n```csharp\npublic interface IReadRepository<T>  { Task<T?> GetAsync(int id); }\npublic interface IWriteRepository<T> { Task AddAsync(T entity); }\n// ReadOnlyRepository implements only IReadRepository — nothing to throw on\n```\n\nNot-supported operations mean the type hierarchy is wrong, not that you need a better exception message. LSP violations usually *reveal* an interface that should be split — which is exactly ISP, the next lesson.",
+      "practiceTask": "Search your codebase for 'NotSupportedException' and 'NotImplementedException' in non-abstract classes. Each hit is an LSP smell — fix one by splitting the interface it implements.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Liskov_substitution_principle"],
+      "quiz": [
+        {
+          "question": "A subclass overrides a method to throw NotSupportedException. The cleanest fix is usually:",
+          "options": ["Catch it in callers", "Document the exception", "Split the interface so the subtype only implements what it truly supports", "Make the method virtual"],
+          "correctIndex": 2,
+          "explanation": "The hierarchy claims a capability the subtype lacks; narrowing the contract (ISP) fixes the lie."
+        }
+      ]
+    },
+    {
+      "title": "SOLID IV: Interface Segregation Principle",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Interface Segregation Principle\n\n\"No client should be forced to depend on methods it doesn't use.\" Prefer several small, role-specific interfaces over one fat one.\n\n## The smell\n\n```csharp\npublic interface IReportService   // fat interface\n{\n    byte[] GeneratePdf(ReportData d);\n    byte[] GenerateExcel(ReportData d);\n    Task EmailReportAsync(int reportId, string to);\n    Task ScheduleAsync(int reportId, string cron);\n    Task<List<Report>> GetHistoryAsync();\n}\n```\n\nA controller that only downloads PDFs still depends on scheduling and email. Every mock in its tests must stub 5 members. Any change to scheduling recompiles/retests PDF consumers.\n\n## The refactor\n\n```csharp\npublic interface IReportGenerator { byte[] Generate(ReportData d, ReportFormat f); }\npublic interface IReportScheduler { Task ScheduleAsync(int reportId, string cron); }\npublic interface IReportHistory   { Task<List<Report>> GetHistoryAsync(); }\n```\n\nOne class may still implement all three — ISP is about what **consumers depend on**, not how many classes exist:\n\n```csharp\npublic class ReportService : IReportGenerator, IReportScheduler, IReportHistory { }\nservices.AddScoped<IReportGenerator>(sp => sp.GetRequiredService<ReportService>());\n```\n\n## .NET examples done right\n\n`IEnumerable` / `ICollection` / `IList` — take the narrowest one your method needs. Accepting `IEnumerable<T>` when you only iterate is ISP in daily practice.",
+      "practiceTask": "Find your widest interface (most members). Group its members by which consumers use them, and split it into role interfaces. Keep one implementing class; register it under each interface.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Interface_segregation_principle"],
+      "quiz": [
+        {
+          "question": "A method only iterates its input. Per ISP, its parameter type should be:",
+          "options": ["List<T>", "IList<T>", "IEnumerable<T>", "T[]"],
+          "correctIndex": 2,
+          "explanation": "Depend on the narrowest contract you use — iteration only needs IEnumerable<T>."
+        }
+      ]
+    },
+    {
+      "title": "SOLID V: Dependency Inversion Principle",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Dependency Inversion Principle\n\nHigh-level policy should not depend on low-level detail; **both depend on abstractions**. The *inversion*: the abstraction is owned by the high-level code, and details plug into it.\n\n## Without DIP\n\n```csharp\npublic class InvoiceService\n{\n    private readonly SmtpEmailSender _email = new();   // concrete, constructed inline\n    private readonly SqlInvoiceStore _store = new();\n}\n```\n\nInvoiceService is welded to SMTP and SQL. Unit tests send real emails. Swapping SendGrid = editing the service.\n\n## With DIP\n\n```csharp\npublic interface IEmailSender { Task SendAsync(string to, string subject, string body); }\n\npublic class InvoiceService(IEmailSender email, IInvoiceStore store)  // depends on abstractions\n{ /* policy logic only */ }\n\n// Composition root (Program.cs) wires details:\nbuilder.Services.AddScoped<IEmailSender, SmtpEmailSender>();\n```\n\n**Key subtlety**: `IEmailSender` belongs conceptually to the *business layer* (it expresses what the business needs), while `SmtpEmailSender` lives in infrastructure. Dependencies point inward — that's Clean/Onion architecture in one sentence.\n\n## DIP ≠ DI\n\n- **DIP** — the principle (depend on abstractions).\n- **Dependency Injection** — a technique to achieve it (pass dependencies in).\n- **IoC container** — a tool automating the technique (ASP.NET Core's `IServiceCollection`).\n\nYou can honor DIP with manual construction, and violate it while using a container (e.g., injecting `AppDbContext` into a domain entity).",
+      "practiceTask": "Pick a service that news up a concrete dependency (new HttpClient(), new SmtpClient(), new SomeRepository()). Define the interface from the consumer's perspective, inject it, and write one unit test with a fake.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/architectural-principles#dependency-inversion"],
+      "quiz": [
+        {
+          "question": "The 'inversion' in DIP refers to:",
+          "options": ["Constructor parameters being reversed", "Ownership of the abstraction moving to the high-level module, with details depending on it", "Using reflection instead of new", "Inverting if conditions"],
+          "correctIndex": 1,
+          "explanation": "Traditionally high-level code depended on low-level modules; DIP inverts the arrow so infrastructure depends on business-owned abstractions."
+        }
+      ]
+    },
+    {
+      "title": "Strategy: Swappable Algorithms",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Strategy Pattern\n\nEncapsulate a family of interchangeable algorithms behind one interface; select at runtime. **The most-used GoF pattern in modern .NET** — you saw it in the OCP lesson; here's the full picture.\n\n```csharp\npublic interface IDiscountStrategy\n{\n    bool AppliesTo(Customer c);\n    decimal Apply(decimal total);\n}\n\npublic class VipDiscount : IDiscountStrategy\n{\n    public bool AppliesTo(Customer c) => c.IsVip;\n    public decimal Apply(decimal total) => total * 0.85m;\n}\n\npublic class CheckoutService(IEnumerable<IDiscountStrategy> strategies)\n{\n    public decimal FinalTotal(Customer c, decimal total) =>\n        strategies.Where(s => s.AppliesTo(c))\n                  .Aggregate(total, (t, s) => s.Apply(t));\n}\n```\n\n## Where you already use it\n\n- `IComparer<T>` passed to `Sort` — the comparison *is* a strategy\n- ASP.NET Core authentication schemes (JWT vs Cookies vs API keys)\n- Model binders, output formatters (JSON vs XML)\n\n## Lightweight variant: delegates\n\nFor tiny strategies, a `Func<>` beats a class:\n\n```csharp\nvar shippingRules = new Dictionary<string, Func<Order, decimal>>\n{\n    [\"DHL\"] = o => o.Weight * 2.5m,\n    [\"Aramex\"] = o => o.Weight * 2.0m + 10\n};\n```\n\nUse classes when strategies need dependencies (injected via DI) or their own tests; use delegates for one-liners.",
+      "practiceTask": "Implement a tax calculation with two strategies (domestic/international) selected by customer country, registered in DI, resolved via IEnumerable. Add a unit test per strategy.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/strategy"],
+      "quiz": [
+        {
+          "question": "Passing IComparer<T> to List<T>.Sort is which pattern?",
+          "options": ["Template Method", "Strategy — the comparison algorithm is swappable", "Visitor", "Adapter"],
+          "correctIndex": 1,
+          "explanation": "Sort defines the invariant algorithm; the injected comparer is the interchangeable piece."
+        }
+      ]
+    },
+    {
+      "title": "Factory Method & Simple Factory",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Factories\n\nCentralize *which concrete type to create* so callers depend only on the abstraction.\n\n## Simple factory (not GoF, but the daily workhorse)\n\n```csharp\npublic class NotificationFactory(IServiceProvider sp)\n{\n    public INotifier Create(Channel channel) => channel switch\n    {\n        Channel.Email => sp.GetRequiredService<EmailNotifier>(),\n        Channel.Sms   => sp.GetRequiredService<SmsNotifier>(),\n        Channel.Push  => sp.GetRequiredService<PushNotifier>(),\n        _ => throw new ArgumentOutOfRangeException(nameof(channel))\n    };\n}\n```\n\nThe switch lives in **one place** instead of every call site, and each notifier still gets its own DI dependencies.\n\n## Factory Method (the GoF one)\n\nThe base class defines the algorithm; subclasses decide the product:\n\n```csharp\npublic abstract class ReportExporter\n{\n    public byte[] Export(ReportData data)\n    {\n        var writer = CreateWriter();          // ← factory method\n        writer.WriteHeader(data.Title);\n        writer.WriteRows(data.Rows);\n        return writer.GetBytes();\n    }\n    protected abstract IReportWriter CreateWriter();\n}\n\npublic class PdfExporter : ReportExporter\n{\n    protected override IReportWriter CreateWriter() => new PdfWriter();\n}\n```\n\n## In the wild\n\n- `IHttpClientFactory.CreateClient(\"github\")` — named, configured instances\n- `ILoggerFactory.CreateLogger<T>()`\n- `IDbContextFactory<T>` for contexts outside DI scopes (background jobs, Blazor)\n\nRule of thumb: when a constructor call requires knowledge the caller shouldn't have (config, conditionals, pooling), hide it behind a factory.",
+      "practiceTask": "Create a factory that returns the right file parser (CSV/JSON/XML) based on file extension, with each parser resolved from DI. Replace at least one 'new' scattered across call sites.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/extensions/httpclient-factory"],
+      "quiz": [
+        {
+          "question": "IHttpClientFactory exists mainly because:",
+          "options": ["HttpClient is sealed", "Creating/disposing HttpClient per request exhausts sockets; the factory pools and configures handlers centrally", "It makes requests faster", "It's required for HTTPS"],
+          "correctIndex": 1,
+          "explanation": "The factory manages handler lifetimes (avoiding socket exhaustion and stale DNS) and centralizes named configuration — classic factory benefits."
+        }
+      ]
+    },
+    {
+      "title": "Abstract Factory: Families of Related Objects",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Abstract Factory\n\nA factory that creates a **family of related objects** that must be used together — you swap the whole family at once.\n\n```csharp\npublic interface IPaymentProviderFactory\n{\n    IPaymentGateway CreateGateway();\n    IRefundProcessor CreateRefundProcessor();\n    IWebhookValidator CreateWebhookValidator();\n}\n\npublic class StripeFactory : IPaymentProviderFactory\n{\n    public IPaymentGateway CreateGateway() => new StripeGateway();\n    public IRefundProcessor CreateRefundProcessor() => new StripeRefunds();\n    public IWebhookValidator CreateWebhookValidator() => new StripeWebhooks();\n}\n// PaypalFactory produces the matching PayPal trio\n```\n\nThe constraint it enforces: **no mixing** — a Stripe gateway never gets paired with a PayPal webhook validator, because consumers only ever see one factory.\n\n## Factory Method vs Abstract Factory\n\n| | Factory Method | Abstract Factory |\n|---|---|---|\n| Creates | One product | A coherent family |\n| Shape | One abstract/virtual method | Interface with several create methods |\n| Swap unit | Single product | Entire family |\n\n## Modern .NET reality\n\nDI containers replace many abstract factories: register the whole family per environment/tenant in the composition root. The pattern still earns its keep for **runtime selection** — e.g., multi-tenant apps choosing a provider family per request:\n\n```csharp\npublic IPaymentProviderFactory GetFactory(Tenant t) =>\n    t.Provider == \"stripe\" ? _stripeFactory : _paypalFactory;\n```",
+      "practiceTask": "Model two storage families (Azure: BlobStore+QueueSender vs Local: FileStore+InMemoryQueue) behind an abstract factory, selected by configuration. Confirm consumers can't mix families.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/abstract-factory"],
+      "quiz": [
+        {
+          "question": "Abstract Factory's key guarantee over separate factories is:",
+          "options": ["Faster object creation", "Products from the same factory are consistent — no accidental cross-family mixing", "Fewer classes", "Lazy instantiation"],
+          "correctIndex": 1,
+          "explanation": "Because the client holds one factory, every product it creates belongs to the same coherent family."
+        }
+      ]
+    },
+    {
+      "title": "Builder: Constructing Complex Objects Step by Step",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Builder Pattern\n\nSeparate the construction of a complex object from its representation — assemble it in readable steps, then produce the final product.\n\n## You use it every day\n\n```csharp\nvar builder = WebApplication.CreateBuilder(args);   // ← literally named Builder\nbuilder.Services.AddDbContext<AppDbContext>();\nbuilder.Services.AddAuthentication();\nvar app = builder.Build();                          // final immutable-ish product\n```\n\nAlso: `StringBuilder`, `ConfigurationBuilder`, `HostBuilder`, EF Core's `ModelBuilder`, `HttpRequestMessage` builders in test libraries.\n\n## Writing your own — fluent test-data builders\n\nThe highest-ROI builder you'll write is for **test data**:\n\n```csharp\npublic class OrderBuilder\n{\n    private Customer _customer = TestData.DefaultCustomer;\n    private readonly List<OrderLine> _lines = [];\n\n    public OrderBuilder ForCustomer(Customer c) { _customer = c; return this; }\n    public OrderBuilder WithLine(string sku, int qty, decimal price)\n    { _lines.Add(new(sku, qty, price)); return this; }\n\n    public Order Build() => new(_customer, _lines);   // validation can live here\n}\n\nvar order = new OrderBuilder()\n    .ForCustomer(vipCustomer)\n    .WithLine(\"SKU-1\", qty: 2, price: 50m)\n    .Build();\n```\n\nTests state only what they care about; defaults cover the rest. Compare with a 9-parameter constructor call repeated in 40 tests.\n\n## When\n\n- Many optional parts / configuration combinations\n- Construction must be staged or validated as a whole\n- Readability of object setup matters (tests!)\n\nFor simple cases, C# object initializers + `required` properties are enough — don't build a Builder for a 3-property DTO.",
+      "practiceTask": "Write a fluent builder for your most constructor-heavy entity and refactor three unit tests to use it. Add validation in Build() that throws on incomplete state.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/builder"],
+      "quiz": [
+        {
+          "question": "WebApplication.CreateBuilder(args) ... .Build() demonstrates Builder because:",
+          "options": ["It uses method chaining", "Complex configuration is accumulated in steps, then a finished product is produced by Build()", "It's a static method", "It creates a singleton"],
+          "correctIndex": 1,
+          "explanation": "The essence is staged construction with a final assembly step — chaining is just syntax sugar."
+        }
+      ]
+    },
+    {
+      "title": "Singleton: The Pattern You Should Rarely Hand-Roll",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Singleton\n\nEnsure one instance, globally accessible. The classic implementation:\n\n```csharp\npublic sealed class AppCache\n{\n    private static readonly Lazy<AppCache> _instance = new(() => new AppCache());\n    public static AppCache Instance => _instance.Value;\n    private AppCache() { }\n}\n```\n\n`Lazy<T>` gives thread-safe lazy initialization without manual locking.\n\n## Why hand-rolled singletons hurt\n\n- **Hidden dependency**: `AppCache.Instance` inside a method is invisible in the constructor signature — tests can't replace it.\n- **Global mutable state**: shared across tests, ordering bugs appear.\n- **Lifetime is hard-coded**: can't have per-tenant or per-test instances later.\n\n## The modern answer: container-managed lifetime\n\n```csharp\nbuilder.Services.AddSingleton<IAppCache, AppCache>();\n```\n\nSame single instance, but injected — visible, fakeable, and swappable. **Singleton the lifetime, not the pattern.**\n\n## Lifetime safety rules (interview favorite)\n\n| From ↓ can depend on → | Singleton | Scoped | Transient |\n|---|---|---|---|\n| Singleton | ✅ | ❌ *captive dependency* | ⚠️ becomes effectively singleton |\n| Scoped | ✅ | ✅ | ✅ |\n\nA singleton injected with a scoped `DbContext` **captures** it forever — one context shared across all requests, concurrency chaos. ASP.NET Core throws for this in development (scope validation) — now you know why.",
+      "practiceTask": "Grep your codebase for '.Instance' static singletons. Convert one to AddSingleton + constructor injection. Then intentionally inject a scoped service into a singleton in a scratch project and observe the scope-validation exception.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection-guidelines"],
+      "quiz": [
+        {
+          "question": "A singleton service takes AppDbContext (scoped) in its constructor. The danger is:",
+          "options": ["Compilation error", "The context is captured once and shared across all requests — a captive dependency", "The singleton becomes scoped", "Nothing — EF handles it"],
+          "correctIndex": 1,
+          "explanation": "The singleton outlives the scope, freezing one DbContext instance for the app's lifetime — not thread-safe, stale data, disposed-object errors."
+        }
+      ]
+    },
+    {
+      "title": "Prototype: Cloning Objects",
+      "difficulty": 2,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Prototype Pattern\n\nCreate new objects by **copying an existing one** instead of constructing from scratch — useful when setup is expensive or you need many variations of a baseline.\n\n## Shallow vs deep — the whole difficulty\n\n```csharp\nvar copy = original with { Name = \"Copy\" };   // record 'with' = shallow clone\n```\n\n**Shallow**: reference-type fields still point at the *same* objects. Mutating `copy.Lines[0]` also mutates `original.Lines[0]` — the classic prototype bug.\n\n**Deep**: recursively copy everything:\n\n```csharp\npublic Order DeepClone() => new()\n{\n    Customer = Customer,                         // immutable — safe to share\n    Lines = Lines.Select(l => l with { }).ToList(),  // copy each line\n    Tags = [.. Tags]\n};\n```\n\nSerialization round-trip (`JsonSerializer.Serialize/Deserialize`) is a lazy deep clone — fine for tools/tests, wasteful in hot paths.\n\n## Real uses\n\n- **Document/quote templates**: \"new invoice from template\" = deep clone + tweak\n- **Test fixtures**: baseline aggregate, clone per test, mutate freely\n- **Configuration variants**: default settings object cloned per tenant\n- EF Core note: cloned entities need their keys reset (`Id = 0`) before `Add`, or EF thinks it's the same row\n\nThe more your objects are **immutable**, the less deep cloning matters — records with `with` expressions give you cheap safe copies because shared references can't be mutated anyway.",
+      "practiceTask": "Take an entity with a child collection. Clone it with 'with' and demonstrate the shared-list bug by mutating the clone's collection. Then write DeepClone() and prove independence.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/operators/with-expression"],
+      "quiz": [
+        {
+          "question": "record Order { List<OrderLine> Lines } — after copy = original with { }, copy.Lines.Add(x) will:",
+          "options": ["Affect only the copy", "Affect both — 'with' copies the list reference, not the list", "Throw InvalidOperationException", "Create a new list lazily"],
+          "correctIndex": 1,
+          "explanation": "'with' performs a shallow copy; both records share one List instance."
+        }
+      ]
+    },
+    {
+      "title": "Adapter: Making Incompatible Interfaces Fit",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Adapter Pattern\n\nWrap an existing class so it satisfies the interface **your code** wants. Neither side changes — the adapter translates.\n\n## The scenario you hit monthly\n\nYour app defines the port it needs; a third-party SDK speaks something else:\n\n```csharp\n// Your domain's port (what YOU want)\npublic interface ISmsSender\n{\n    Task SendAsync(string phone, string message);\n}\n\n// Third-party SDK (what EXISTS) — different names, shapes, conventions\npublic class TwilioClient\n{\n    public Task<MessageResource> CreateMessage(PhoneNumber to, string from, string body) { ... }\n}\n\n// The adapter\npublic class TwilioSmsAdapter(TwilioClient client, IOptions<TwilioOptions> opt) : ISmsSender\n{\n    public async Task SendAsync(string phone, string message)\n    {\n        var result = await client.CreateMessage(\n            new PhoneNumber(phone), opt.Value.FromNumber, message);\n        if (result.Status == MessageStatus.Failed)\n            throw new SmsDeliveryException(result.ErrorMessage);   // translate errors too\n    }\n}\n```\n\nSwap Twilio for another provider = write one new adapter. Your domain never mentions vendor types.\n\n## Adapters translate more than method names\n\n- Exceptions → your exception types\n- Vendor DTOs → your models\n- Sync ↔ async mismatches\n- Their retry/paging conventions → yours\n\n## In the framework\n\n`StreamReader` adapts `Stream` (bytes) to `TextReader` (chars). `Microsoft.Extensions.Logging` providers adapt Serilog/NLog to `ILogger`. Every EF Core database provider is an adapter between EF's model and a specific database.\n\nRule: **third-party types stop at the adapter boundary** — if `TwilioClient` appears in a controller, the boundary leaked.",
+      "practiceTask": "Pick one third-party SDK your project calls directly from business code. Define the interface your domain actually needs, write the adapter, and move vendor exceptions/DTO translation inside it.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/adapter"],
+      "quiz": [
+        {
+          "question": "The main architectural benefit of adapters around third-party SDKs is:",
+          "options": ["Performance", "Vendor types and exceptions stop at the boundary — swapping vendors touches one class", "Fewer NuGet packages", "Automatic retries"],
+          "correctIndex": 1,
+          "explanation": "The domain depends on its own port; the adapter is the only file that knows the vendor exists."
+        }
+      ]
+    },
+    {
+      "title": "Decorator: Layering Behavior Transparently",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Decorator Pattern\n\nWrap an object with another object of the **same interface**, adding behavior before/after delegating. Stack as many layers as you like; callers can't tell.\n\n```csharp\npublic class CachedProductService(IProductService inner, IMemoryCache cache) : IProductService\n{\n    public async Task<Product?> GetAsync(int id) =>\n        await cache.GetOrCreateAsync($\"product:{id}\", entry =>\n        {\n            entry.SlidingExpiration = TimeSpan.FromMinutes(5);\n            return inner.GetAsync(id);          // delegate to the wrapped service\n        });\n}\n\npublic class LoggedProductService(IProductService inner, ILogger<LoggedProductService> log) : IProductService\n{\n    public async Task<Product?> GetAsync(int id)\n    {\n        var sw = Stopwatch.StartNew();\n        try { return await inner.GetAsync(id); }\n        finally { log.LogInformation(\"GetProduct({Id}) took {Ms}ms\", id, sw.ElapsedMilliseconds); }\n    }\n}\n```\n\nStack: `Logged(Cached(SqlProductService))` — cross-cutting concerns added **without touching** the core service, each layer separately testable.\n\n## Registration (manual or Scrutor)\n\n```csharp\nservices.AddScoped<SqlProductService>();\nservices.AddScoped<IProductService>(sp =>\n    new LoggedProductService(\n        new CachedProductService(\n            sp.GetRequiredService<SqlProductService>(),\n            sp.GetRequiredService<IMemoryCache>()),\n        sp.GetRequiredService<ILogger<LoggedProductService>>()));\n// or: services.Decorate<IProductService, CachedProductService>(); with Scrutor\n```\n\n## In the framework\n\n`DelegatingHandler` chains on `HttpClient` (retry/auth/logging handlers) are decorators. `BufferedStream` wrapping `FileStream`. ASP.NET Core middleware is the same idea at pipeline scale (next lessons).\n\nDecorator vs inheritance: composition at **runtime**, combinable in any order, works across implementations — subclassing is compile-time and single-parent.",
+      "practiceTask": "Write a caching decorator for one of your read-heavy services using IMemoryCache, register it with Scrutor's Decorate (or manually), and verify with logs that the second call skips the database.",
+      "externalLinks": ["https://github.com/khellang/Scrutor"],
+      "quiz": [
+        {
+          "question": "Decorator beats subclassing for cross-cutting concerns because:",
+          "options": ["It compiles faster", "Layers compose at runtime in any order and apply to any implementation of the interface", "It uses less memory", "Virtual calls are avoided"],
+          "correctIndex": 1,
+          "explanation": "Inheritance fixes behavior at compile time to one concrete parent; decorators wrap any implementation and stack freely."
+        }
+      ]
+    },
+    {
+      "title": "Facade: One Simple Door to a Complex Subsystem",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Facade Pattern\n\nProvide a single, simplified entry point over a set of subsystems. The subsystems stay fully capable — the facade just packages the common path.\n\n```csharp\npublic class CheckoutFacade(\n    IInventoryService inventory,\n    IPaymentGateway payments,\n    IShippingService shipping,\n    IOrderRepository orders,\n    IEmailSender email)\n{\n    public async Task<OrderResult> PlaceOrderAsync(Cart cart, PaymentInfo payment)\n    {\n        await inventory.ReserveAsync(cart.Items);\n        try\n        {\n            var charge = await payments.ChargeAsync(payment, cart.Total);\n            var order = await orders.CreateAsync(cart, charge.Id);\n            await shipping.ScheduleAsync(order);\n            await email.SendOrderConfirmationAsync(order);\n            return OrderResult.Success(order.Id);\n        }\n        catch\n        {\n            await inventory.ReleaseAsync(cart.Items);   // compensate\n            throw;\n        }\n    }\n}\n```\n\nThe controller calls **one method** instead of orchestrating five services — and that orchestration logic isn't duplicated between the API endpoint, the admin screen, and the background job.\n\n## Facade vs Adapter vs Mediator\n\n| Pattern | Purpose |\n|---|---|\n| Adapter | Change an interface's *shape* to match what a client expects |\n| Facade | *Simplify* many interfaces into one convenient entry point |\n| Mediator | Peers communicate *through* a hub instead of directly |\n\n## Where you've seen it\n\nEF Core's `DbContext` is a giant facade over connection management, change tracking, SQL generation, and materialization. `SmsService.Send()` hiding a vendor's 5-step auth/send/verify dance. Your application-service layer done right is a set of facades over the domain.",
+      "practiceTask": "Find a controller action that orchestrates 3+ services inline. Extract a facade/application service with one intention-revealing method, and slim the controller to model-binding + status codes.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/facade"],
+      "quiz": [
+        {
+          "question": "Facade differs from Adapter in that Facade:",
+          "options": ["Changes an interface to match a required contract", "Simplifies access to a whole subsystem rather than converting one interface", "Only works with static classes", "Requires inheritance"],
+          "correctIndex": 1,
+          "explanation": "Adapter is shape-conversion for compatibility; Facade is a convenience front door over multiple components."
+        }
+      ]
+    },
+    {
+      "title": "Proxy: A Stand-In That Controls Access",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Proxy Pattern\n\nAn object with the **same interface** as the real subject that controls access to it — deferring, protecting, caching, or remoting the real call.\n\n## Flavors\n\n| Proxy type | Controls | Example |\n|---|---|---|\n| Virtual | Expensive creation — defer until needed | `Lazy<T>`, EF lazy-loading |\n| Protection | Authorization before delegating | permission-checking wrapper |\n| Remote | Network transport hidden behind local calls | gRPC/WCF client stubs |\n| Caching | Whether the real call happens at all | (overlaps decorator) |\n\n## You've been using proxies all along\n\n**EF Core lazy loading**: `UseLazyLoadingProxies()` makes EF subclass your entities at runtime; accessing `order.Customer` triggers a database query from inside the proxy's property override. Powerful — and the source of **N+1 query storms** when someone loops over 1,000 orders touching `.Customer` (1,001 queries).\n\n**gRPC clients**: `client.GetProduct(request)` looks local; the generated proxy serializes, sends, waits, deserializes.\n\n```csharp\n// Protection proxy\npublic class SecuredDocumentService(IDocumentService inner, ICurrentUser user) : IDocumentService\n{\n    public Task<Document> GetAsync(int id)\n    {\n        if (!user.HasPermission(\"docs.read\"))\n            throw new ForbiddenException();\n        return inner.GetAsync(id);\n    }\n}\n```\n\n## Proxy vs Decorator\n\nStructurally identical (wrap same interface, delegate). Intent differs: **decorator adds behavior** (both paths run); **proxy controls access** (the real call may never happen — blocked, cached, deferred, or remote).",
+      "practiceTask": "Enable UseLazyLoadingProxies in a scratch EF Core project, loop over parent entities accessing a navigation property, and count queries with ToQueryString/logging. Then fix it with Include() — you've just debugged N+1.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/ef/core/querying/related-data/lazy"],
+      "quiz": [
+        {
+          "question": "EF Core lazy-loading proxies cause N+1 problems because:",
+          "options": ["Proxies are slow to construct", "Each navigation-property access inside a loop silently fires its own query", "They disable indexes", "They load the whole table"],
+          "correctIndex": 1,
+          "explanation": "The proxy intercepts property access and queries per entity — invisible in code, deadly in loops."
+        }
+      ]
+    },
+    {
+      "title": "Composite: Treating Trees Uniformly",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Composite Pattern\n\nLet clients treat **individual objects and groups of objects identically** — one interface for both leaf and container, forming a tree.\n\n```csharp\npublic interface IPriceComponent\n{\n    decimal GetPrice();\n}\n\npublic class Product(string name, decimal price) : IPriceComponent   // leaf\n{\n    public decimal GetPrice() => price;\n}\n\npublic class Bundle(string name, decimal discount) : IPriceComponent  // composite\n{\n    private readonly List<IPriceComponent> _children = [];\n    public void Add(IPriceComponent c) => _children.Add(c);\n    public decimal GetPrice() => _children.Sum(c => c.GetPrice()) * (1 - discount);\n}\n```\n\nA bundle of bundles of products — the caller just asks `GetPrice()`; recursion is hidden inside the structure.\n\n```csharp\nvar starter = new Bundle(\"Starter Pack\", 0.10m);\nstarter.Add(new Product(\"Keyboard\", 50));\nstarter.Add(new Product(\"Mouse\", 30));\n\nvar office = new Bundle(\"Office Deal\", 0.05m);\noffice.Add(starter);                     // bundle inside bundle\noffice.Add(new Product(\"Monitor\", 200));\noffice.GetPrice();                        // uniform call, tree-deep computation\n```\n\n## Real occurrences\n\n- UI trees: Angular components contain components; a WPF `Panel` is a `UIElement` containing `UIElement`s\n- Organization charts: an employee vs a department with a budget = sum of members\n- Menu/category hierarchies, BOM (bill of materials) explosions\n- Expression trees: `(a + b) * c` — operators are composites, operands are leaves; LINQ providers walk exactly this\n\nDesign choice to make consciously: put `Add/Remove` on the interface (uniform but leaves must reject them — LSP tension) or only on the composite (safe but requires knowing the concrete type to build trees). Prefer the latter.",
+      "practiceTask": "Model a product bundle structure (bundles containing products and sub-bundles with per-bundle discounts) and compute total price and item count via the uniform interface.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/composite"],
+      "quiz": [
+        {
+          "question": "The core benefit of Composite is:",
+          "options": ["Lower memory usage for trees", "Clients call one interface without distinguishing leaf from container — recursion lives in the structure", "It prevents deep nesting", "Faster tree traversal"],
+          "correctIndex": 1,
+          "explanation": "Uniform treatment removes 'is this a group or an item?' branching from every client."
+        }
+      ]
+    },
+    {
+      "title": "Bridge & Flyweight: Two Structural Specialists",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Bridge\n\nWhen a class hierarchy varies along **two independent dimensions**, inheritance explodes: `PdfInvoiceReport`, `PdfSalesReport`, `ExcelInvoiceReport`, `ExcelSalesReport`... n×m classes.\n\n**Bridge**: make one dimension a composed abstraction instead:\n\n```csharp\npublic interface IReportRenderer          // dimension 2: output format\n{\n    byte[] Render(ReportContent content);\n}\npublic class PdfRenderer : IReportRenderer { ... }\npublic class ExcelRenderer : IReportRenderer { ... }\n\npublic abstract class Report(IReportRenderer renderer)   // dimension 1: report kind\n{\n    public byte[] Generate() => renderer.Render(BuildContent());\n    protected abstract ReportContent BuildContent();\n}\npublic class SalesReport(IReportRenderer r) : Report(r) { ... }\n```\n\nn + m classes instead of n × m; formats and report types evolve independently. If you've internalized \"composition over inheritance,\" Bridge is that principle applied preemptively.\n\n# Flyweight\n\nWhen you need **huge numbers of similar objects**, share the immutable part (*intrinsic state*) and pass the varying part (*extrinsic*) as parameters.\n\n- `string.Intern()` — one shared instance per distinct string value\n- Character glyphs in text editors: one 'e' object, thousands of positions\n- Game particles: shared sprite/behavior, per-instance x,y\n\n```csharp\n// Naive: 1M TreeType allocations. Flyweight: ~5 shared TreeTypes + 1M light positions.\nvar type = TreeTypeFactory.Get(\"oak\");    // cached, shared\ncanvas.Draw(type, x, y);                   // extrinsic state passed in\n```\n\nRarely needed in CRUD apps — but the *idea* (cache and share immutable heavy things, keep per-use state light) is exactly what `IMemoryCache`, connection pooling, and `HttpClient` handler reuse do.",
+      "practiceTask": "Count the class explosion you'd need for 3 report types × 3 output formats with pure inheritance (9), then sketch the Bridge version (6) in code with one working pair.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/bridge"],
+      "quiz": [
+        {
+          "question": "Bridge solves which problem?",
+          "options": ["Too many objects in memory", "Class-count explosion when a hierarchy varies along two independent dimensions", "Incompatible interfaces", "Circular dependencies"],
+          "correctIndex": 1,
+          "explanation": "By composing one dimension as an injected abstraction, n×m subclasses become n+m classes."
+        }
+      ]
+    },
+    {
+      "title": "Observer: Publish/Subscribe in Process",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Observer Pattern\n\nA **subject** maintains a list of **observers** and notifies them of state changes. Decouples \"something happened\" from \"who cares\".\n\n## C# has it built in: events\n\n```csharp\npublic class OrderProcessor\n{\n    public event EventHandler<OrderPlacedEventArgs>? OrderPlaced;\n\n    public void Place(Order order)\n    {\n        // ...core logic...\n        OrderPlaced?.Invoke(this, new OrderPlacedEventArgs(order));\n    }\n}\n\n// Subscribers register without OrderProcessor knowing them:\nprocessor.OrderPlaced += (_, e) => emailService.SendConfirmation(e.Order);\nprocessor.OrderPlaced += (_, e) => analytics.Track(\"order_placed\", e.Order.Id);\n```\n\nAdding analytics required **zero changes** to OrderProcessor — that's the point.\n\n## The classic trap: leaks\n\n`publisher.Event += subscriber.Handler` makes the publisher hold a **strong reference to the subscriber**. A long-lived publisher (singleton) + short-lived subscribers (scoped) = subscribers never garbage-collected. Unsubscribe (`-=`) or use weak patterns.\n\n## The modern spectrum\n\n| Mechanism | Scope |\n|---|---|\n| C# events | In-process, synchronous |\n| `IObservable<T>` / Rx | Composable streams (you know this as **RxJS** — same pattern!) |\n| MediatR `INotification` | In-process, DI-friendly, async handlers |\n| Message bus (RabbitMQ etc.) | Cross-process — Observer at system scale |\n\nAngular's `EventEmitter`/`Subject` and .NET events are the same pattern on both of your stacks. Domain events in DDD (\"OrderPlaced\" handled by N handlers) are Observer with persistence semantics.",
+      "practiceTask": "Add an event to one of your services (e.g., EntityChanged) and attach two subscribers: a logger and a cache invalidator. Then demonstrate the leak: keep a scoped subscriber attached to a singleton publisher and explain why it can't be collected.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/events/"],
+      "quiz": [
+        {
+          "question": "Why can C# event subscriptions cause memory leaks?",
+          "options": ["Events allocate on every invoke", "The publisher's delegate list holds strong references to subscribers, keeping them alive", "EventArgs are never collected", "Events pin memory"],
+          "correctIndex": 1,
+          "explanation": "As long as the publisher lives, every subscribed object is reachable and can't be GC'd until it unsubscribes."
+        }
+      ]
+    },
+    {
+      "title": "Mediator & MediatR: Hub-and-Spoke Communication",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Mediator Pattern\n\nWhen N components all talk to each other you get N² coupling. Mediator: everyone talks to a **hub**; the hub routes. Components know the mediator, not each other.\n\nClassic example: a form where the country dropdown affects the city list, the shipping calculator, and the tax field. Wiring each control to the others = spaghetti; each control notifying a mediator that updates the rest = maintainable.\n\n## MediatR in ASP.NET Core\n\nThe popular incarnation for request routing inside a process:\n\n```csharp\npublic record PlaceOrderCommand(int CustomerId, List<CartLine> Lines) : IRequest<OrderResult>;\n\npublic class PlaceOrderHandler(AppDbContext db) : IRequestHandler<PlaceOrderCommand, OrderResult>\n{\n    public async Task<OrderResult> Handle(PlaceOrderCommand cmd, CancellationToken ct) { ... }\n}\n\n// Controller: thin — routes to the hub\n[HttpPost] public Task<OrderResult> Place(PlaceOrderCommand cmd) => mediator.Send(cmd);\n```\n\nPlus **pipeline behaviors** — cross-cutting middleware around every handler (validation, logging, transactions):\n\n```csharp\npublic class ValidationBehavior<TReq, TRes>(IEnumerable<IValidator<TReq>> validators)\n    : IPipelineBehavior<TReq, TRes> { ... }\n```\n\n## Honest trade-offs\n\n➕ Thin controllers, one handler per use case (SRP), uniform cross-cutting pipeline, `INotification` fan-out for domain events.\n➖ Indirection: \"go to definition\" lands on `Send`, not the handler; runtime wiring hides the call graph; for a simple CRUD app it can be ceremony without payoff.\n\nVerdict: valuable when you have many use cases + cross-cutting behaviors; overkill for a 5-endpoint API. Know *why* you're adding it, not just that it's popular.",
+      "practiceTask": "Implement one endpoint two ways in a scratch project: direct service injection vs MediatR command + handler + a logging pipeline behavior. Write down which you'd choose for your current work project and why.",
+      "externalLinks": ["https://github.com/jbogard/MediatR"],
+      "quiz": [
+        {
+          "question": "Mediator addresses which coupling problem?",
+          "options": ["Classes depending on concrete types", "N components with N² point-to-point references — replaced by N references to one hub", "Database coupling", "Circular inheritance"],
+          "correctIndex": 1,
+          "explanation": "Peers stop knowing each other; the mediator centralizes and routes interactions."
+        }
+      ]
+    },
+    {
+      "title": "Command: Requests as Objects",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Command Pattern\n\nReify an action into an **object** carrying everything needed to execute it. Once actions are data, you can queue them, log them, undo them, retry them, or ship them across a network.\n\n```csharp\npublic interface ICommand\n{\n    void Execute();\n    void Undo();\n}\n\npublic class AddLineCommand(Invoice invoice, OrderLine line) : ICommand\n{\n    public void Execute() => invoice.Lines.Add(line);\n    public void Undo() => invoice.Lines.Remove(line);\n}\n\npublic class CommandHistory\n{\n    private readonly Stack<ICommand> _done = new();\n    public void Run(ICommand cmd) { cmd.Execute(); _done.Push(cmd); }\n    public void UndoLast() { if (_done.TryPop(out var c)) c.Undo(); }\n}\n```\n\nUndo/redo = two stacks of commands. Every editor you've used works this way.\n\n## Where the idea already surrounds you\n\n- **Background job queues** (Hangfire): `BackgroundJob.Enqueue(() => SendEmail(id))` serializes the call as data, executes later — commands over a queue\n- **CQRS commands**: MediatR's `IRequest` objects are commands routed to handlers\n- **Outbox pattern**: commands/events persisted in the DB transaction, executed after commit\n- **Message buses**: a queue message is a command crossing process boundaries\n- WPF `ICommand` binding buttons to actions (with `CanExecute` enabling/disabling UI)\n\n## The insight that sticks\n\nOnce a request is an object you get **for free**: persistence (audit log = event history), scheduling (delay), composition (macro commands), and transport (send elsewhere). Method calls can do none of that — they vanish the moment they return.",
+      "practiceTask": "Build a tiny cart editor with AddItem/RemoveItem/ChangeQty commands and a CommandHistory supporting Undo/Redo (two stacks). Verify: 3 actions, 2 undos, 1 redo leaves the right state.",
+      "externalLinks": ["https://refactoring.guru/design-patterns/command"],
+      "quiz": [
+        {
+          "question": "Hangfire's BackgroundJob.Enqueue(() => Send(id)) reflects Command because:",
+          "options": ["It runs on a thread pool", "The method call is captured as serializable data, storable and executable later elsewhere", "It uses lambdas", "It retries automatically"],
+          "correctIndex": 1,
+          "explanation": "Turning an invocation into inspectable, persistable data is the essence of Command — enabling queues, retries, and audit."
+        }
+      ]
+    },
+    {
+      "title": "Template Method: Fixed Skeleton, Variable Steps",
+      "difficulty": 2,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Template Method Pattern\n\nA base class defines an algorithm's **skeleton**; subclasses override specific steps. The skeleton (order, error handling, transaction) is fixed and non-overridable.\n\n```csharp\npublic abstract class FileImporter\n{\n    public async Task<ImportResult> ImportAsync(Stream file)      // the template\n    {\n        var rows = await ParseAsync(file);          // varies per format\n        var errors = Validate(rows);                // varies per entity\n        if (errors.Count > 0) return ImportResult.Failed(errors);\n\n        await using var tx = await BeginTransactionAsync();       // fixed\n        await SaveAsync(rows);                       // varies\n        await tx.CommitAsync();                      // fixed\n        return ImportResult.Success(rows.Count);\n    }\n\n    protected abstract Task<List<Row>> ParseAsync(Stream file);\n    protected abstract List<string> Validate(List<Row> rows);\n    protected abstract Task SaveAsync(List<Row> rows);\n    protected virtual Task NotifyAsync() => Task.CompletedTask;   // hook: optional override\n}\n\npublic class CustomerCsvImporter : FileImporter { /* 3 overrides, no plumbing */ }\n```\n\nEvery importer gets transactions and error handling **by construction** — impossible to forget.\n\n## Framework examples\n\n`BackgroundService.ExecuteAsync` (you fill in the loop; the host manages lifetime), ASP.NET Core's `ControllerBase` action pipeline, xUnit constructor/Dispose as setup/teardown hooks.\n\n## Template Method vs Strategy\n\nBoth vary parts of an algorithm. Template Method uses **inheritance** (subclass overrides steps; one variation dimension, fixed at compile time). Strategy uses **composition** (inject the varying part; swappable at runtime, mockable independently). Modern default: prefer Strategy; choose Template Method when the invariant skeleton is the thing you must protect.",
+      "practiceTask": "Create an abstract importer with the template above and two concrete importers (CSV + JSON) for one of your entities. Confirm the transaction/validation plumbing exists only once.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.hosting.backgroundservice"],
+      "quiz": [
+        {
+          "question": "BackgroundService.ExecuteAsync is Template Method because:",
+          "options": ["It's abstract", "The host owns the invariant lifecycle (start/stop/cancellation) while you override just the varying step", "It runs in background threads", "It can't be sealed"],
+          "correctIndex": 1,
+          "explanation": "The framework fixes the skeleton and calls your override at the right point — Hollywood principle: don't call us, we'll call you."
+        }
+      ]
+    },
+    {
+      "title": "Chain of Responsibility: The Middleware Pattern",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Chain of Responsibility\n\nPass a request along a chain of handlers; each decides to **handle it, transform it, short-circuit, or pass it on**.\n\n## You configure one every day\n\n```csharp\napp.UseExceptionHandler(\"/error\");   // outermost — sees everything below fail\napp.UseHttpsRedirection();           // may short-circuit with a redirect\napp.UseAuthentication();             // enriches context, passes on\napp.UseAuthorization();              // may short-circuit with 403\napp.MapControllers();                // terminal handler\n```\n\nASP.NET Core middleware **is** Chain of Responsibility. Order matters because each link chooses what reaches the next — that's why `UseAuthorization` after `MapControllers` breaks, and why exception handling goes first.\n\n```csharp\npublic class ApiKeyMiddleware(RequestDelegate next)\n{\n    public async Task InvokeAsync(HttpContext ctx)\n    {\n        if (!ctx.Request.Headers.TryGetValue(\"X-Api-Key\", out var key) || !Valid(key))\n        {\n            ctx.Response.StatusCode = 401;      // short-circuit: next never runs\n            return;\n        }\n        await next(ctx);                        // pass along the chain\n    }\n}\n```\n\n## Same pattern, other clothes\n\n- `DelegatingHandler` chains on HttpClient (retry → auth → logging → network)\n- MediatR pipeline behaviors wrapping handlers\n- Angular **HTTP interceptors** — identical concept in your frontend\n- Business rule chains: discount rules where the first applicable rule wins\n\n## Design notes\n\nEach handler: single responsibility, independently testable, reorderable. The chain is composition you can rearrange in one place (Program.cs) instead of nested if-trees. Trap to avoid: handlers that secretly depend on earlier handlers' side effects without documenting it — order-coupling is real coupling.",
+      "practiceTask": "Write a custom middleware that logs request duration and short-circuits requests with a banned IP (403). Register it in the right position and explain why that position.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/"],
+      "quiz": [
+        {
+          "question": "Placing UseAuthorization before UseAuthentication breaks because:",
+          "options": ["It causes a compile error", "Authorization runs before the user identity is established by authentication — chain order defines data flow", "Both must be terminal", "HTTPS is required first"],
+          "correctIndex": 1,
+          "explanation": "Each link consumes what earlier links produced; authorization needs the authenticated principal that authentication attaches."
+        }
+      ]
+    },
+    {
+      "title": "State: Behavior That Changes with Status",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# State Pattern\n\nWhen an object's behavior depends on its status and every method starts with `switch (Status)` — move each status's behavior into its own class.\n\n## The smell\n\n```csharp\npublic void Ship() { if (Status == OrderStatus.Paid) {...} else if (Status == Draft) throw ... }\npublic void Cancel() { if (Status == Shipped) throw ... /* refund if Paid... */ }\npublic void AddItem(Item i) { if (Status != Draft) throw ... }\n// every new status touches EVERY method — OCP violation multiplied\n```\n\n## The pattern\n\n```csharp\npublic interface IOrderState\n{\n    IOrderState AddItem(Order o, Item i);\n    IOrderState Pay(Order o);\n    IOrderState Ship(Order o);\n    IOrderState Cancel(Order o);\n}\n\npublic class DraftState : IOrderState\n{\n    public IOrderState AddItem(Order o, Item i) { o.Items.Add(i); return this; }\n    public IOrderState Pay(Order o) { o.CapturePayment(); return new PaidState(); }\n    public IOrderState Ship(Order o) => throw new InvalidOperationException(\"Pay first\");\n    public IOrderState Cancel(Order o) => new CancelledState();\n}\n// PaidState allows Ship, rejects AddItem... each class = one column of the transition table\n```\n\nThe order delegates: `_state = _state.Pay(this);`. Valid transitions become **the type system's problem**; each state class is small and testable.\n\n## Pragmatic middle grounds\n\n- A **transition table** (`Dictionary<(Status, Trigger), Status>`) when only transitions vary, not behavior\n- Library: **Stateless** — declarative state machines with guards and entry/exit hooks\n- C# `switch` expressions on enums when there are ≤3 states and it's genuinely simple\n\nUse the full pattern when states have *rich differing behavior*; use a table when it's just allowed/forbidden transitions. Workflow engines, order lifecycles, document approval, connection management (Closed/Open/HalfOpen in circuit breakers) are State pattern territory.",
+      "practiceTask": "Take an entity in your project with a Status enum and at least two if(Status==...) methods. Map its full transition table on paper first, then implement either state classes or a Stateless state machine.",
+      "externalLinks": ["https://github.com/dotnet-state-machine/stateless"],
+      "quiz": [
+        {
+          "question": "The State pattern's key improvement over status-switches in every method is:",
+          "options": ["Fewer classes", "Each state's complete behavior lives in one class; adding a state doesn't edit every method", "It removes enums", "It's always faster"],
+          "correctIndex": 1,
+          "explanation": "Behavior is organized by state rather than scattered across methods — new states extend rather than modify."
+        }
+      ]
+    },
+    {
+      "title": "Iterator & IEnumerable: Lazy Sequences",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Iterator Pattern\n\nAccess a collection's elements sequentially **without exposing its internals**. C# absorbed this pattern into the language: `IEnumerable<T>` / `IEnumerator<T>` and `foreach`.\n\n## yield return — compiler-built iterators\n\n```csharp\npublic IEnumerable<Order> ReadLargeExport(string path)\n{\n    using var reader = new StreamReader(path);\n    while (reader.ReadLine() is { } line)\n        yield return ParseOrder(line);       // one at a time — file never fully in memory\n}\n```\n\nThe compiler generates a state machine; execution **pauses** at each `yield return` and resumes on the next `MoveNext()`.\n\n## Deferred execution — the LINQ superpower and trap\n\n```csharp\nvar query = orders.Where(o => o.Total > 100);   // NOTHING runs yet\nvar list = query.ToList();                        // NOW it runs\n```\n\nTraps every .NET developer hits:\n- **Multiple enumeration**: iterating the same `IEnumerable` twice re-runs the pipeline (twice the work — or two DB queries with EF)\n- **Captured state**: the lambda sees variable values at *enumeration* time, not definition time\n- **EF Core**: `IQueryable` composes SQL until materialized; calling `.AsEnumerable()` too early drags the whole table into memory and filters in C#\n\n## Infinite and windowed sequences\n\n```csharp\nIEnumerable<DateOnly> BusinessDays(DateOnly from)\n{\n    for (var d = from; ; d = d.AddDays(1))\n        if (d.DayOfWeek is not (DayOfWeek.Friday or DayOfWeek.Saturday))\n            yield return d;   // infinite — caller Takes what it needs\n}\nvar next10 = BusinessDays(today).Take(10).ToList();\n```\n\nLaziness composes: `Where.Select.Take` over a million-line file processes only what's consumed.",
+      "practiceTask": "Write a yield-based method streaming a large CSV as objects; add a Where + Take pipeline and prove (with a counter in the parser) that only the needed lines were parsed.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/csharp/iterators"],
+      "quiz": [
+        {
+          "question": "An IEnumerable<T> from a yield method is enumerated twice by two foreach loops. What happens?",
+          "options": ["The second loop uses cached results", "The generator logic runs again from the start — all work is repeated", "An exception is thrown", "The second loop is empty"],
+          "correctIndex": 1,
+          "explanation": "Iterators are recipes, not results; each enumeration re-executes. Materialize with ToList() if you need to reuse."
+        }
+      ]
+    },
+    {
+      "title": "Memento & Visitor: Snapshots and Double Dispatch",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Memento\n\nCapture an object's state in a **snapshot** that can restore it later — without exposing internals. The pair to Command-based undo: Command replays inverse operations; Memento just restores a saved state.\n\n```csharp\npublic record EditorMemento(string Content, int CursorPos);   // immutable snapshot\n\npublic class Editor\n{\n    public string Content { get; private set; } = \"\";\n    public int CursorPos { get; private set; }\n\n    public EditorMemento Save() => new(Content, CursorPos);\n    public void Restore(EditorMemento m) => (Content, CursorPos) = (m.Content, m.CursorPos);\n}\n```\n\nReal-world mementos: EF Core's change tracker keeping original values (that's how it builds UPDATE statements and detects concurrency conflicts), form draft auto-save, game save states, `git stash`.\n\n# Visitor\n\nAdd **new operations** to a stable object structure without modifying its classes. Each element `Accept`s a visitor; the element calls back `visitor.Visit(this)` with its concrete type — *double dispatch*.\n\n```csharp\npublic interface IShapeVisitor<T> { T Visit(Circle c); T Visit(Rectangle r); }\npublic abstract class Shape { public abstract T Accept<T>(IShapeVisitor<T> v); }\npublic class Circle : Shape { public override T Accept<T>(IShapeVisitor<T> v) => v.Visit(this); }\n\npublic class AreaVisitor : IShapeVisitor<double>\n{\n    public double Visit(Circle c) => Math.PI * c.Radius * c.Radius;\n    public double Visit(Rectangle r) => r.Width * r.Height;\n}\n```\n\nNew operation (ExportSvgVisitor, PerimeterVisitor) = one new class; shape classes never change. The trade: adding a new *shape* now touches every visitor — Visitor optimizes for stable structure + growing operations.\n\n## The modern C# note\n\nPattern matching (`shape switch { Circle c => ..., Rectangle r => ... }`) covers many Visitor use cases with less ceremony — but without compiler-enforced exhaustiveness across separate files. Roslyn analyzers and LINQ expression trees (`ExpressionVisitor`) remain genuine Visitor territory — EF Core translates your lambdas to SQL with exactly this pattern.",
+      "practiceTask": "Implement two visitors (JSON exporter and validation) over a 3-type document element hierarchy. Then rewrite one as a C# switch expression and compare: which change is easier in each version — new element type vs new operation?",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.linq.expressions.expressionvisitor"],
+      "quiz": [
+        {
+          "question": "Visitor is the right choice when:",
+          "options": ["Types change often but operations are fixed", "The type hierarchy is stable and you keep adding new operations over it", "You need runtime type creation", "Performance is critical"],
+          "correctIndex": 1,
+          "explanation": "Visitor trades easy-to-add-operations for hard-to-add-types; EF's ExpressionVisitor over the fixed Expression node set is the canonical fit."
+        }
+      ]
+    },
+    {
+      "title": "Repository & Unit of Work: Use, Misuse, and EF Core",
+      "difficulty": 2,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Repository & Unit of Work\n\n**Repository**: collection-like abstraction over data access (`GetById`, `Add`, domain-specific queries). **Unit of Work**: track changes across repositories, commit atomically.\n\n## The uncomfortable truth\n\n**EF Core already implements both.** `DbSet<T>` is a repository; `DbContext.SaveChanges` is a unit of work with change tracking and a transaction. So the common pattern...\n\n```csharp\npublic class Repository<T> : IRepository<T>   // generic repo wrapping DbSet\n{\n    public Task<T?> GetByIdAsync(int id) => _db.Set<T>().FindAsync(id).AsTask();\n    public IQueryable<T> Query() => _db.Set<T>();   // ← leaks IQueryable anyway!\n    ...\n}\n```\n\n...is an abstraction over an abstraction that usually adds nothing: it leaks `IQueryable` (so callers still write EF-specific queries), blocks EF features (Include, split queries, bulk ops), and its \"testability\" is illusory — mocking `IQueryable` doesn't test translation to SQL. Integration tests on a real/LocalDB database test what actually runs.\n\n## When a repository IS worth it\n\n✅ **Aggregate-oriented, domain-specific** interfaces in DDD:\n\n```csharp\npublic interface IOrderRepository\n{\n    Task<Order?> GetWithLinesAsync(int id);          // encapsulates Include strategy\n    Task<List<Order>> GetPendingShipmentAsync();     // named business query\n    void Add(Order order);\n}\n```\n\nNamed methods per business need (no IQueryable leak), one place per aggregate for query correctness, swappable persistence in genuinely multi-store domains.\n\n✅ Hiding Dapper/stored-proc hybrid access behind one interface.\n\n❌ Generic `IRepository<T>` with pass-through CRUD over EF — ceremony.\n\n## Verdict for your stack\n\nInject `AppDbContext` directly in simple services; introduce **specific** repositories where query logic is complex or reused. Never build the generic wrapper 'because pattern'.",
+      "practiceTask": "If your project has a generic IRepository<T>: list what it adds over DbSet<T> honestly. Replace one usage with either direct DbContext or a domain-specific repository with named query methods — whichever the call site actually needs.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/ef/core/testing/"],
+      "quiz": [
+        {
+          "question": "A generic Repository<T> exposing IQueryable<T> Query() fails as an abstraction because:",
+          "options": ["IQueryable is slow", "Callers still compose provider-specific queries — the persistence details it claimed to hide leak through", "It can't be mocked", "EF forbids it"],
+          "correctIndex": 1,
+          "explanation": "The abstraction boundary is fictional: swap EF for Dapper and every IQueryable call site breaks."
+        }
+      ]
+    },
+    {
+      "title": "Options Pattern: Configuration Done Right",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Options Pattern\n\n.NET's prescribed way to consume configuration: **strongly typed classes bound from config**, injected where needed.\n\n```csharp\npublic class EmailOptions\n{\n    public const string Section = \"Email\";\n    public string SmtpHost { get; set; } = \"\";\n    public int Port { get; set; } = 587;\n    public string FromAddress { get; set; } = \"\";\n}\n\n// Program.cs — bind + validate\nbuilder.Services.AddOptions<EmailOptions>()\n    .BindConfiguration(EmailOptions.Section)\n    .ValidateDataAnnotations()\n    .Validate(o => o.Port is > 0 and < 65536, \"Port out of range\")\n    .ValidateOnStart();               // fail at boot, not first use\n\n// Consumption\npublic class EmailSender(IOptions<EmailOptions> options)\n{\n    private readonly EmailOptions _opt = options.Value;\n}\n```\n\nNo more `IConfiguration[\"Email:SmtpHost\"]` magic strings scattered around, no silent typos returning null, and `ValidateOnStart` turns misconfiguration into an immediate, obvious boot failure instead of a 3am production surprise.\n\n## The three interfaces (interview classic)\n\n| Interface | Lifetime | Reflects config changes? | Use in |\n|---|---|---|---|\n| `IOptions<T>` | Singleton | ❌ frozen at first use | Most services |\n| `IOptionsSnapshot<T>` | Scoped | ✅ per request | Per-request reload needs |\n| `IOptionsMonitor<T>` | Singleton | ✅ live + `OnChange` event | Singletons/background services |\n\nThe trap: `IOptionsSnapshot` in a singleton throws (scoped-in-singleton); `IOptions` in a background service never sees appsettings.json edits — use `IOptionsMonitor` there.\n\nWhy it counts as a pattern lesson: it's Strategy for config sources + Adapter over providers (JSON/env/KeyVault) + named options = keyed instances, all behind one typed facade.",
+      "practiceTask": "Replace raw IConfiguration string access in one of your services with a validated options class using ValidateOnStart. Break the config on purpose and confirm the app fails at startup with a clear message.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/extensions/options"],
+      "quiz": [
+        {
+          "question": "A BackgroundService must react to config file changes at runtime. Inject:",
+          "options": ["IOptions<T> — it reloads automatically", "IOptionsSnapshot<T> — designed for this", "IOptionsMonitor<T> — live values + OnChange in singletons", "IConfiguration directly"],
+          "correctIndex": 2,
+          "explanation": "IOptions is frozen; IOptionsSnapshot is scoped and can't go into a singleton; IOptionsMonitor is the singleton-safe live option."
+        }
+      ]
+    },
+    {
+      "title": "Null Object & Result Patterns: Taming Absence and Failure",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Null Object Pattern\n\nInstead of returning `null` and forcing every caller to check, return a **do-nothing implementation** of the interface.\n\n```csharp\npublic class NullNotifier : INotifier          // safe default\n{\n    public static readonly NullNotifier Instance = new();\n    public Task NotifyAsync(string msg) => Task.CompletedTask;\n}\n\n// Framework example you already benefit from:\n// NullLogger<T>.Instance — inject-a-logger-or-not without null checks everywhere\n```\n\nBest for **optional collaborators** (notifier, telemetry, audit hooks): the code path stays branch-free. Don't use it where absence is *meaningful* and must be handled — hiding a missing Customer behind a NullCustomer with empty name creates silent wrong behavior.\n\n# Result Pattern\n\nExceptions are for the *exceptional*; expected business failures (validation, not-found, insufficient funds) modeled as exceptions make control flow invisible and slow. Return a **Result** instead:\n\n```csharp\npublic record Result<T>\n{\n    public bool IsSuccess { get; init; }\n    public T? Value { get; init; }\n    public string? Error { get; init; }\n\n    public static Result<T> Ok(T value) => new() { IsSuccess = true, Value = value };\n    public static Result<T> Fail(string error) => new() { Error = error };\n}\n\npublic async Task<Result<Order>> PlaceOrderAsync(PlaceOrderDto dto)\n{\n    if (!await _inventory.IsAvailableAsync(dto.Items))\n        return Result<Order>.Fail(\"Insufficient stock\");\n    ...\n}\n```\n\nCallers must consciously branch on success/failure — the compiler-visible honesty that `throw` hides. Maps cleanly to HTTP: `result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error)`. Libraries: FluentResults, ErrorOr, OneOf (discriminated unions).\n\n## Guideline\n\n| Situation | Tool |\n|---|---|\n| Expected business outcome (validation, not found) | Result |\n| Programming error (null arg, invalid state) | Exception |\n| Infrastructure failure (DB down, timeout) | Exception (+ retry/circuit breaker) |\n| Optional side-channel collaborator | Null Object |",
+      "practiceTask": "Refactor one service method that throws for a business rule (e.g., 'insufficient stock') to return Result<T>, and map it in the controller to proper HTTP codes. Keep exceptions for genuine infrastructure failures.",
+      "externalLinks": ["https://github.com/altmann/FluentResults"],
+      "quiz": [
+        {
+          "question": "Which failure is a good candidate for a Result return instead of an exception?",
+          "options": ["SqlException: connection timeout", "ArgumentNullException in a private method", "'Coupon code expired' during checkout", "StackOverflowException"],
+          "correctIndex": 2,
+          "explanation": "Expected business outcomes belong in the return type; infrastructure and programming errors remain exceptional."
+        }
+      ]
+    },
+    {
+      "title": "CQRS: Separate Read and Write Models",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# CQRS — Command Query Responsibility Segregation\n\nSplit your model in two: **commands** change state (return success/failure), **queries** return data (change nothing). They can use different models, different paths — even different databases.\n\n## Level 1: separate handlers, one database (start here)\n\n```csharp\n// Command side — rich domain model, EF change tracking, transactions\npublic record ApproveInvoiceCommand(int InvoiceId) : IRequest<Result>;\n\n// Query side — no domain model, straight projection to DTOs\npublic class GetInvoiceListHandler(AppDbContext db)\n{\n    public Task<List<InvoiceListDto>> Handle(GetInvoiceListQuery q) =>\n        db.Invoices.AsNoTracking()\n          .Where(i => i.Status == q.Status)\n          .Select(i => new InvoiceListDto(i.Id, i.Number, i.Customer.Name, i.Total))\n          .ToListAsync();   // Dapper is equally at home here\n}\n```\n\nImmediate wins with near-zero cost: queries skip change tracking and load only needed columns (`AsNoTracking` + projection — real SQL Server performance gains); write model stays rich without polluting reads; screens stop bending domain entities into view shapes.\n\n## Level 2: separate read models\n\nDenormalized tables/views maintained for hot screens (dashboard aggregates), updated by handlers or events. This is where **eventual consistency** enters: the read model may lag the write by moments — the UI must tolerate it.\n\n## Level 3: separate stores / event sourcing\n\nWrites emit events; projections build read stores (Elastic, Redis, replicas). Powerful, operationally expensive — justified by extreme read/write asymmetry, not fashion.\n\n## Guidance\n\nCQRS ≠ MediatR, ≠ event sourcing, ≠ two databases. It's one decision — *stop forcing reads and writes through one model* — with escalating implementation levels. Most ASP.NET Core apps should live happily at level 1.",
+      "practiceTask": "Take your heaviest list endpoint. Rewrite its data access as a pure query handler: AsNoTracking + Select projection to a purpose-built DTO. Compare the generated SQL (ToQueryString) and payload size with the original include-everything version.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs"],
+      "quiz": [
+        {
+          "question": "The cheapest genuinely valuable form of CQRS in an ASP.NET Core app is:",
+          "options": ["Event sourcing with separate databases", "Separate command/query handlers over one database — queries use AsNoTracking projections", "Two DbContexts on two servers", "Replacing EF with Dapper everywhere"],
+          "correctIndex": 1,
+          "explanation": "Level-1 CQRS delivers cleaner code and faster reads without any consistency or infrastructure cost."
+        }
+      ]
+    },
+    {
+      "title": "Resilience Patterns: Retry, Circuit Breaker, Timeout",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Resilience Patterns\n\nEvery network call fails eventually. These patterns decide what happens next — in .NET, via **Polly** (now built into `Microsoft.Extensions.Resilience`).\n\n## Retry — for *transient* failures\n\n```csharp\nbuilder.Services.AddHttpClient(\"catalog\")\n    .AddStandardResilienceHandler();   // .NET 8+: retry + circuit breaker + timeout preconfigured\n```\n\nRules that separate professionals from incident reports:\n- Retry only **transient** errors (timeouts, 502/503/429) — never business errors (400, 404)\n- **Exponential backoff + jitter**: 1s, 2s, 4s ± random — synchronized retries from many clients create self-inflicted DDoS waves\n- Retried operations must be **idempotent** — retrying a non-idempotent POST can double-charge a customer\n\n## Circuit Breaker — stop hammering a dying dependency\n\nState machine (State pattern in production!):\n- **Closed**: normal; failures counted\n- **Open**: threshold exceeded → fail *instantly* without calling (protects the dependency AND your thread pool)\n- **Half-Open**: after cooldown, let a probe request test recovery\n\nWithout it, a slow downstream service consumes all your outgoing sockets/threads and takes *you* down with it — cascading failure.\n\n## Timeout — the non-negotiable\n\nEvery external call needs one. Defaults are terrible (HttpClient: 100s). A 30s page waiting on a 100s timeout is an outage in practice.\n\n## Composition order matters\n\n`Timeout(outer) → Retry → CircuitBreaker → Timeout(per-attempt) → call`\nOuter timeout caps total time including retries; per-attempt timeout bounds each try; breaker sees individual failures.\n\nSQL Server angle: `EnableRetryOnFailure()` on your DbContext gives transient-fault retry for Azure SQL/failover blips — same pattern, ADO.NET layer.",
+      "practiceTask": "Add AddStandardResilienceHandler to an HttpClient in a scratch app calling a fake flaky endpoint (random 503s). Log each retry and force the circuit open; observe instant failures while open, then half-open recovery.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience"],
+      "quiz": [
+        {
+          "question": "The circuit breaker's Open state exists to:",
+          "options": ["Retry faster", "Fail fast without calling the dependency — protecting it from load and you from resource exhaustion", "Log more detail", "Switch to a backup server"],
+          "correctIndex": 1,
+          "explanation": "When a dependency is down, continuing to call it wastes your threads/sockets and delays its recovery; failing instantly contains the damage."
+        },
+        {
+          "question": "Why add jitter to exponential backoff?",
+          "options": ["It shortens total wait time", "Without it, all clients retry in synchronized waves, hammering the recovering service simultaneously", "It's required by HTTP", "It improves logging"],
+          "correctIndex": 1,
+          "explanation": "Randomizing delays de-synchronizes the retry stampede — the 'thundering herd' problem."
+        }
+      ]
+    },
+    {
+      "title": "Pattern Selection: Smells → Patterns Cheat Sheet",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Choosing Patterns: Work Backwards from Pain\n\nPatterns are named refactorings for recurring pain. Wrong direction: \"where can I use Visitor?\" Right direction: \"this code hurts — which pattern is the known cure?\"\n\n## Smell → Pattern map\n\n| Smell in your code | Reach for |\n|---|---|\n| Growing switch on type/kind | Strategy (+ factory to select) |\n| Growing switch on *status* in many methods | State |\n| `new` of concrete classes scattered everywhere | Factory / DI |\n| Constructor with 8 parameters, half optional | Builder |\n| Same pre/post logic copy-pasted around calls | Decorator (or middleware/behavior) |\n| Business code calls vendor SDK types directly | Adapter |\n| Controller orchestrates 5 services inline | Facade / application service |\n| Everyone references everyone (N²) | Mediator |\n| 'Notify these 4 things when X happens' hardcoded | Observer / domain events |\n| Need undo, audit trail, queued/delayed execution | Command (+ Memento) |\n| Two independent dimensions of variation | Bridge |\n| Same algorithm skeleton, differing steps | Template Method (or Strategy) |\n| Null checks for optional collaborators everywhere | Null Object |\n| Exceptions used for expected business outcomes | Result |\n| if/else chain where first match wins | Chain of Responsibility |\n\n## Anti-pattern awareness (equal marks in interviews)\n\n- **Pattern fever**: AbstractSingletonProxyFactoryBean-style layering nobody needed. Every pattern adds indirection — indirection must buy flexibility you'll actually use.\n- **Golden hammer**: MediatR/generic-repository/microservices applied to every project regardless of fit.\n- **Premature abstraction**: interfaces with exactly one implementation forever, 'just in case'. Rule of three: abstract on the second or third occurrence, not the first.\n\n## The senior answer\n\nWhen asked \"which pattern would you use?\", the strongest openers are: \"What's varying, and what's stable?\" and \"How many times has this changed?\" Patterns serve change — no change pressure, no pattern needed.",
+      "practiceTask": "Review your current project's git log for the 3 most-edited service classes (git log --format= --name-only | sort | uniq -c). High churn = change pressure. Match each hotspot to a smell in the table and note which pattern (if any) would absorb future changes.",
+      "externalLinks": ["https://refactoring.guru/refactoring/smells"],
+      "quiz": [
+        {
+          "question": "A colleague proposes interfaces + factories for a class that has never changed and has one implementation. Best response:",
+          "options": ["Approve — patterns are best practice", "Rule of three: add the abstraction when change pressure is demonstrated, not speculatively", "Suggest Visitor instead", "Add a mediator too"],
+          "correctIndex": 1,
+          "explanation": "Patterns pay for indirection with flexibility; flexibility for changes that never come is pure cost."
+        }
+      ]
+    }
+  ]
+}

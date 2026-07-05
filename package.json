@@ -1,0 +1,61 @@
+{
+  "name": "learnmore",
+  "version": "1.1.0",
+  "description": "Daily tech-skill trainer desktop app",
+  "author": "Anter",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n api,client,electron -c blue,red,green \"npm:dev:api\" \"npm:dev:client\" \"npm:dev:electron\"",
+    "dev:api": "dotnet run --project api/LearnMore.Api",
+    "dev:client": "npm start --prefix client",
+    "dev:electron": "wait-on http-get://localhost:4200 http-get://localhost:5199/api/health && electron . --dev",
+    "build:client": "npm run build --prefix client",
+    "build:api": "dotnet publish api/LearnMore.Api -c Release -r win-x64 --self-contained true -o build/api",
+    "copy:client": "node scripts/copy-client.js",
+    "package": "npm run build:client && npm run build:api && npm run copy:client && electron-builder",
+    "release": "npm run build:client && npm run build:api && npm run copy:client && electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.anter.learnmore",
+    "productName": "LearnMore",
+    "publish": {
+      "provider": "github",
+      "owner": "mohamedanter1996",
+      "repo": "learnMore"
+    },
+    "directories": {
+      "output": "build/installer"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/api",
+        "to": "api"
+      },
+      {
+        "from": "seed",
+        "to": "seed"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.0.10"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

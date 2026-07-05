@@ -1,0 +1,515 @@
+{
+  "topic": "Data Structures & Algorithms",
+  "color": "#f59e0b",
+  "icon": "🧮",
+  "items": [
+    {
+      "title": "Big-O Notation: Measuring Algorithm Efficiency",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Big-O Notation\n\nBig-O describes how an algorithm's cost grows as input size `n` grows. It ignores constants and lower-order terms — `3n + 100` is `O(n)`.\n\n## Common classes (fastest → slowest)\n\n| Big-O | Name | Example |\n|---|---|---|\n| O(1) | Constant | Array index, Dictionary lookup |\n| O(log n) | Logarithmic | Binary search |\n| O(n) | Linear | Single loop over a list |\n| O(n log n) | Linearithmic | Efficient sorting (QuickSort, MergeSort) |\n| O(n²) | Quadratic | Nested loops over same input |\n| O(2ⁿ) | Exponential | Naive recursive Fibonacci |\n\n## Rules of thumb\n\n- Sequential statements: take the **max** — `O(n) + O(n²) = O(n²)`.\n- Nested loops: **multiply** — loop inside a loop over `n` = `O(n²)`.\n- Always reason about the **worst case** unless stated otherwise.\n- Also track **space complexity**: extra memory allocated, not the input itself.\n\n```csharp\n// O(n²): compare every pair\nfor (int i = 0; i < arr.Length; i++)\n    for (int j = i + 1; j < arr.Length; j++)\n        if (arr[i] == arr[j]) return true;\n\n// O(n): trade memory for speed\nvar seen = new HashSet<int>();\nforeach (var x in arr)\n    if (!seen.Add(x)) return true;\n```\n\nThat rewrite — nested loop → hash set — is the single most common optimization in interviews and real code.",
+      "practiceTask": "Take a method from your current project with a loop inside a loop (e.g., matching two lists). Determine its Big-O, then rewrite it using a Dictionary or HashSet and measure both with Stopwatch on 10,000 items.",
+      "externalLinks": ["https://www.bigocheatsheet.com/"],
+      "quiz": [
+        {
+          "question": "What is the time complexity of accessing an element in an array by index?",
+          "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+          "correctIndex": 0,
+          "explanation": "Array elements are stored contiguously; the address is computed directly from the index."
+        },
+        {
+          "question": "A method runs one O(n) loop, then a separate O(n²) nested loop. Its overall complexity is:",
+          "options": ["O(n³)", "O(n² + n)", "O(n²)", "O(n log n)"],
+          "correctIndex": 2,
+          "explanation": "Sequential blocks take the dominant term: O(n) + O(n²) simplifies to O(n²)."
+        }
+      ]
+    },
+    {
+      "title": "Arrays: Memory Layout and Why Cache Matters",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Arrays\n\nAn array is a contiguous block of memory. `arr[i]` compiles to `baseAddress + i * elementSize` — that's why indexing is O(1).\n\n## Costs\n\n| Operation | Cost |\n|---|---|\n| Access by index | O(1) |\n| Search unsorted | O(n) |\n| Insert/delete at end | O(1) amortized (List<T>) |\n| Insert/delete at middle | O(n) — must shift elements |\n\n## Contiguity = cache friendliness\n\nCPUs load memory in 64-byte cache lines. Iterating an `int[]` pulls 16 ints per memory fetch; iterating a linked list jumps to random addresses and misses cache constantly. In practice arrays outperform linked lists even for workloads where big-O says otherwise.\n\n## List<T> internals\n\n`List<T>` wraps an array. When full, it allocates a **new array of double the capacity** and copies. That's why `Add` is *amortized* O(1): occasional O(n) copies averaged over many adds.\n\n```csharp\nvar list = new List<int>(capacity: 100_000); // pre-size when count is known\n```\n\nPre-sizing avoids repeated grow-and-copy cycles — a cheap, real optimization in hot paths.",
+      "practiceTask": "Benchmark adding 1M items to a List<int> with and without initial capacity using Stopwatch. Then explain the difference in terms of array doubling.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.list-1"],
+      "quiz": [
+        {
+          "question": "Why is inserting into the middle of an array O(n)?",
+          "options": ["The array must be re-sorted", "All later elements must shift one position", "The whole array is always reallocated", "Index math becomes O(n)"],
+          "correctIndex": 1,
+          "explanation": "Contiguous storage means every element after the insertion point must move to make room."
+        }
+      ]
+    },
+    {
+      "title": "Strings, Immutability and StringBuilder",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Strings in .NET\n\n.NET strings are **immutable**: every `+=` allocates a brand-new string and copies both halves.\n\n```csharp\n// O(n²) total copying — allocates n strings\nstring s = \"\";\nfor (int i = 0; i < n; i++) s += words[i];\n\n// O(n) — one internal buffer that grows\nvar sb = new StringBuilder();\nfor (int i = 0; i < n; i++) sb.Append(words[i]);\nstring result = sb.ToString();\n```\n\n## When it matters\n\n- Loops that build strings (reports, CSV, SQL) → always `StringBuilder` or `string.Join`.\n- A handful of concatenations in one expression → fine; the compiler uses `String.Concat`.\n- `string.Join(\",\", items)` beats manual loops for delimited output.\n\n## Common string algorithm tools\n\n- `Span<char>` / `AsSpan()` — slice without allocating substrings.\n- Frequency counting: `new int[26]` or `Dictionary<char,int>` — the basis of anagram and palindrome problems.\n- Two pointers from both ends — palindrome checks in O(n) with O(1) space.",
+      "practiceTask": "Write an IsAnagram(string a, string b) method two ways: sorting both strings (O(n log n)) and counting characters with an int[26] (O(n)). Verify both work, then explain which allocates less.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.text.stringbuilder"],
+      "quiz": [
+        {
+          "question": "Building a string with += inside a loop of n iterations costs:",
+          "options": ["O(n) — strings append in place", "O(n²) — each += copies the whole string so far", "O(log n)", "O(1) per iteration always"],
+          "correctIndex": 1,
+          "explanation": "Immutability forces a full copy per concatenation: 1+2+...+n character copies = O(n²)."
+        }
+      ]
+    },
+    {
+      "title": "Hash Tables: How Dictionary<TKey,TValue> Works",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Hash Tables\n\n`Dictionary<TKey,TValue>` gives O(1) average lookup by turning a key into a bucket index:\n\n1. `key.GetHashCode()` → integer hash.\n2. `hash % bucketCount` → bucket index.\n3. Bucket holds entries; equal hashes are resolved by chaining through an entries array.\n\n## Collisions\n\nTwo keys can hash to the same bucket. .NET chains colliding entries; lookup walks the chain comparing with `Equals`. If *many* keys collide (bad `GetHashCode`), lookup degrades toward O(n).\n\n## The GetHashCode/Equals contract\n\nIf you use a custom class as a key you **must** override both, consistently: equal objects must return equal hash codes. Records do this for you:\n\n```csharp\npublic record CustomerKey(int RegionId, string Code); // value equality + hash for free\n\nvar cache = new Dictionary<CustomerKey, decimal>();\n```\n\nMutating a key object after inserting it breaks retrieval — the stored hash no longer matches. Prefer immutable keys.\n\n## Cost table\n\n| Operation | Average | Worst |\n|---|---|---|\n| Add / Lookup / Remove | O(1) | O(n) (mass collisions) |\n\nRule: whenever you write `list.FirstOrDefault(x => x.Id == id)` inside a loop, you probably want a Dictionary built once outside the loop.",
+      "practiceTask": "Find a spot in your codebase where a List is searched inside a loop (FirstOrDefault/Any per iteration). Replace it with a Dictionary built via ToDictionary() and compare complexity before/after.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.dictionary-2"],
+      "quiz": [
+        {
+          "question": "Two different keys land in the same bucket. This is called:",
+          "options": ["A race condition", "A collision", "A rehash", "Bucket overflow"],
+          "correctIndex": 1,
+          "explanation": "Collisions are normal; the dictionary chains entries and compares keys with Equals to resolve them."
+        },
+        {
+          "question": "You use a mutable class as a Dictionary key, insert it, then change a field used in GetHashCode. What happens?",
+          "options": ["Nothing — the dictionary re-hashes automatically", "The entry may become unreachable via lookup", "An exception is thrown immediately", "The dictionary re-sorts"],
+          "correctIndex": 1,
+          "explanation": "The entry was placed by the old hash. Lookups now compute a different hash and search the wrong bucket."
+        }
+      ]
+    },
+    {
+      "title": "Linked Lists: Trade-offs vs Arrays",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Linked Lists\n\nEach node holds a value plus a reference to the next node (and previous, in a doubly linked list). .NET ships `LinkedList<T>` (doubly linked).\n\n| Operation | Linked list | Array/List<T> |\n|---|---|---|\n| Access by index | O(n) | O(1) |\n| Insert/remove at known node | O(1) | O(n) |\n| Insert at front | O(1) | O(n) |\n| Cache behavior | Poor (scattered nodes) | Excellent |\n\n## The classic patterns\n\n**Reverse a singly linked list** — three pointers:\n\n```csharp\nNode? prev = null, curr = head;\nwhile (curr != null)\n{\n    var next = curr.Next;\n    curr.Next = prev;\n    prev = curr;\n    curr = next;\n}\n// prev is the new head\n```\n\n**Fast & slow pointers** — find the middle or detect a cycle (Floyd's algorithm): advance one pointer 1 step, the other 2 steps. If they meet, there's a cycle; when fast hits the end, slow is at the middle.\n\n## Honest advice\n\nIn application code you'll almost always use `List<T>` — cache locality wins. Linked lists matter for interviews, for LRU caches (Dictionary + LinkedList), and for understanding how `LinkedList<T>`-based structures work.",
+      "practiceTask": "Implement a singly linked list node class and write two methods: Reverse() and HasCycle() using fast/slow pointers. Test with a list you deliberately make cyclic.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.linkedlist-1"],
+      "quiz": [
+        {
+          "question": "In Floyd's cycle detection, why do fast (2 steps) and slow (1 step) pointers meet if a cycle exists?",
+          "options": ["They both restart at head periodically", "Inside a cycle the gap shrinks by 1 each step, so it reaches 0", "Hash codes eventually collide", "The list is sorted first"],
+          "correctIndex": 1,
+          "explanation": "Once both are in the cycle, fast gains one position per step on slow, so the distance decreases to zero."
+        }
+      ]
+    },
+    {
+      "title": "Stacks: LIFO and Its Surprising Uses",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Stacks\n\nLast-In-First-Out. `Stack<T>`: `Push`, `Pop`, `Peek` — all O(1).\n\n## Where stacks appear\n\n- **The call stack** — recursion *is* an implicit stack; any recursion can be rewritten with an explicit `Stack<T>`.\n- **Undo/redo** — two stacks.\n- **Balanced brackets** — push openers, pop and match closers.\n- **Monotonic stack** — keep the stack sorted while pushing; solves \"next greater element\" style problems in O(n).\n\n```csharp\nbool IsBalanced(string s)\n{\n    var pairs = new Dictionary<char, char> { [')'] = '(', [']'] = '[', ['}'] = '{' };\n    var stack = new Stack<char>();\n    foreach (var c in s)\n    {\n        if (\"([{\".Contains(c)) stack.Push(c);\n        else if (pairs.TryGetValue(c, out var open))\n        {\n            if (stack.Count == 0 || stack.Pop() != open) return false;\n        }\n    }\n    return stack.Count == 0;\n}\n```\n\nBalanced-bracket checking is exactly what your IDE and every parser (including Angular's template compiler) do continuously.",
+      "practiceTask": "Implement IsBalanced above and extend it to report the position of the first mismatched bracket. Then rewrite a simple recursive function (e.g., directory traversal) using an explicit Stack<T> instead of recursion.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.stack-1"],
+      "quiz": [
+        {
+          "question": "Which problem is a natural fit for a stack?",
+          "options": ["Finding the minimum in a rotating window", "Matching nested brackets", "Breadth-first traversal", "Merging sorted lists"],
+          "correctIndex": 1,
+          "explanation": "Nesting is inherently LIFO: the most recently opened bracket must close first."
+        }
+      ]
+    },
+    {
+      "title": "Queues: FIFO, Deques, and PriorityQueue",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# Queues\n\nFirst-In-First-Out. `Queue<T>`: `Enqueue`, `Dequeue`, `Peek` — all O(1) (circular buffer internally).\n\n## The family\n\n| Type | Behavior | .NET |\n|---|---|---|\n| Queue | FIFO | `Queue<T>` |\n| Deque | push/pop both ends | `LinkedList<T>` (or two-stack trick) |\n| Priority queue | dequeue smallest priority | `PriorityQueue<TElement,TPriority>` (.NET 6+) |\n\n## Where you already use them\n\n- **BFS traversal** — the queue *is* the algorithm (level by level).\n- **Message queues** — RabbitMQ/Azure Service Bus are distributed FIFO queues; same mental model.\n- **Channel<T>** — producer/consumer pipelines in ASP.NET Core background services are queues with async semantics.\n\n```csharp\nvar pq = new PriorityQueue<string, int>();\npq.Enqueue(\"low\", 5);\npq.Enqueue(\"urgent\", 1);\npq.Dequeue(); // \"urgent\" — smallest priority first\n```\n\n`PriorityQueue` is a binary heap: Enqueue/Dequeue are O(log n) — it powers Dijkstra's algorithm and any \"process cheapest first\" scheduling.",
+      "practiceTask": "Build a mini job scheduler: enqueue jobs with priorities into PriorityQueue<Job,int> and process them in order. Then simulate a print queue with Queue<T> and compare the dequeue order.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.priorityqueue-2"],
+      "quiz": [
+        {
+          "question": "PriorityQueue<TElement,TPriority> in .NET dequeues:",
+          "options": ["The element added first", "The element added last", "The element with the smallest priority value", "A random element"],
+          "correctIndex": 2,
+          "explanation": "It's a min-heap: the smallest priority is always at the root and dequeued first."
+        }
+      ]
+    },
+    {
+      "title": "Two Pointers: O(n²) → O(n)",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Two Pointers\n\nUse two indices moving through data instead of nested loops. Works when data is **sorted** or when moving pointers can only improve the answer.\n\n## Pattern 1: opposite ends (sorted array)\n\nTwo-sum on sorted input:\n\n```csharp\nint left = 0, right = arr.Length - 1;\nwhile (left < right)\n{\n    int sum = arr[left] + arr[right];\n    if (sum == target) return (left, right);\n    if (sum < target) left++;   // need bigger\n    else right--;               // need smaller\n}\n```\n\nEach step eliminates one candidate — O(n) instead of O(n²).\n\n## Pattern 2: fast/slow (in-place compaction)\n\nRemove duplicates from sorted array in place:\n\n```csharp\nint write = 1;\nfor (int read = 1; read < arr.Length; read++)\n    if (arr[read] != arr[read - 1])\n        arr[write++] = arr[read];\n// first `write` elements are the deduped array\n```\n\n## When to reach for it\n\n- \"Find a pair/triplet with sum X\" (sort first if needed)\n- \"Reverse/partition in place\"\n- \"Merge two sorted arrays\" — one pointer per array, the basis of MergeSort's merge step.",
+      "practiceTask": "Solve: given a sorted int[], square every element and return the result sorted, in O(n), using two pointers from both ends (largest absolute values are at the edges).",
+      "externalLinks": ["https://leetcode.com/problems/two-sum-ii-input-array-is-sorted/"],
+      "quiz": [
+        {
+          "question": "Why does the opposite-ends two-pointer approach require sorted input?",
+          "options": ["Pointers can't move in unsorted arrays", "Sortedness makes 'move left up = bigger sum' a valid decision rule", "It avoids integer overflow", "It doesn't — it works on any array"],
+          "correctIndex": 1,
+          "explanation": "The algorithm relies on knowing which direction changes the sum monotonically; that's only true when sorted."
+        }
+      ]
+    },
+    {
+      "title": "Sliding Window: Substrings and Subarrays in O(n)",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Sliding Window\n\nFor problems about **contiguous** subarrays/substrings: maintain a window `[left, right]`, expand `right`, and shrink `left` only when the window becomes invalid. Each index enters and leaves the window once → O(n).\n\n## Fixed-size window\n\nMax sum of any k consecutive elements — subtract the element leaving, add the one entering:\n\n```csharp\nint sum = arr.Take(k).Sum(), best = sum;\nfor (int i = k; i < arr.Length; i++)\n{\n    sum += arr[i] - arr[i - k];\n    best = Math.Max(best, sum);\n}\n```\n\n## Variable-size window\n\nLongest substring without repeating characters:\n\n```csharp\nvar last = new Dictionary<char, int>();\nint left = 0, best = 0;\nfor (int right = 0; right < s.Length; right++)\n{\n    if (last.TryGetValue(s[right], out var idx) && idx >= left)\n        left = idx + 1;              // jump past the duplicate\n    last[s[right]] = right;\n    best = Math.Max(best, right - left + 1);\n}\n```\n\n## Recognize it by the words\n\n\"longest/shortest **substring**...\", \"max sum **subarray** of size k\", \"minimum window containing...\" — contiguous + optimize = sliding window.",
+      "practiceTask": "Solve: minimum length of a contiguous subarray whose sum ≥ target (variable window: expand right, shrink left while sum stays ≥ target). Test edge cases: no valid window, whole array needed.",
+      "externalLinks": ["https://leetcode.com/problems/longest-substring-without-repeating-characters/"],
+      "quiz": [
+        {
+          "question": "Why is the variable sliding window O(n) even though it has a nested-looking while loop?",
+          "options": ["The while loop runs at most log n times", "left and right each advance at most n times total across the whole run", "It isn't — it's O(n²)", "Dictionary operations make it O(1) overall"],
+          "correctIndex": 1,
+          "explanation": "Amortized analysis: each pointer only moves forward, so total work across all iterations is 2n."
+        }
+      ]
+    },
+    {
+      "title": "Binary Search: Beyond Finding an Element",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Binary Search\n\nOn sorted data, halve the search space each step: O(log n). A million elements → ~20 comparisons.\n\n```csharp\nint lo = 0, hi = arr.Length - 1;\nwhile (lo <= hi)\n{\n    int mid = lo + (hi - lo) / 2;   // avoids int overflow\n    if (arr[mid] == target) return mid;\n    if (arr[mid] < target) lo = mid + 1;\n    else hi = mid - 1;\n}\nreturn -1;\n```\n\n## The real power: search the answer space\n\nBinary search works on any **monotonic condition**, not just arrays: \"find the smallest x where Condition(x) is true\".\n\n- First bad version / first failing build.\n- Smallest capacity that ships packages in D days.\n- SQL Server does the same thing walking a B-tree index — every level halves (well, divides by fan-out) the remaining rows.\n\n```csharp\n// lower_bound: first index where arr[i] >= target\nint lo = 0, hi = arr.Length;\nwhile (lo < hi)\n{\n    int mid = lo + (hi - lo) / 2;\n    if (arr[mid] < target) lo = mid + 1; else hi = mid;\n}\nreturn lo;\n```\n\nOff-by-one bugs are the classic failure — pick an invariant (\"answer is in [lo, hi)\") and keep it true every iteration.",
+      "practiceTask": "Implement FirstTrue(int lo, int hi, Func<int,bool> condition) returning the smallest value where condition flips to true. Use it to find the first version where a fake IsBuildBroken(v) returns true.",
+      "externalLinks": ["https://leetcode.com/problems/binary-search/"],
+      "quiz": [
+        {
+          "question": "Why write mid = lo + (hi - lo) / 2 instead of (lo + hi) / 2?",
+          "options": ["It's faster", "It avoids integer overflow when lo + hi exceeds int.MaxValue", "It rounds up instead of down", "No reason — they're identical"],
+          "correctIndex": 1,
+          "explanation": "lo + hi can overflow for large indices; lo + (hi-lo)/2 mathematically equals it without the overflow risk."
+        }
+      ]
+    },
+    {
+      "title": "Recursion: Base Case, Progress, Trust",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Recursion\n\nA function that calls itself on a smaller subproblem. Every correct recursion has:\n\n1. **Base case** — smallest input, answered directly.\n2. **Progress** — each call moves toward the base case.\n3. **Trust** — assume the recursive call is correct and combine its result (the leap of faith).\n\n```csharp\nlong SizeOf(DirectoryInfo dir) =>\n    dir.GetFiles().Sum(f => f.Length) +\n    dir.GetDirectories().Sum(SizeOf);   // trust: each subdir returns its size\n```\n\n## The call stack is finite\n\n~1MB default stack in .NET ≈ tens of thousands of frames. Deep recursion → `StackOverflowException` (uncatchable!). Linear recursion over big data should become a loop or explicit `Stack<T>`.\n\n## Cost analysis\n\n- One recursive call per level (factorial, directory sum): O(depth).\n- **Two** calls per level (naive Fibonacci): O(2ⁿ) — the tree of calls doubles each level. Memoization fixes this (later lesson).\n\nRecursion shines on **recursive structures**: trees, JSON, org charts, file systems, expression parsing. If the data nests, recursion reads naturally; if it's flat, prefer a loop.",
+      "practiceTask": "Write a recursive method that pretty-prints a nested menu structure (e.g., categories with children) with indentation. Then rewrite it with an explicit Stack<(node, depth)> and confirm identical output.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/functional/recursion"],
+      "quiz": [
+        {
+          "question": "Naive recursive Fibonacci fib(n) = fib(n-1) + fib(n-2) is exponential because:",
+          "options": ["The call stack overflows", "The same subproblems are recomputed exponentially many times", "Addition is slow", "It allocates arrays each call"],
+          "correctIndex": 1,
+          "explanation": "fib(40) computes fib(38) twice, fib(37) three times, etc. — the call tree has ~2ⁿ nodes."
+        }
+      ]
+    },
+    {
+      "title": "Sorting I: What O(n log n) Buys You",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Sorting Fundamentals\n\nComparison sorting can't beat **O(n log n)** in the general case — that's a proven lower bound. The O(n²) sorts still matter for understanding:\n\n| Sort | Time | Space | Stable | Notes |\n|---|---|---|---|---|\n| Bubble | O(n²) | O(1) | Yes | Educational only |\n| Insertion | O(n²), O(n) if nearly sorted | O(1) | Yes | Great for tiny/nearly-sorted data |\n| Selection | O(n²) always | O(1) | No | Minimal swaps |\n| MergeSort | O(n log n) | O(n) | Yes | Predictable |\n| QuickSort | O(n log n) avg, O(n²) worst | O(log n) | No | Fastest in practice |\n| HeapSort | O(n log n) | O(1) | No | No worst-case blowup |\n\n## Stability\n\nA **stable** sort preserves the relative order of equal keys. Sort orders by date, then stably by customer → within each customer, orders stay date-sorted. LINQ's `OrderBy` **is stable**; `Array.Sort` **is not**.\n\n## What .NET actually does\n\n`Array.Sort`/`List.Sort` use **introsort**: QuickSort that switches to HeapSort when recursion gets too deep, and insertion sort for small partitions — engineering pragmatism over purity.\n\n`OrderBy(...).ThenBy(...)` relies on stability — that's why `ThenBy` works at all.",
+      "practiceTask": "Implement insertion sort. Verify it's O(n) on already-sorted input by counting comparisons on sorted vs shuffled arrays of 10,000 items.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.array.sort"],
+      "quiz": [
+        {
+          "question": "You sort a list by Name with an unstable sort, then by Age. What's lost vs doing it with LINQ OrderBy(Age).ThenBy(Name)?",
+          "options": ["Nothing — results are identical", "Equal-age people are no longer alphabetical", "The sort becomes O(n²)", "Duplicates are removed"],
+          "correctIndex": 1,
+          "explanation": "Unstable sorting scrambles equal keys; ThenBy semantics require stability to preserve the secondary order."
+        }
+      ]
+    },
+    {
+      "title": "Sorting II: QuickSort and Partitioning",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# QuickSort\n\nPick a **pivot**, partition the array (smaller left, larger right), recurse on both halves. Average O(n log n); worst case O(n²) when partitions are lopsided (e.g., sorted input with first-element pivot).\n\n```csharp\nvoid QuickSort(int[] a, int lo, int hi)\n{\n    if (lo >= hi) return;\n    int p = Partition(a, lo, hi);\n    QuickSort(a, lo, p - 1);\n    QuickSort(a, p + 1, hi);\n}\n\nint Partition(int[] a, int lo, int hi)\n{\n    int pivot = a[hi], i = lo;           // Lomuto scheme\n    for (int j = lo; j < hi; j++)\n        if (a[j] < pivot) (a[i], a[j]) = (a[j], a[i++]);\n    (a[i], a[hi]) = (a[hi], a[i]);\n    return i;\n}\n```\n\n## Why it's fast in practice\n\nIn-place (no O(n) buffer like MergeSort), sequential access (cache-friendly), tight inner loop. Random or median-of-three pivots avoid the sorted-input worst case.\n\n## Partitioning is independently useful\n\n**QuickSelect** — find the k-th smallest element in O(n) average: partition, recurse only into the half containing k. That's how you answer \"95th percentile response time\" without fully sorting.",
+      "practiceTask": "Implement QuickSelect(int[] a, int k) returning the k-th smallest element without fully sorting. Use it to find the median and 95th percentile of 100,000 random response times.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Quickselect"],
+      "quiz": [
+        {
+          "question": "QuickSort degrades to O(n²) when:",
+          "options": ["The array contains duplicates", "Partitions are consistently maximally unbalanced (e.g., sorted input, first-element pivot)", "n is odd", "The array doesn't fit in cache"],
+          "correctIndex": 1,
+          "explanation": "If every partition splits n into 1 and n-1, you get n levels of O(n) work."
+        }
+      ]
+    },
+    {
+      "title": "Sorting III: MergeSort and the Merge Pattern",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# MergeSort\n\nSplit in half, sort each half recursively, **merge** two sorted halves in O(n). Depth log n × O(n) merging = O(n log n) **guaranteed**, and stable — but needs O(n) auxiliary space.\n\n## The merge step (two pointers)\n\n```csharp\nint[] Merge(int[] a, int[] b)\n{\n    var result = new int[a.Length + b.Length];\n    int i = 0, j = 0, k = 0;\n    while (i < a.Length && j < b.Length)\n        result[k++] = a[i] <= b[j] ? a[i++] : b[j++];\n    while (i < a.Length) result[k++] = a[i++];\n    while (j < b.Length) result[k++] = b[j++];\n    return result;\n}\n```\n\n## Why the merge pattern matters beyond sorting\n\n- **Merging paged results** from two sorted API responses or two sorted SQL result sets.\n- **External sorting** — SQL Server sorts data bigger than memory by sorting chunks and merging runs from disk. When you see a `Sort` operator spilling to tempdb in an execution plan, it's doing exactly this.\n- **Merge joins** — SQL Server's Merge Join operator requires both inputs sorted, then walks them with two pointers exactly like the code above.\n\nCount inversions, find intersection of sorted lists, k-way merge with a heap — all variants of this one loop.",
+      "practiceTask": "Write a method that merges two already-sorted List<Order> by OrderDate into one sorted list in O(n+m), without calling Sort. This mirrors SQL Server's merge join.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Merge_sort"],
+      "quiz": [
+        {
+          "question": "SQL Server's Merge Join requires both inputs sorted because:",
+          "options": ["It hashes both inputs", "It advances two pointers through the inputs, which only works on sorted streams", "Sorting compresses the data", "It's a legacy limitation"],
+          "correctIndex": 1,
+          "explanation": "Merge join is the two-pointer merge: compare current rows, advance the smaller side — sortedness makes that correct."
+        }
+      ]
+    },
+    {
+      "title": "HashSet and Set Operations",
+      "difficulty": 1,
+      "estimatedMinutes": 12,
+      "bodyMarkdown": "# HashSet<T>\n\nA hash table storing only keys: O(1) average `Add`, `Contains`, `Remove`. Duplicates are ignored — `Add` returns `false` if already present (a free \"seen before?\" check).\n\n## Set algebra\n\n```csharp\nvar a = new HashSet<int> { 1, 2, 3, 4 };\nvar b = new HashSet<int> { 3, 4, 5 };\n\na.IntersectWith(b);  // {3,4}      — in both\na.UnionWith(b);      // {1,2,3,4,5}\na.ExceptWith(b);     // {1,2}      — in a, not b\na.IsSubsetOf(b);\n```\n\nLINQ equivalents (`Intersect`, `Union`, `Except`) build sets internally — same idea, allocation per call.\n\n## Classic uses\n\n- **Dedup**: `new HashSet<string>(emails)`.\n- **Diffing**: which IDs are in the request but not in the DB? `requestIds.Except(dbIds)` — this is the in-memory version of SQL's `EXCEPT` / `NOT EXISTS`.\n- **First duplicate**: loop with `if (!seen.Add(x)) return x;`\n- **O(1) membership** replacing `list.Contains` (which is O(n)) inside loops — same upgrade as Dictionary for lookups.\n\nFor sorted-order iteration use `SortedSet<T>` (red-black tree, O(log n) ops).",
+      "practiceTask": "Given two lists of customer IDs (database vs import file), produce: new IDs (in file only), deleted IDs (in DB only), unchanged IDs — using HashSet operations. Compare with how you'd write it in SQL.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.hashset-1"],
+      "quiz": [
+        {
+          "question": "list.Contains(x) inside a loop over n items, where list has m items, costs overall:",
+          "options": ["O(n)", "O(n + m)", "O(n × m)", "O(n log m)"],
+          "correctIndex": 2,
+          "explanation": "Each Contains is a linear scan of m; doing it n times multiplies. A HashSet drops it to O(n + m)."
+        }
+      ]
+    },
+    {
+      "title": "Trees: Terminology and Recursive Thinking",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Trees\n\nA hierarchy of nodes: one **root**, every other node has exactly one parent. **Leaf** = no children. **Height** = longest root-to-leaf path. A **binary tree** caps children at two (left/right).\n\nYou already work with trees daily:\n\n- The DOM and Angular's component tree\n- JSON payloads\n- SQL Server execution plans (operators feeding parent operators)\n- File systems, org charts, category hierarchies\n\n## Trees are recursively defined\n\nA tree is: a node + a list of subtrees. So tree algorithms are naturally recursive — handle the node, recurse on children:\n\n```csharp\npublic class TreeNode\n{\n    public int Value;\n    public TreeNode? Left, Right;\n}\n\nint Height(TreeNode? node) =>\n    node == null ? 0 : 1 + Math.Max(Height(node.Left), Height(node.Right));\n\nint Count(TreeNode? node) =>\n    node == null ? 0 : 1 + Count(node.Left) + Count(node.Right);\n```\n\nBase case = null child. Progress = children are smaller trees. Both run in O(n) — every node visited once.\n\nA **balanced** tree keeps height ≈ log n, which is what makes tree-based indexes fast; an unbalanced tree can degrade into a linked list (height n). That distinction drives the next lessons.",
+      "practiceTask": "Model your product category hierarchy as a tree (or use a folder tree). Write recursive methods: CountLeaves, MaxDepth, and Find(name) returning the path from root.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Tree_(data_structure)"],
+      "quiz": [
+        {
+          "question": "A balanced binary tree with 1,000,000 nodes has height approximately:",
+          "options": ["1000", "20", "500,000", "100"],
+          "correctIndex": 1,
+          "explanation": "Height ≈ log₂(n); log₂(1,000,000) ≈ 20. That's why balanced trees give O(log n) operations."
+        }
+      ]
+    },
+    {
+      "title": "Binary Search Trees: Ordered Data, O(log n) Ops",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Binary Search Trees\n\n**BST invariant**: everything in the left subtree < node < everything in the right subtree. Search, insert, delete all follow one root-to-leaf path: **O(height)**.\n\n```csharp\nbool Contains(TreeNode? node, int value)\n{\n    if (node == null) return false;\n    if (value == node.Value) return true;\n    return value < node.Value\n        ? Contains(node.Left, value)\n        : Contains(node.Right, value);\n}\n```\n\n## The balance problem\n\nInsert 1,2,3,4,5 in order → every node goes right → a linked list with O(n) search. **Self-balancing** trees (AVL, red-black) rotate nodes on insert to keep height O(log n). .NET's `SortedDictionary<K,V>` and `SortedSet<T>` are red-black trees.\n\n## BST vs Dictionary\n\n| Need | Use |\n|---|---|\n| Fastest lookup, no ordering | `Dictionary` O(1) |\n| Sorted iteration, range queries (\"all keys between a and b\"), min/max | `SortedDictionary`/`SortedSet` O(log n) |\n\n## Useful property\n\n**In-order traversal of a BST yields sorted order** — also the standard way to validate a BST: in-order values must be strictly increasing.\n\nSQL Server's B-tree indexes are the same idea widened: each node holds hundreds of keys (one 8KB page), so the tree is shallow (3–4 levels for millions of rows).",
+      "practiceTask": "Implement BST Insert and Contains. Insert 1..1000 in sorted order vs shuffled order; measure tree height both ways and observe degradation.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.sorteddictionary-2"],
+      "quiz": [
+        {
+          "question": "Inserting sorted data 1,2,3,...,n into a naive (non-balancing) BST results in:",
+          "options": ["A perfectly balanced tree", "O(1) lookups", "A degenerate linked-list shape with O(n) operations", "An exception"],
+          "correctIndex": 2,
+          "explanation": "Every value is larger than the last, so each goes right — height becomes n."
+        }
+      ]
+    },
+    {
+      "title": "Tree Traversals: Pre-, In-, Post-Order DFS",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Depth-First Traversals\n\nThree orders, differing only in **when you visit the node** relative to recursing:\n\n```csharp\nvoid PreOrder(TreeNode? n)  { if (n==null) return; Visit(n); PreOrder(n.Left); PreOrder(n.Right); }\nvoid InOrder(TreeNode? n)   { if (n==null) return; InOrder(n.Left); Visit(n); InOrder(n.Right); }\nvoid PostOrder(TreeNode? n) { if (n==null) return; PostOrder(n.Left); PostOrder(n.Right); Visit(n); }\n```\n\n## Which order for which job\n\n| Order | Visit node... | Use when |\n|---|---|---|\n| Pre | before children | Copy/serialize a tree, render nested menus (parent first) |\n| In | between children | BST → sorted output |\n| Post | after children | Delete a tree, compute folder sizes, evaluate expression trees (need children's results first) |\n\nPost-order is exactly how `du` computes directory sizes and how a SQL execution plan executes: child operators produce rows before the parent consumes them.\n\n## Iterative version\n\nRecursion uses the call stack; the explicit version uses `Stack<TreeNode>`:\n\n```csharp\nvar stack = new Stack<TreeNode>();\nstack.Push(root);\nwhile (stack.Count > 0)\n{\n    var n = stack.Pop();\n    Visit(n);                       // pre-order\n    if (n.Right != null) stack.Push(n.Right);\n    if (n.Left != null) stack.Push(n.Left);   // left pushed last → popped first\n}\n```",
+      "practiceTask": "Build a small expression tree for (3 + 4) * 2 and evaluate it with post-order traversal. Then print the expression with in-order traversal (add parentheses).",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Tree_traversal"],
+      "quiz": [
+        {
+          "question": "To compute the total size of each folder in a directory tree (needing children's sizes first), which traversal fits?",
+          "options": ["Pre-order", "In-order", "Post-order", "Level-order"],
+          "correctIndex": 2,
+          "explanation": "Post-order visits children before the parent, so child sizes are available when the parent sums them."
+        }
+      ]
+    },
+    {
+      "title": "BFS and Level-Order Traversal",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Breadth-First Search\n\nVisit nodes **level by level** using a queue. Contrast with DFS which dives deep using a stack.\n\n```csharp\nvar queue = new Queue<TreeNode>();\nqueue.Enqueue(root);\nwhile (queue.Count > 0)\n{\n    int levelSize = queue.Count;            // snapshot = one level\n    for (int i = 0; i < levelSize; i++)\n    {\n        var n = queue.Dequeue();\n        Visit(n);\n        if (n.Left != null) queue.Enqueue(n.Left);\n        if (n.Right != null) queue.Enqueue(n.Right);\n    }\n}\n```\n\nThe `levelSize` snapshot trick is what turns plain BFS into per-level processing (right-side view, level averages, zigzag order...).\n\n## BFS vs DFS — choosing\n\n| Question | Choice |\n|---|---|\n| Shortest path / minimum steps (unweighted)? | **BFS** — first time you reach a node is via fewest edges |\n| Any path / exhaustive exploration / less memory on deep trees? | DFS |\n| Level-by-level output? | BFS |\n\nBFS memory can hit O(n) (widest level all queued); DFS memory is O(height).\n\nBFS on graphs (next lessons) adds one thing: a `visited` set, because graphs have cycles and multiple paths — trees don't.",
+      "practiceTask": "Print your category/folder tree level by level, one line per level. Then answer: what's the minimum number of clicks (levels) to reach a given node? — that's BFS depth.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Breadth-first_search"],
+      "quiz": [
+        {
+          "question": "Why does BFS find shortest paths in unweighted graphs?",
+          "options": ["It sorts edges by weight", "It explores all nodes at distance k before any node at distance k+1", "It uses a priority queue", "It backtracks optimally"],
+          "correctIndex": 1,
+          "explanation": "The queue processes nodes in distance order, so the first arrival at any node used the fewest edges."
+        }
+      ]
+    },
+    {
+      "title": "Heaps: PriorityQueue Internals and Top-K",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Binary Heaps\n\nA **complete binary tree stored in an array** where every parent ≤ its children (min-heap). No node objects — children of index `i` live at `2i+1` and `2i+2`.\n\n| Operation | Cost | How |\n|---|---|---|\n| Peek min | O(1) | Root is at index 0 |\n| Insert | O(log n) | Append, **sift up** while smaller than parent |\n| Remove min | O(log n) | Move last to root, **sift down** |\n| Build from n items | O(n) | Heapify bottom-up |\n\nThis is exactly what `PriorityQueue<TElement,TPriority>` does internally.\n\n## The top-K pattern (know this one cold)\n\nFind the 10 largest of 10 million items **without sorting everything**: keep a **min-heap of size K**. If a new item beats the heap's minimum, replace it.\n\n```csharp\nvar heap = new PriorityQueue<Order, decimal>();\nforeach (var o in orders)\n{\n    if (heap.Count < 10) heap.Enqueue(o, o.Total);\n    else if (o.Total > heap.Peek().Total)\n        heap.DequeueEnqueue(o, o.Total);\n}\n// heap now holds the 10 largest orders\n```\n\nO(n log K) instead of O(n log n) — and O(K) memory, which matters when the stream doesn't fit in RAM. SQL Server's `TOP 10 ... ORDER BY` uses the same idea (Top N Sort operator).",
+      "practiceTask": "Given 1M random numbers, find the 100 largest using a size-100 min-heap. Compare elapsed time against sorting the whole array and taking the last 100.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.priorityqueue-2"],
+      "quiz": [
+        {
+          "question": "To find the K largest items in a huge stream, you keep a:",
+          "options": ["Max-heap of size n", "Min-heap of size K — evict the minimum when something bigger arrives", "Sorted list of all items", "Queue of size K"],
+          "correctIndex": 1,
+          "explanation": "The heap's min is the 'weakest' of the current top-K; anything larger replaces it in O(log K)."
+        }
+      ]
+    },
+    {
+      "title": "Graphs: Modeling and Representations",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Graphs\n\nNodes (**vertices**) + connections (**edges**). Directed or undirected, weighted or not. Trees are just connected acyclic graphs.\n\nYou already own several graphs:\n\n- Foreign keys between tables (dependency graph — what order to seed/delete?)\n- Microservice call graphs\n- npm/NuGet package dependencies\n- Angular module imports\n- \"Users who follow users\"\n\n## Representations\n\n```csharp\n// Adjacency list — the default choice\nvar graph = new Dictionary<string, List<string>>\n{\n    [\"Orders\"] = [\"Customers\", \"Products\"],   // Orders depends on both\n    [\"Invoices\"] = [\"Orders\"],\n    [\"Customers\"] = [], [\"Products\"] = []\n};\n```\n\n| Representation | Space | Edge lookup | Iterate neighbors | Use when |\n|---|---|---|---|---|\n| Adjacency list | O(V+E) | O(degree) | O(degree) | Sparse graphs (most real ones) |\n| Adjacency matrix | O(V²) | O(1) | O(V) | Dense graphs, tiny V |\n\n## Key vocabulary\n\n- **Degree** — number of edges at a vertex.\n- **Path / cycle** — sequence of edges; cycle returns to start.\n- **Connected component** — set of mutually reachable nodes.\n- **DAG** — directed acyclic graph; anything with a valid \"build order\" (migrations, task dependencies) is a DAG.",
+      "practiceTask": "Write code that builds an adjacency list of your database's FK dependencies (table → tables it references). You'll reuse this graph in the next three lessons.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Graph_(abstract_data_type)"],
+      "quiz": [
+        {
+          "question": "For a sparse graph with 10,000 vertices and 30,000 edges, an adjacency matrix would waste space because:",
+          "options": ["It stores O(V²) = 100M cells for only 30K edges", "Matrices can't represent directed edges", "Lookups become O(n)", "It can't store weights"],
+          "correctIndex": 0,
+          "explanation": "The matrix allocates a cell per vertex pair regardless of whether an edge exists; adjacency lists store only actual edges."
+        }
+      ]
+    },
+    {
+      "title": "Graph DFS: Reachability, Cycles, Components",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# DFS on Graphs\n\nSame as tree DFS **plus a visited set** — graphs have cycles, and without it you'd loop forever.\n\n```csharp\nvoid Dfs(string node, Dictionary<string, List<string>> graph, HashSet<string> visited)\n{\n    if (!visited.Add(node)) return;   // already seen\n    foreach (var next in graph[node])\n        Dfs(next, graph, visited);\n}\n```\n\nO(V + E): each vertex and edge processed once.\n\n## What DFS answers\n\n- **Reachability** — \"if I delete this customer, which rows cascade?\" Run DFS from the node; `visited` is the blast radius.\n- **Connected components** — loop over all vertices, DFS from each unvisited one; each launch = one component (e.g., grouping duplicate accounts linked by shared email/phone).\n- **Cycle detection (directed)** — track a *recursion stack* separately from `visited`: revisiting a node that's still **on the current path** means a cycle.\n\n```csharp\nbool HasCycle(string n, HashSet<string> visited, HashSet<string> onPath)\n{\n    if (onPath.Contains(n)) return true;      // back edge\n    if (!visited.Add(n)) return false;\n    onPath.Add(n);\n    foreach (var next in graph[n])\n        if (HasCycle(next, visited, onPath)) return true;\n    onPath.Remove(n);\n    return false;\n}\n```\n\nCircular FK references and circular DI registrations are caught with exactly this.",
+      "practiceTask": "Using your FK dependency graph from the previous lesson, detect whether any circular table references exist, and list one cycle if found.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Depth-first_search"],
+      "quiz": [
+        {
+          "question": "In directed-graph cycle detection, why isn't the plain visited set enough — why track nodes on the current path?",
+          "options": ["Visited sets are too slow", "A node visited via a *different* completed path isn't a cycle; only revisiting the current path is", "Recursion can't use two sets", "It is enough — the extra set is an optimization"],
+          "correctIndex": 1,
+          "explanation": "Diamond shapes (A→B→D, A→C→D) revisit D without any cycle. Only a back edge to an ancestor on the active path proves one."
+        }
+      ]
+    },
+    {
+      "title": "Graph BFS: Shortest Paths and Degrees of Separation",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# BFS on Graphs\n\nQueue + visited set. First time you reach a node = shortest edge-count path to it.\n\n```csharp\nDictionary<string, string> bfsParent = new();  // child -> parent, to rebuild paths\nvar queue = new Queue<string>();\nvar visited = new HashSet<string> { start };\nqueue.Enqueue(start);\n\nwhile (queue.Count > 0)\n{\n    var node = queue.Dequeue();\n    foreach (var next in graph[node])\n        if (visited.Add(next))\n        {\n            bfsParent[next] = node;\n            queue.Enqueue(next);\n        }\n}\n// Path to target: walk bfsParent from target back to start, reverse.\n```\n\n## Applications\n\n- \"How is user A connected to user B?\" (LinkedIn's *2nd/3rd degree* is literally BFS depth)\n- Fewest hops between microservices; impact radius of a failing service after k hops\n- Shortest move sequences in puzzles/games (each state = node, each move = edge)\n- Web crawlers exploring nearest pages first\n\n## Multi-source BFS\n\nSeed the queue with **several** start nodes at distance 0 — e.g., \"distance from every warehouse\" computed in one pass instead of one BFS per warehouse.\n\nRemember the boundary: BFS shortest path is only valid **unweighted**. Edge weights (costs, latencies) need Dijkstra — up next after topological sort.",
+      "practiceTask": "Build a small friendship graph (8-10 people) and write DegreesOfSeparation(a, b) using BFS with parent tracking; print the actual connection path.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Breadth-first_search"],
+      "quiz": [
+        {
+          "question": "Why must the visited check happen when enqueueing rather than when dequeuing (for efficiency)?",
+          "options": ["It's required for correctness of the path", "Otherwise the same node can be enqueued many times, bloating the queue", "Dequeue is O(n)", "It changes the complexity class to O(1)"],
+          "correctIndex": 1,
+          "explanation": "Marking on enqueue guarantees each node enters the queue once; marking on dequeue allows duplicates in the queue (still correct, but wasteful)."
+        }
+      ]
+    },
+    {
+      "title": "Topological Sort: Dependency Ordering",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Topological Sort\n\nFor a **DAG**: an ordering where every node appears **after** the nodes it depends on. This is \"what order do I run migrations / seed tables / build projects / execute dependent jobs\".\n\n## Kahn's algorithm (BFS-based)\n\n1. Compute **in-degree** (incoming edge count) for every node.\n2. Queue all nodes with in-degree 0 (no dependencies).\n3. Dequeue a node → output it → decrement in-degree of its dependents; enqueue any that hit 0.\n\n```csharp\nvar inDegree = nodes.ToDictionary(n => n, _ => 0);\nforeach (var (_, deps) in graph)\n    foreach (var d in deps) inDegree[d]++;\n\nvar queue = new Queue<string>(nodes.Where(n => inDegree[n] == 0));\nvar order = new List<string>();\nwhile (queue.Count > 0)\n{\n    var n = queue.Dequeue();\n    order.Add(n);\n    foreach (var next in graph[n])\n        if (--inDegree[next] == 0) queue.Enqueue(next);\n}\n\nif (order.Count != nodes.Count) throw new InvalidOperationException(\"Cycle detected!\");\n```\n\nThat last line is a bonus: **if the output is short, the graph has a cycle** — Kahn's doubles as cycle detection. O(V + E).\n\n## Where you've seen it\n\nMSBuild project ordering, EF Core migration ordering, `docker compose depends_on`, npm install trees, task schedulers (Airflow), deleting tables in FK-safe order (reverse topological).",
+      "practiceTask": "Feed your FK dependency graph into Kahn's algorithm to produce a safe seeding order (referenced tables first), then reverse it for a safe deletion order. Verify against your real database.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Topological_sorting"],
+      "quiz": [
+        {
+          "question": "Kahn's algorithm finishes with fewer nodes in the output than the graph contains. This means:",
+          "options": ["The graph was disconnected", "The graph contains a cycle — remaining nodes never reached in-degree 0", "Some nodes had no edges", "The queue implementation is buggy"],
+          "correctIndex": 1,
+          "explanation": "Nodes in a cycle keep positive in-degree forever, so they're never enqueued — a built-in cycle test."
+        }
+      ]
+    },
+    {
+      "title": "Dijkstra: Shortest Paths with Weights",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Dijkstra's Algorithm\n\nBFS finds fewest *edges*; Dijkstra finds minimum *total weight* (cost, latency, distance). Requires **non-negative weights**.\n\nGreedy idea: always settle the unvisited node with the smallest known distance — a priority queue makes that efficient.\n\n```csharp\nvar dist = nodes.ToDictionary(n => n, _ => int.MaxValue);\ndist[start] = 0;\nvar pq = new PriorityQueue<string, int>();\npq.Enqueue(start, 0);\n\nwhile (pq.Count > 0)\n{\n    pq.TryDequeue(out var node, out var d);\n    if (d > dist[node]) continue;            // stale entry — skip\n    foreach (var (next, weight) in graph[node])\n        if (d + weight < dist[next])\n        {\n            dist[next] = d + weight;\n            pq.Enqueue(next, dist[next]);    // lazy decrease-key\n        }\n}\n```\n\nO((V + E) log V) with a binary heap. The `if (d > dist[node]) continue;` line handles duplicates from re-enqueueing — the standard .NET idiom since `PriorityQueue` has no decrease-key.\n\n## Mental model\n\nA ripple of water spreading from the start — it always expands the closest frontier first. That's why negative weights break it: a \"shortcut discovered later\" can't be un-settled (Bellman-Ford handles those).\n\nApplications: network routing (OSPF), map navigation, cheapest multi-hop flights, minimum-latency service routing.",
+      "practiceTask": "Model 6-8 cities with weighted roads and implement Dijkstra with path reconstruction (track parent on each relaxation). Verify the cheapest path by hand.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm"],
+      "quiz": [
+        {
+          "question": "Dijkstra fails with negative edge weights because:",
+          "options": ["Priority queues can't hold negative numbers", "Once a node is settled as 'closest', a cheaper path through a negative edge may appear later — violating the greedy assumption", "Distances overflow", "It only fails with negative cycles, not negative edges"],
+          "correctIndex": 1,
+          "explanation": "The greedy proof assumes settled distances are final; negative edges can undercut them afterward."
+        }
+      ]
+    },
+    {
+      "title": "Prefix Sums: Precompute Once, Answer Instantly",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Prefix Sums\n\nPrecompute running totals so any **range sum** becomes O(1):\n\n```csharp\n// prefix[i] = sum of arr[0..i-1]\nvar prefix = new long[arr.Length + 1];\nfor (int i = 0; i < arr.Length; i++)\n    prefix[i + 1] = prefix[i] + arr[i];\n\nlong RangeSum(int from, int to) => prefix[to + 1] - prefix[from];  // inclusive\n```\n\nBuild O(n) once → each query O(1). Without it, q queries cost O(n×q).\n\n## Variants\n\n- **2D prefix sums** — O(1) sum of any rectangle (image processing, heatmaps).\n- **Difference array** — the inverse: apply \"add x to range [a,b]\" in O(1) per update, reconstruct with one prefix pass. Perfect for \"count overlapping bookings per day\".\n- **Prefix + HashMap** — count subarrays summing to k: store counts of prefix values seen; `prefix[j] - prefix[i] = k` means look up `prefix[j] - k`.\n\n## Where it shows up for you\n\nRunning totals in SQL (`SUM(...) OVER (ORDER BY date)`) are prefix sums. Dashboard \"revenue between any two dates\" from a precomputed daily cumulative table = this exact trick, and why materialized running totals make range reports instant.",
+      "practiceTask": "Given a year of daily sales, build a prefix array and answer 5 arbitrary date-range sum queries in O(1) each. Then write the equivalent SQL window function and compare results.",
+      "externalLinks": ["https://usaco.guide/silver/prefix-sums"],
+      "quiz": [
+        {
+          "question": "With prefix sums built, the sum of elements from index 3 to 7 inclusive is:",
+          "options": ["prefix[7] - prefix[3]", "prefix[8] - prefix[3]", "prefix[7] - prefix[2]", "prefix[8] - prefix[4]"],
+          "correctIndex": 1,
+          "explanation": "prefix[8] covers indices 0..7; subtracting prefix[3] (indices 0..2) leaves exactly 3..7."
+        }
+      ]
+    },
+    {
+      "title": "Backtracking: Systematic Trial and Error",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Backtracking\n\nExplore choices depth-first; when a partial solution can't lead anywhere valid, **undo the last choice and try the next**. It's DFS over the tree of partial solutions.\n\n## Template\n\n```csharp\nvoid Backtrack(List<int> current, /* remaining state */)\n{\n    if (IsComplete(current)) { results.Add(new(current)); return; }\n    foreach (var choice in ValidChoices(current))\n    {\n        current.Add(choice);        // choose\n        Backtrack(current);         // explore\n        current.RemoveAt(current.Count - 1);  // un-choose ← the \"backtrack\"\n    }\n}\n```\n\nThe undo step is what distinguishes it from plain recursion — one shared `current` list mutated and restored, instead of copying state every call.\n\n## Classic problems\n\n- All permutations / combinations / subsets\n- N-Queens, Sudoku solvers\n- Word search in a grid (mark cell used, recurse, unmark)\n- Constraint problems: scheduling meetings into rooms, assigning shifts\n\n## Pruning is the whole game\n\nWorst case is exponential — the wins come from rejecting doomed branches **early** (e.g., N-Queens: check column/diagonal conflicts before placing, not after completing the board). Good pruning turns \"impossible\" into \"milliseconds\".",
+      "practiceTask": "Generate all subsets of {1..n} with the template, then solve: all combinations of k numbers from 1..n that sum to target — add pruning (stop when sum exceeds target) and count how many branches pruning eliminates.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Backtracking"],
+      "quiz": [
+        {
+          "question": "The step that makes it 'backtracking' rather than plain DFS is:",
+          "options": ["Using recursion", "Undoing the choice after the recursive call returns", "Using a visited set", "Sorting choices first"],
+          "correctIndex": 1,
+          "explanation": "State is mutated before recursing and restored after — allowing the shared state to be reused across branches."
+        }
+      ]
+    },
+    {
+      "title": "Dynamic Programming I: Memoization",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# DP via Memoization\n\nDynamic programming = recursion + **caching results of overlapping subproblems**. If the same subproblem is computed twice, memoize it.\n\n```csharp\n// O(2ⁿ) → O(n) with one dictionary\nDictionary<int, long> memo = new();\nlong Fib(int n)\n{\n    if (n <= 1) return n;\n    if (memo.TryGetValue(n, out var v)) return v;\n    return memo[n] = Fib(n - 1) + Fib(n - 2);\n}\n```\n\n## When DP applies — two properties\n\n1. **Overlapping subproblems** — the recursion tree revisits identical states.\n2. **Optimal substructure** — the best answer builds from best answers to subproblems.\n\n## How to attack any DP problem\n\n1. Define the state precisely: \"`f(i)` = best answer using items up to i\".\n2. Write the brute-force recursion.\n3. Find the recurrence relating f to smaller states.\n4. Memoize. (Convert to a table later if needed.)\n\n**Climbing stairs** (1 or 2 steps): `f(n) = f(n-1) + f(n-2)`.\n**Coin change** (fewest coins for amount): `f(a) = 1 + min(f(a - coin))` over coins.\n\nMemoization keeps the natural top-down shape of the recursion — usually the easiest DP form to write correctly. You already use the same principle daily: `IMemoryCache` on expensive queries *is* memoization.",
+      "practiceTask": "Solve coin change (minimum coins for amount 87 with coins {1,5,10,25}) with naive recursion first — note the slowness for large amounts — then add memoization and compare call counts.",
+      "externalLinks": ["https://leetcode.com/problems/climbing-stairs/"],
+      "quiz": [
+        {
+          "question": "Memoization improves naive Fibonacci from O(2ⁿ) to O(n) because:",
+          "options": ["Recursion becomes iteration", "Each distinct subproblem (n states) is computed once; repeats become O(1) lookups", "The dictionary sorts the keys", "Stack depth is reduced"],
+          "correctIndex": 1,
+          "explanation": "There are only n distinct inputs; caching bounds total work at one computation per input."
+        }
+      ]
+    },
+    {
+      "title": "Dynamic Programming II: Tabulation and Classic Problems",
+      "difficulty": 3,
+      "estimatedMinutes": 22,
+      "bodyMarkdown": "# Bottom-Up DP (Tabulation)\n\nInstead of recursing down, fill a table from base cases **up**. No recursion, no stack limits, often optimizable to O(1) space.\n\n```csharp\n// Fibonacci with two variables — O(n) time, O(1) space\nlong a = 0, b = 1;\nfor (int i = 2; i <= n; i++) (a, b) = (b, a + b);\n```\n\n## Canonical problems worth knowing\n\n**0/1 Knapsack** — items with weight/value, capacity W:\n`dp[i][w]` = best value using first i items within weight w:\n`dp[i][w] = max(dp[i-1][w], dp[i-1][w - weight[i]] + value[i])`\n\n**Longest Common Subsequence** (diff tools, DNA alignment):\n`dp[i][j] = chars match ? dp[i-1][j-1] + 1 : max(dp[i-1][j], dp[i][j-1])`\n\n**Edit distance** (spell-check, fuzzy matching) — same table shape, three operations.\n\n**House robber** (no two adjacent): `dp[i] = max(dp[i-1], dp[i-2] + val[i])`\n\n## Memoization vs tabulation\n\n| | Top-down (memo) | Bottom-up (table) |\n|---|---|---|\n| Writing it | Easier — natural recursion | Requires knowing fill order |\n| Computes | Only needed states | All states |\n| Stack overflow risk | Yes, deep inputs | No |\n| Space optimization | Hard | Often easy (keep last row) |\n\nInterviews accept either; production code favors tabulation for hot paths.",
+      "practiceTask": "Implement LCS length for two strings bottom-up. Then extend it to output the actual subsequence by walking the table backwards — this is the core of every diff tool.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Longest_common_subsequence"],
+      "quiz": [
+        {
+          "question": "In 0/1 knapsack, dp[i][w] = max(dp[i-1][w], dp[i-1][w-wᵢ] + vᵢ). The two arms represent:",
+          "options": ["Taking item i twice vs once", "Skipping item i vs taking it (paying its weight, gaining its value)", "Sorting vs not sorting", "Left vs right subtree"],
+          "correctIndex": 1,
+          "explanation": "Every item admits exactly two futures — excluded or included — and the recurrence takes the better."
+        }
+      ]
+    },
+    {
+      "title": "Union-Find: Dynamic Connectivity",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Union-Find (Disjoint Set Union)\n\nMaintains a collection of disjoint sets with two operations, both effectively O(1) amortized (inverse Ackermann):\n\n- `Find(x)` — which set/group does x belong to? (returns the root representative)\n- `Union(x, y)` — merge the two groups.\n\n```csharp\npublic class UnionFind\n{\n    private readonly int[] parent, rank;\n    public UnionFind(int n)\n    {\n        parent = Enumerable.Range(0, n).ToArray();\n        rank = new int[n];\n    }\n\n    public int Find(int x) =>\n        parent[x] == x ? x : parent[x] = Find(parent[x]);   // path compression\n\n    public bool Union(int a, int b)\n    {\n        int ra = Find(a), rb = Find(b);\n        if (ra == rb) return false;                          // already connected\n        if (rank[ra] < rank[rb]) (ra, rb) = (rb, ra);        // union by rank\n        parent[rb] = ra;\n        if (rank[ra] == rank[rb]) rank[ra]++;\n        return true;\n    }\n}\n```\n\nThe two optimizations — **path compression** (point nodes straight at the root during Find) and **union by rank** (attach shorter tree under taller) — are what flatten the cost.\n\n## Applications\n\n- **Duplicate entity resolution**: accounts sharing an email or phone → union them; each final group = one real customer.\n- **Network connectivity**: are two machines connected as links are added?\n- **Kruskal's minimum spanning tree**: sort edges by weight, union endpoints, skip edges whose endpoints are already connected.\n- Islands/clusters in grids and social graphs.\n\nCompared to DFS components: Union-Find handles edges arriving **incrementally** without re-running anything.",
+      "practiceTask": "Given a list of (email, accountId) pairs, union accounts sharing an email and print the resulting customer groups. This is real-world identity resolution in ~30 lines.",
+      "externalLinks": ["https://en.wikipedia.org/wiki/Disjoint-set_data_structure"],
+      "quiz": [
+        {
+          "question": "Path compression speeds up Union-Find by:",
+          "options": ["Sorting the parent array", "Re-pointing every node visited during Find directly at the root, flattening the tree", "Deleting merged sets", "Using a hash table instead of an array"],
+          "correctIndex": 1,
+          "explanation": "After one Find, all nodes on the path hang off the root — future Finds on them are O(1)."
+        }
+      ]
+    },
+    {
+      "title": "Choosing the Right Data Structure: A Decision Framework",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Decision Framework\n\nStop asking \"what's clever\"; ask **\"what operations dominate?\"**\n\n| Dominant need | Reach for | Cost |\n|---|---|---|\n| Lookup by key | `Dictionary<K,V>` | O(1) |\n| Membership test / dedup | `HashSet<T>` | O(1) |\n| Ordered iteration + range queries | `SortedDictionary` / `SortedSet` | O(log n) |\n| Index access, iteration, append | `List<T>` / arrays | O(1) |\n| FIFO processing | `Queue<T>` | O(1) |\n| LIFO / undo / nesting | `Stack<T>` | O(1) |\n| Repeated min/max extraction, top-K | `PriorityQueue<T,P>` | O(log n) |\n| Both-ends insertion | `LinkedList<T>` | O(1) at known nodes |\n| Concurrent access | `ConcurrentDictionary`, `Channel<T>` | varies |\n\n## Red flags in code review (your own included)\n\n- `list.Contains(...)` or `FirstOrDefault(...)` **inside a loop** → Dictionary/HashSet built once.\n- Repeated `OrderBy().First()` → PriorityQueue or a single pass Min.\n- `string +=` in a loop → StringBuilder.\n- `Insert(0, item)` on a List in a loop → Queue or reverse-then-append: each front-insert is O(n).\n- Deeply nested loops matching two collections → join via Dictionary (this is a hash join — exactly what SQL Server chooses too).\n\n## The 90% rule\n\nIn typical ASP.NET Core services, `List<T>` + `Dictionary<K,V>` + `HashSet<T>` cover ~90% of needs. Mastery isn't using exotic structures — it's instantly recognizing the 10% where a heap, sorted tree, or graph turns O(n²) into O(n log n).",
+      "practiceTask": "Audit one service class in your current project. For every collection, write down the dominant operations and verify the chosen structure matches this table. Fix at least one mismatch.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/standard/collections/"],
+      "quiz": [
+        {
+          "question": "Code calls orders.FirstOrDefault(o => o.Id == id) inside a foreach over 10,000 customers with 50,000 orders. Best fix?",
+          "options": ["Parallelize with PLINQ", "Build a Dictionary<int,Order> once before the loop — turning O(n×m) into O(n+m)", "Sort both lists first", "Use async/await"],
+          "correctIndex": 1,
+          "explanation": "One O(m) dictionary build converts every in-loop lookup to O(1) — the single most impactful everyday optimization."
+        }
+      ]
+    }
+  ]
+}

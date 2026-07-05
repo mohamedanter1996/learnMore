@@ -1,0 +1,144 @@
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #283548;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --primary: #38bdf8;
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+h1, h2, h3 {
+  line-height: 1.3;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #0c2431;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms;
+
+  &:hover { filter: brightness(1.1); }
+  &:disabled { opacity: 0.5; cursor: default; }
+
+  &.btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text-dim { color: var(--text-dim); }
+
+/* Egyptian Arabic explanation panel */
+.arabic-panel {
+  direction: rtl;
+  text-align: right;
+  border-right: 3px solid var(--warning);
+  line-height: 1.9;
+  font-size: 16px;
+
+  h3 { margin-top: 0; color: var(--warning); }
+
+  /* Code stays left-to-right inside the RTL panel */
+  pre, code {
+    direction: ltr;
+    text-align: left;
+    unicode-bidi: embed;
+  }
+
+  table {
+    direction: rtl;
+    th, td { text-align: right; }
+  }
+}
+
+/* Markdown content */
+markdown {
+  h1, h2, h3 { margin-top: 1.4em; }
+  h1:first-child { margin-top: 0; }
+
+  code:not(pre code) {
+    background: var(--surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  pre {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th { background: var(--surface-2); }
+  }
+
+  blockquote {
+    margin: 1em 0;
+    padding: 8px 16px;
+    border-left: 3px solid var(--primary);
+    background: var(--surface-2);
+    border-radius: 0 8px 8px 0;
+  }
+}

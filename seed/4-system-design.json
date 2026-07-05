@@ -1,0 +1,589 @@
+{
+  "topic": "System Design",
+  "color": "#10b981",
+  "icon": "🌐",
+  "items": [
+    {
+      "title": "Scaling Basics: Vertical vs Horizontal",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Scaling Fundamentals\n\n**Vertical scaling (scale up)**: bigger machine — more CPU/RAM/faster disks.\n**Horizontal scaling (scale out)**: more machines sharing the load.\n\n| | Vertical | Horizontal |\n|---|---|---|\n| Complexity | none — same code | state, balancing, coordination |\n| Ceiling | hardware limit (and price grows non-linearly) | practically unbounded |\n| Availability | single machine = single point of failure | survives node loss |\n| Databases | works great surprisingly long | hard (covered later: replication/sharding) |\n\n## The honest engineering order\n\n1. **Optimize first** — a SQL index or cache often beats new hardware for free (your SQL track!)\n2. **Scale up** — trivially simple; a 64-core/512GB box handles more than most businesses ever need\n3. **Scale out** — when you need availability, or the ceiling nears\n\nThe trap: jumping to distributed architecture for imaginary scale. A monolith on two load-balanced VMs with a solid SQL Server serves millions of requests/day. Complexity is a cost you pay forever; buy it only when the receipts justify it.\n\n## What breaks when you go horizontal\n\nThe moment there are 2 app servers, these assumptions die:\n- **In-memory session state** — user's next request hits the other server (next lesson)\n- **Local file uploads** — saved to server A's disk, requested from server B\n- **In-process cache coherence** — server A cached data server B just changed\n- **Scheduled jobs** — now run twice!\n\nEvery one of these has a standard fix (external session/cache, object storage, distributed locks or single-runner election) — the rest of this track builds them out.\n\nASP.NET Core note: your apps are close-to-stateless by default (JWT auth, DI-scoped services) — the discipline is not breaking that property.",
+      "practiceTask": "List every piece of state your current app process holds (session? IMemoryCache? static fields? local files? background timers?). For each, write what breaks with 2 instances behind a load balancer and the standard fix.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/guide/design-principles/scale-out"],
+      "quiz": [
+        {
+          "question": "The recommended order of attack for a capacity problem is:",
+          "options": ["Microservices first", "Optimize → scale up → scale out", "Scale out → scale up → optimize", "Always scale out — hardware is legacy"],
+          "correctIndex": 1,
+          "explanation": "Optimization is free capacity; vertical scaling is complexity-free capacity; horizontal scaling buys unbounded capacity with permanent complexity."
+        }
+      ]
+    },
+    {
+      "title": "Stateless Services and Session Management",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Statelessness: The Price of Admission to Scale-Out\n\nA **stateless** service keeps nothing request-to-request in process memory. Any instance can serve any request → load balancing is trivial, instances are disposable (deploys, crashes, autoscaling are non-events).\n\n## Where user state goes instead\n\n| State | Stateless home |\n|---|---|\n| Authentication | **JWT / auth cookie** — the token carries identity; any server validates it |\n| Session data (cart, wizard progress) | **Distributed cache** (Redis) or database, keyed by user/session id |\n| Uploaded files | Object storage (Azure Blob/S3), never local disk |\n| Server-side cache | Redis (shared) or per-instance cache *with acceptance of divergence* |\n\nASP.NET Core specifics:\n\n```csharp\n// Session backed by Redis instead of memory:\nbuilder.Services.AddStackExchangeRedisCache(o => o.Configuration = \"redis:6379\");\nbuilder.Services.AddSession();\n\n// DataProtection keys MUST be shared across instances\n// (else auth cookies from server A fail validation on server B!)\nbuilder.Services.AddDataProtection()\n    .PersistKeysToStackExchangeRedis(redis, \"DataProtection-Keys\");\n```\n\nThat DataProtection detail is the classic 'works with one instance, random logouts with two' bug.\n\n## Sticky sessions: the tempting trap\n\nLoad balancers offer **session affinity** (user pinned to one server). It 'fixes' statefulness but: kills even load distribution, deploys/scale-in log users out, one hot server melts while others idle. Acceptable as a *migration crutch*; wrong as architecture. (Exception: SignalR/WebSockets legitimately benefit from affinity — connection state is genuinely per-server; a backplane handles cross-server messaging.)\n\n## Litmus test\n\n\"Can I kill any instance mid-day with zero user impact?\" Yes = stateless enough. This same property is what makes containers/Kubernetes/serverless deployment models possible at all.",
+      "practiceTask": "Run your app as two instances on different ports behind a simple round-robin (nginx or YARP). Log in, alternate requests between instances, and fix what breaks (session, DataProtection keys, any static state).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/web-farm"],
+      "quiz": [
+        {
+          "question": "Two ASP.NET Core instances behind a load balancer: users get randomly logged out. Most likely cause:",
+          "options": ["JWT expiry too short", "DataProtection keys not shared — server B can't decrypt cookies issued by server A", "Redis is down", "CORS misconfiguration"],
+          "correctIndex": 1,
+          "explanation": "Auth cookies are encrypted with DataProtection keys; unless persisted to shared storage, each instance generates its own."
+        }
+      ]
+    },
+    {
+      "title": "Load Balancing: Algorithms and Health",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Load Balancers\n\nThe traffic distributor in front of your instances — and the component that turns 'a server died' from an outage into a non-event.\n\n## Layer 4 vs Layer 7\n\n- **L4 (transport)**: routes TCP connections by IP/port. Fast, dumb — can't see HTTP\n- **L7 (application)**: reads HTTP — routes by path (`/api` vs `/static`), host, headers, cookies; can terminate TLS, compress, cache. Azure Application Gateway, nginx, YARP, HAProxy\n\nMost app-level work happens at L7.\n\n## Algorithms\n\n| Algorithm | Behavior | Use |\n|---|---|---|\n| Round robin | rotate in order | uniform requests, default |\n| **Least connections** | send to the least-busy | mixed request durations (usually best) |\n| Weighted | capacity-proportional | heterogeneous instance sizes, canary (95/5) |\n| IP hash | same client → same server | poor man's affinity |\n\n## Health checks — the half people skip\n\nThe LB probes each instance (`GET /health` every ~10s); failures remove the instance from rotation until it recovers.\n\n```csharp\nbuilder.Services.AddHealthChecks()\n    .AddSqlServer(connectionString)          // liveness of dependencies\n    .AddCheck<QueueBacklogHealthCheck>(\"queue\");\napp.MapHealthChecks(\"/health/live\", new() { Predicate = _ => false });  // process up?\napp.MapHealthChecks(\"/health/ready\");                                    // deps up too?\n```\n\n**Liveness vs readiness** distinction matters: liveness = 'restart me if failing'; readiness = 'don't send traffic yet' (warming up, migrating, dependency down). Kubernetes and most orchestrators treat them differently.\n\nSubtle trap: a health check that queries the DB, when the DB blips, marks **all** instances unhealthy simultaneously → LB has nobody to route to → total outage from a partial failure. Readiness may include dependencies; be careful what liveness includes.\n\nSingle LB = new single point of failure → real deployments run redundant LB pairs / cloud LBs are inherently redundant.",
+      "practiceTask": "Put YARP or nginx in front of two instances of your API. Configure health checks, then kill one instance mid-traffic (while curling in a loop) and watch requests seamlessly shift. Bring it back and verify re-entry into rotation.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks"],
+      "quiz": [
+        {
+          "question": "Making liveness probes depend on the database is dangerous because:",
+          "options": ["It's slow", "A DB blip marks every instance unhealthy at once — converting partial failure into total outage via restarts/removal", "Health checks can't run SQL", "It leaks credentials"],
+          "correctIndex": 1,
+          "explanation": "Liveness should answer 'is this process broken?'; shared-dependency failures belong in readiness, handled by not routing rather than mass-restarting."
+        }
+      ]
+    },
+    {
+      "title": "Caching I: Layers and Cache-Aside",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Caching: The Cheapest Performance You'll Ever Buy\n\nEvery caching decision is the same trade: **staleness tolerance for speed**. The skill is knowing where and how stale.\n\n## The layer map (request's journey)\n\n1. **Browser** — Cache-Control headers; zero network\n2. **CDN** — static assets & cacheable API responses at the edge (own lesson)\n3. **API response cache** — output caching middleware\n4. **Application cache** — IMemoryCache (per-instance) / Redis (shared)\n5. **Database** — buffer pool (you know this one!), query result reuse\n\nCache as close to the user as staleness tolerance allows.\n\n## Cache-aside (lazy loading) — the default pattern\n\n```csharp\npublic async Task<Product?> GetProductAsync(int id)\n{\n    var key = $\"product:{id}\";\n    var cached = await _redis.GetAsync<Product>(key);\n    if (cached is not null) return cached;\n\n    var product = await _db.Products.FindAsync(id);       // miss → source of truth\n    if (product is not null)\n        await _redis.SetAsync(key, product, TimeSpan.FromMinutes(10));  // TTL!\n    return product;\n}\n```\n\nOnly requested data gets cached; cache failure degrades to DB (resilient). Costs: first-hit latency (miss penalty) and the eternal question — invalidation.\n\n## IMemoryCache vs Redis\n\n| | IMemoryCache | Redis |\n|---|---|---|\n| Speed | ~ns, no serialization | ~ms, network + serialization |\n| Multi-instance coherence | ❌ each node its own view | ✅ one shared truth |\n| Survives restart/deploy | ❌ | ✅ |\n| Good for | reference data, per-node hot paths | sessions, shared state, invalidation-sensitive data |\n\nPro pattern: **two-level** — L1 IMemoryCache (30s) over L2 Redis (10min) over DB; L1 absorbs the hot-key hammering, short TTL bounds divergence. (.NET 9's HybridCache formalizes exactly this, plus stampede protection.)\n\nRule zero: **every cache entry gets a TTL**. Unbounded caches are memory leaks with good intentions.",
+      "practiceTask": "Add cache-aside with IMemoryCache to your most-read endpoint (10-min TTL). Log hits/misses. Measure p50 latency before/after with a quick load test (bombardier/k6).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/performance/caching/overview"],
+      "quiz": [
+        {
+          "question": "In cache-aside, the cache being down results in:",
+          "options": ["Total outage", "All requests fall through to the database — slower but functional (if the DB can take it)", "Data corruption", "Automatic failover to disk"],
+          "correctIndex": 1,
+          "explanation": "Cache-aside treats the cache as optional acceleration; the DB remains the source of truth — though a cold DB under full load is its own risk (stampede lesson next)."
+        }
+      ]
+    },
+    {
+      "title": "Caching II: Invalidation, Stampedes, Hot Keys",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Hard Parts of Caching\n\n\"There are only two hard things in Computer Science: cache invalidation and naming things.\" Here's the invalidation half.\n\n## Invalidation strategies\n\n| Strategy | How | Staleness | Complexity |\n|---|---|---|---|\n| **TTL only** | let entries expire | up to TTL | trivial — start here |\n| **Explicit eviction** | on write: `Remove(key)` | ~zero | every write path must know every affected key |\n| Write-through | write cache + DB together | ~zero | write latency, orphaned entries on partial failure |\n| Event-driven | writes publish events; subscribers evict | seconds | infra (pub/sub), eventual |\n\nPragmatic combo: **short-ish TTL as safety net + explicit eviction on the writes you control**. The TTL catches every path you forgot (there's always one — a batch job, another team's admin tool, manual SQL).\n\nVersioned-key trick for hard-to-enumerate invalidations: key = `products:v{version}:list:{page}` — bump the version on any change; old entries die by TTL without enumeration.\n\n## Cache stampede (dogpile)\n\nHot key expires → 500 concurrent requests all miss → 500 identical DB queries — a self-inflicted DDoS, potentially at the worst time (that's *why* the key was hot).\n\nDefenses:\n- **Per-key locking**: first miss computes; others wait for its result (`HybridCache` does this; manual: `SemaphoreSlim` per key)\n- **Probabilistic early refresh**: refresh with increasing probability as expiry nears — one request pays, before the cliff\n- **Serve-stale-while-revalidate**: return expired value, refresh in background\n\n## Hot keys & big keys (Redis-specific)\n\nOne celebrity product hammered 50k/s concentrates load on one Redis shard: replicate read-only copies (`key:1..N`, random read) or absorb with L1 memory cache. Big keys (a 5MB list serialized) choke Redis's single-threaded core — keep values small, prefer hashes/fields over giant blobs.\n\n## Metrics or it didn't happen\n\nTrack **hit ratio** per cache. <80% on a read-heavy path = wrong TTL, wrong keys, or wrong data cached. Cache size and eviction counts tell you when memory pressure silently disabled your cache.",
+      "practiceTask": "Simulate a stampede locally: expire a hot key while 100 parallel tasks read through cache-aside; count DB hits. Add per-key SemaphoreSlim locking (or .NET 9 HybridCache) and show DB hits drop to 1.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/performance/caching/hybrid"],
+      "quiz": [
+        {
+          "question": "A cache stampede is:",
+          "options": ["Cache memory overflowing", "Many concurrent misses on the same expired hot key all hitting the backend simultaneously", "Redis replication lag", "Too many cache keys"],
+          "correctIndex": 1,
+          "explanation": "The expiry cliff turns one hot key into N simultaneous backend queries; per-key locking or early refresh flattens it."
+        },
+        {
+          "question": "TTL + explicit eviction together (vs eviction alone) is recommended because:",
+          "options": ["It's faster", "TTL is the safety net for write paths you forgot or don't control — bounded staleness guaranteed", "Redis requires TTL", "Eviction doesn't work on hot keys"],
+          "correctIndex": 1,
+          "explanation": "Perfect eviction requires knowing every write path forever; TTL caps the damage of the one you missed."
+        }
+      ]
+    },
+    {
+      "title": "CDNs and Static Content Strategy",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Content Delivery Networks\n\nGeographically distributed edge servers caching your content near users. Cairo user ↔ your Frankfurt origin = ~60-100ms RTT; Cairo user ↔ Cairo edge = ~5-15ms. Physics is the one bottleneck you can't code away — CDNs move the content instead.\n\n## What flows through a CDN\n\n- **Static assets**: your Angular bundle, images, fonts, videos — the 90% case\n- **Cacheable API responses**: public, identical-for-everyone GETs (product catalog, config) with proper Cache-Control\n- Not (usually): personalized/authenticated responses\n\n## Cache-busting: the versioned-filename contract\n\n```\nmain.3f8a2b.js   ← hash in filename (Angular does this by default)\nCache-Control: public, max-age=31536000, immutable\n\nindex.html       ← references the hashed names\nCache-Control: no-cache   (revalidate every time)\n```\n\nDeploy = new hashes = new URLs; edges fetch new files naturally, no purge needed. `index.html` stays revalidated so users get the new references immediately. This filename-hash + immutable combo is why 'hard refresh fixes it' bugs mean someone broke the contract (e.g., cached index.html too long).\n\n## Design impact on your architecture\n\n- Origin traffic drops 80-95% for asset-heavy apps — your servers serve APIs, not bytes\n- **Origin shield / request collapsing**: thousands of edge misses collapse to one origin fetch\n- DDoS absorption: attacks hit the edge's capacity, not yours\n- Angular deploys: `dist/` to Blob Storage + CDN (static hosting) — API and frontend scale independently; the ASP.NET server never sees an asset request\n\n## Purge reality\n\nEmergency invalidation (purge API) takes seconds-to-minutes to propagate across thousands of edges — good escape hatch, bad primary strategy. Versioned URLs make purging a non-event.",
+      "practiceTask": "Inspect your Angular build output (ng build): confirm filename hashing. Then check response headers on a production site you use (DevTools → Network): identify CDN headers (x-cache: HIT/MISS, age) and the Cache-Control strategy for index.html vs hashed assets.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/cdn/cdn-overview"],
+      "quiz": [
+        {
+          "question": "Hashed asset filenames + 'immutable, max-age=1 year' works safely because:",
+          "options": ["CDNs refresh hourly anyway", "Any content change produces a new filename/URL — old cached entries are simply never referenced again", "Browsers ignore max-age", "The CDN diffs file contents"],
+          "correctIndex": 1,
+          "explanation": "Content-addressed URLs make cache entries permanently valid: same URL = same bytes, forever."
+        }
+      ]
+    },
+    {
+      "title": "Database Replication: Read Replicas and Failover",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Replication\n\nCopies of your database on multiple servers, serving two distinct goals — don't conflate them:\n\n1. **High availability**: primary dies → replica promoted → minutes-to-seconds of downtime instead of hours (SQL Server: Availability Groups)\n2. **Read scaling**: route read traffic to replicas (readable secondaries), reserving primary capacity for writes\n\n## Sync vs async — the fundamental dial\n\n| Mode | Commit waits for replica? | Data loss on failover | Write latency |\n|---|---|---|---|\n| **Synchronous** | yes | zero (RPO=0) | + network round-trip per commit |\n| **Asynchronous** | no | last few seconds possible | unaffected |\n\nTypical prod: one sync replica (same region, failover target) + async replicas (read scaling / other regions, DR). You're re-meeting WRITELOG waits: sync replication adds to that same commit path.\n\n## Replication lag — the bug factory\n\nAsync replicas run **seconds behind**. The classic:\n\n> User saves profile (write→primary) → redirect → profile page reads replica → **their edit isn't there** → \"the site lost my data!\"\n\nThis is **read-your-own-writes** violation. Fixes:\n- Route the writing user's reads to primary briefly (sticky-after-write: cookie/timestamp 'read primary for 10s after any write')\n- Session consistency tokens (read waits until replica catches up to your write's LSN)\n- Simply: read-after-write paths always hit primary; analytics/browsing hit replicas\n\n## App architecture with replicas\n\n```csharp\n// Two contexts/connection strings; route by intent\nservices.AddDbContext<AppDbContext>(o => o.UseSqlServer(primaryCs));      // writes + RYW reads\nservices.AddDbContext<ReadDbContext>(o => o.UseSqlServer(replicaCs));    // queries (CQRS fits perfectly here)\n```\n\nYour CQRS lesson's query handlers get a natural home: query side → replicas, command side → primary. Connection string `ApplicationIntent=ReadOnly` routes to readable secondaries in an AG listener automatically.",
+      "practiceTask": "Sketch your main app's endpoints in two columns: 'must read primary' (read-after-write paths) vs 'replica-safe' (lists, search, dashboards). What % of read traffic could offload? Note any endpoint where 5s of lag would cause a user-visible bug.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/overview-of-always-on-availability-groups-sql-server"],
+      "quiz": [
+        {
+          "question": "User saves data then immediately sees the old version on the next page. Classic cause in replicated setups:",
+          "options": ["Transaction rolled back", "The read went to an async replica still seconds behind the primary — read-your-own-writes violation", "Cache was too fresh", "Wrong isolation level"],
+          "correctIndex": 1,
+          "explanation": "Async replication lag between the user's write and their next read; route post-write reads to primary or wait for replica catch-up."
+        }
+      ]
+    },
+    {
+      "title": "Sharding: Splitting Data Across Databases",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Sharding (Horizontal Partitioning Across Servers)\n\nWhen one database can't hold the write load or data volume, split rows across independent databases by a **shard key**. (Contrast: replication copies *all* data to each node; sharding gives each node a *slice*.)\n\n## Choosing the shard key — the decision you can't cheaply undo\n\nThe ideal key: appears in ~every query, distributes load evenly, keeps related data together.\n\n| Strategy | How | Pro | Con |\n|---|---|---|---|\n| **Hash(key)** | `hash(TenantId) % N` | even distribution | range queries scatter; resharding moves everything |\n| Range | key ranges per shard | range scans localized | hot ranges (newest dates = one hot shard!) |\n| Directory | lookup table key→shard | flexible placement, per-tenant moves | the lookup service is critical infrastructure |\n\nMulti-tenant SaaS: **TenantId** is the natural key — every query is tenant-scoped anyway, and one tenant's data stays co-located. (A tenant-per-database model is 'directory sharding' in practice.)\n\n## What sharding breaks (pay attention)\n\n- **Cross-shard queries**: 'top 100 across all tenants' = query every shard + merge in app (scatter-gather) — your k-way merge from DSA, now over HTTP\n- **Cross-shard transactions**: no local ACID across shards → sagas/outbox (later lesson) or redesign so transactions stay shard-local\n- **Cross-shard JOINs**: gone; denormalize or duplicate reference data to every shard\n- **Unique IDs**: identity columns collide across shards → GUIDs (v7/sequential!), Snowflake-style IDs, or per-shard ranges\n- **Resharding**: `% N` → `% N+1` remaps nearly every key. **Consistent hashing** (hash ring, virtual nodes) moves only ~1/N of data — the standard fix, and how Redis Cluster / Cassandra / DynamoDB partition\n\n## The honest sequence\n\nShard **last**: after query optimization, caching, read replicas, archival, and vertical scaling are exhausted. A well-tuned SQL Server handles multiple TB and tens of thousands of transactions/sec — most systems never legitimately reach sharding. But *choose shard-friendly patterns early* (TenantId on every table, GUIDs where cross-DB uniqueness may matter): retrofitting a shard key into 400 queries is the real nightmare.",
+      "practiceTask": "For your main work domain: pick the natural shard key, then audit — which existing queries lack it in the WHERE (would scatter-gather)? Which transactions would cross shards? Write the 5-line migration-pain assessment.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/patterns/sharding"],
+      "quiz": [
+        {
+          "question": "Consistent hashing beats hash(key) % N for sharding because:",
+          "options": ["It's faster to compute", "Adding/removing a node remaps only ~1/N of keys instead of nearly all of them", "It prevents hot keys entirely", "It enables cross-shard joins"],
+          "correctIndex": 1,
+          "explanation": "Modulo arithmetic reassigns almost every key when N changes; the hash ring localizes the disruption to neighbors of the changed node."
+        },
+        {
+          "question": "For a multi-tenant SaaS, TenantId is usually the right shard key because:",
+          "options": ["It's always an integer", "Nearly every query filters by tenant, and a tenant's data stays co-located — minimal scatter-gather", "Tenants never grow", "It enables cross-tenant reports"],
+          "correctIndex": 1,
+          "explanation": "The best shard key matches the natural access pattern; tenant-scoped queries route to exactly one shard."
+        }
+      ]
+    },
+    {
+      "title": "CAP Theorem and Consistency Models",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# CAP and What It Actually Means\n\nIn a distributed system, when a **network partition** happens (nodes can't reach each other — and it *will* happen), you must choose:\n\n- **CP** — refuse requests you can't answer consistently (correct but partially unavailable)\n- **AP** — keep answering from whatever data each side has (available but possibly stale/conflicting)\n\nThe common misreading: 'pick 2 of 3 at all times'. No — **P isn't optional** (networks fail); the C-vs-A choice only bites *during* partitions. Day-to-day, the real dial is **latency vs consistency** (PACELC: Else — even without partitions — you trade Latency for Consistency; sync replication = that trade).\n\n## Where familiar systems sit\n\n| System | Stance |\n|---|---|\n| SQL Server (single node) | CA territory — no partition possible inside one box |\n| SQL Server AG sync replica | CP-leaning: commit waits for replica ack |\n| Async read replicas | AP-leaning for reads (you met the lag) |\n| Redis Cluster | mostly AP-ish; can lose acked writes in failover |\n| Cosmos DB / DynamoDB | tunable per-request consistency |\n| RabbitMQ mirrored queues | CP-leaning (prefers unavailability to divergence) |\n\n## The consistency spectrum (know these four)\n\n1. **Strong** — every read sees the latest committed write (single-node SQL; distributed = expensive coordination)\n2. **Read-your-own-writes** — *you* see your writes; others may lag (the replication lesson's fix)\n3. **Monotonic reads** — you never see data go *backwards* in time (session stickiness)\n4. **Eventual** — replicas converge, eventually; any read may be stale (DNS, CDNs, most caches)\n\n## The business translation skill\n\nPer *data item*, ask: what does 5 seconds of staleness cost?\n- Account balance shown before transfer: annoying → acceptable\n- Double-spending that balance: money → strong consistency on the *write path* (the atomic-guard UPDATE!)\n- Product view count: nobody cares → eventual, aggressively cached\n\nSystems mix models: strong where money moves, eventual where eyeballs browse. Declaring one consistency level for a whole system is the junior take; per-operation choice is the senior one.",
+      "practiceTask": "For 5 data items in your domain (e.g., stock quantity, order status, profile photo, permissions, audit log): assign the weakest acceptable consistency model and justify in one sentence each. Note which ones your current caching already quietly downgraded.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/cosmos-db/consistency-levels"],
+      "quiz": [
+        {
+          "question": "During a network partition, a CP system responds by:",
+          "options": ["Serving possibly-stale data to stay available", "Refusing/erroring requests it cannot answer consistently", "Buffering all writes locally", "Switching to eventual consistency"],
+          "correctIndex": 1,
+          "explanation": "CP sacrifices availability: better no answer than a wrong one. AP makes the opposite call."
+        }
+      ]
+    },
+    {
+      "title": "Message Queues: Decoupling with Async Work",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Message Queues\n\nProducer writes a message; consumer processes it **later, independently**. The single most useful architectural upgrade after caching.\n\n## What a queue buys you\n\n- **Latency**: user's request returns in 50ms; the email/PDF/report happens async\n- **Load leveling**: 10k spike arrives → queue absorbs → consumers drain at their sustainable rate (vs 10k concurrent threads melting your DB)\n- **Failure isolation**: email provider down ≠ checkout down; messages wait\n- **Independent scaling**: 20 lightweight API pods, 3 beefy worker pods\n\n## The mental shift: at-least-once + idempotency\n\nQueues typically guarantee **at-least-once** delivery: a consumer that crashes after processing but before acknowledging gets the message **again**. Exactly-once delivery is a myth at the transport level — instead:\n\n> **Every consumer must be idempotent** — processing the same message twice = same outcome as once.\n\nTechniques: natural idempotency (`SET Status='Shipped'` is safely repeatable), dedup table (processed MessageIds, checked in the same transaction as the work), or upserts keyed by message id. This rule is so central it gets its own lesson.\n\n## Poison messages & DLQs\n\nA message that always crashes its consumer would retry forever, blocking everything. After N failures → **dead-letter queue** for humans to inspect. Always configure the DLQ, always monitor its depth (a growing DLQ is a silent outage).\n\n## .NET landscape\n\n| Tool | Sweet spot |\n|---|---|\n| Azure Service Bus | full-featured cloud queues/topics, sessions, DLQs |\n| RabbitMQ | self-hosted standard, flexible routing |\n| **MassTransit / NServiceBus** | abstraction + retries + sagas + outbox over both — start here |\n| Hangfire | job-queue-in-SQL-Server — zero new infra, perfect first step |\n| Channel<T> | in-process producer/consumer (lost on crash — different animal) |\n\n```csharp\n// The shape of the win (MassTransit)\nawait publishEndpoint.Publish(new OrderPlaced(order.Id));   // fire and return\n// elsewhere, scaled independently:\npublic class SendConfirmationConsumer : IConsumer<OrderPlaced> { ... }\n```\n\nQueue depth is your health gauge: rising = consumers can't keep up (scale them) or are failing (check DLQ).",
+      "practiceTask": "Take one slow synchronous side-effect in your app (email, report, image resize). Move it behind a queue (Hangfire is the lowest-friction start on SQL Server). Measure endpoint latency before/after, then kill the worker mid-job and verify the retry.",
+      "externalLinks": ["https://masstransit.io/documentation/concepts"],
+      "quiz": [
+        {
+          "question": "Consumers must be idempotent because:",
+          "options": ["Queues are unordered", "At-least-once delivery redelivers messages after consumer crashes/timeouts — duplicates are a matter of when, not if", "It improves throughput", "DLQs require it"],
+          "correctIndex": 1,
+          "explanation": "Ack-after-processing means a crash between processing and ack yields redelivery; idempotency makes the duplicate harmless."
+        },
+        {
+          "question": "A dead-letter queue exists to:",
+          "options": ["Store low-priority messages", "Quarantine messages that repeatedly fail so they stop blocking the queue, preserving them for diagnosis", "Archive processed messages", "Handle overflow"],
+          "correctIndex": 1,
+          "explanation": "Poison messages would retry forever; the DLQ removes them from the hot path without losing the evidence."
+        }
+      ]
+    },
+    {
+      "title": "Pub/Sub and Event-Driven Architecture",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Events: Inverting the Dependency Arrows\n\n**Queue (command)**: 'do this' — one intended handler (`SendWelcomeEmail`).\n**Event (pub/sub)**: 'this happened' — `OrderPlaced` broadcast; zero to N subscribers each get a copy, publisher neither knows nor cares.\n\nThat reversal is your Observer pattern at system scale — and the OCP payoff is identical: **new reactions without touching the publisher**. Marketing wants a Slack ping on big orders? New subscriber. Checkout service unchanged, unredeployed.\n\n## Topology (Service Bus terms; RabbitMQ ≈ exchanges+bindings)\n\n```\nOrderPlaced → topic ─┬→ subscription: email-service      (its own queue)\n                     ├→ subscription: inventory-service\n                     └→ subscription: analytics  (filter: Total > 1000)\n```\n\nEach subscription = independent queue: separate consumers, retries, DLQs. One slow subscriber doesn't delay others.\n\n## Designing events well\n\n- **Past tense, business language**: `OrderPlaced`, `PaymentFailed` — facts, not instructions\n- **Fat vs thin**: thin (id only — subscribers call back for data: always fresh, but N callbacks and coupling to your API) vs fat (full payload: self-contained, but versioning matters and data is as-of-publish). Default: carry what most subscribers need; version deliberately (`OrderPlacedV2`)\n- **Events are contracts**: renaming a field breaks unknown consumers — additive changes only, or new versions\n\n## The traps (equal time)\n\n- **Invisible flow**: 'what happens when an order is placed?' is now answered by *searching subscriptions across repos*. Invest in correlation ids + tracing (observability lesson) from day one\n- **Eventual consistency**: subscribers lag — the UI can't assume inventory reflects the order it just placed\n- **Ordering**: most brokers guarantee order only per partition/session key (`OrderId` as key ⇒ per-order ordering). Global ordering: give it up\n- **Choreography vs orchestration**: chains of 'A's event triggers B, B's triggers C' become invisible workflows nobody can follow. Multi-step *processes* deserve an explicit orchestrator (saga lesson)\n\nAnd the deepest one — publishing reliably alongside your DB transaction — is the outbox lesson's whole subject.",
+      "practiceTask": "Identify one 'when X happens, also do Y and Z' flow currently inline in your code. Sketch it as event + subscribers: name the event (past tense), decide fat/thin payload, choose the partition key for ordering, and list which subscriber failures matter.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/guide/architecture-styles/event-driven"],
+      "quiz": [
+        {
+          "question": "The OCP-style payoff of pub/sub over direct service calls is:",
+          "options": ["Lower latency", "New subscribers add behavior with zero changes to the publisher — reactions are open for extension", "Guaranteed ordering", "Simpler debugging"],
+          "correctIndex": 1,
+          "explanation": "The publisher emits facts; who reacts is someone else's configuration. Debugging actually gets harder — that's the trade."
+        }
+      ]
+    },
+    {
+      "title": "Idempotency: Surviving Retries Everywhere",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Idempotency\n\nAn operation is **idempotent** if doing it twice has the same effect as once. In distributed systems, retries are everywhere — HTTP clients, queue redelivery, users double-clicking, Polly policies you added yourself — so **duplicates are guaranteed input**, and idempotency is the immune system.\n\n## The money scenario\n\n```\nClient → POST /payments (charge $100)\n     → network timeout... did it charge? ¯\\_(ツ)_/¯\n     → retry POST /payments\n     → charged twice? 💸💸\n```\n\nThe timeout is indistinguishable from 'server processed it and the response was lost'. Retrying is correct client behavior — the server must dedupe.\n\n## Idempotency keys — the standard\n\n```csharp\n// Client generates a unique key per logical operation (not per attempt!)\nPOST /payments\nIdempotency-Key: 7f3d2c9a-...\n\n// Server:\npublic async Task<IResult> Charge(PaymentRequest req, [FromHeader(Name=\"Idempotency-Key\")] string key)\n{\n    var existing = await db.IdempotencyRecords.FindAsync(key);\n    if (existing is not null)\n        return Results.Ok(existing.StoredResponse);        // replay saved result — no double charge\n\n    var result = await ProcessPayment(req);\n    db.IdempotencyRecords.Add(new(key, Serialize(result))); // same transaction as the work!\n    await db.SaveChangesAsync();\n    return Results.Ok(result);\n}\n```\n\nCritical details: the dedup record commits **in the same transaction** as the business change (else crash-between = duplicate anyway); keys expire after ~24-72h; concurrent same-key requests need a unique constraint (second insert fails → fetch and replay).\n\nStripe, PSPs, and every serious payment API work exactly this way — recognize the header.\n\n## Cheaper idempotency where available\n\n| Technique | Example |\n|---|---|\n| Naturally idempotent ops | `PUT /users/5 {state}` (replace), `SET Status='Shipped'`, DELETE |\n| Guarded transitions | `UPDATE ... WHERE Status='Pending'` — @@ROWCOUNT 0 = already done (your SQL atomic guard!) |\n| Unique constraints | dedup table on MessageId/OrderNumber — the DB rejects the duplicate |\n| Upserts | MERGE keyed by external id |\n\nHTTP semantics recap: GET/PUT/DELETE idempotent *by contract*; POST is not — hence the key header for POSTs that create/charge/send.",
+      "practiceTask": "Add idempotency-key handling to one 'dangerous if repeated' endpoint (order creation, message send). Prove it: two identical POSTs → one DB effect, identical responses. Bonus: make two *concurrent* same-key requests behave via the unique constraint.",
+      "externalLinks": ["https://stripe.com/docs/api/idempotent_requests"],
+      "quiz": [
+        {
+          "question": "A client that times out on POST /payments should retry with the same idempotency key because:",
+          "options": ["It's faster than a new key", "Timeout can't distinguish 'never processed' from 'processed, response lost' — the key lets the server dedupe either way", "Keys are expensive to generate", "HTTP requires it"],
+          "correctIndex": 1,
+          "explanation": "Same logical operation = same key across attempts; the server either executes once and replays the stored response, or executes fresh."
+        },
+        {
+          "question": "The idempotency record must be written in the same DB transaction as the business change because:",
+          "options": ["It's faster", "A crash between the change and the record would leave the operation replayable — duplicating it despite the mechanism", "Foreign keys demand it", "Separate transactions deadlock"],
+          "correctIndex": 1,
+          "explanation": "Atomicity of work + dedup-marker is the guarantee; split them and the crash window reintroduces duplicates."
+        }
+      ]
+    },
+    {
+      "title": "The Outbox Pattern: Reliable Events with Your Database",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Dual-Write Problem and the Outbox\n\nEvery event-driven system hits this wall:\n\n```csharp\nawait db.SaveChangesAsync();                    // ✅ order saved\nawait bus.Publish(new OrderPlaced(order.Id));    // 💥 broker down / process crash\n// → order exists, event never sent: inventory never decrements, email never fires\n```\n\nSwap the order? Then the event may fire for an order whose transaction **rolls back** — phantom event. There is no way to make two independent systems (DB + broker) atomic with plain calls. This is the **dual-write problem**.\n\n## The outbox: make it one write\n\n```csharp\nusing var tx = await db.Database.BeginTransactionAsync();\ndb.Orders.Add(order);\ndb.OutboxMessages.Add(new OutboxMessage(          // same database, SAME transaction\n    Id: Guid.NewGuid(),\n    Type: \"OrderPlaced\",\n    Payload: JsonSerializer.Serialize(new OrderPlaced(order.Id)),\n    CreatedAt: DateTime.UtcNow));\nawait db.SaveChangesAsync();\nawait tx.CommitAsync();          // order + pending event commit atomically — or neither\n```\n\nA background **relay** (hosted service) polls unpublished outbox rows → publishes to the broker → marks published. Broker down? Rows wait. Relay crashes after publish, before marking? Message goes out **twice** — and your idempotent consumers (last lesson!) shrug. The guarantee chain: *at-least-once end-to-end, exactly-once effect via consumer idempotency*.\n\n```csharp\n// Relay sketch\nvar batch = await db.OutboxMessages.Where(m => m.PublishedAt == null)\n    .OrderBy(m => m.CreatedAt).Take(100).ToListAsync(ct);\nforeach (var msg in batch)\n{\n    await bus.Publish(msg.Type, msg.Payload, ct);\n    msg.PublishedAt = DateTime.UtcNow;\n}\nawait db.SaveChangesAsync(ct);\n```\n\n## Practical notes\n\n- **MassTransit and NServiceBus ship this built-in** (EF Core outbox) — configure, don't hand-roll, in production\n- Polling interval = added latency (100ms-2s typical); alternatives: SQL Server CDC/change tracking feeding the relay\n- Clean up published rows (retention job) — the outbox is a queue, not an archive\n- The same table doubles as an **inbox** for consumer-side dedup (store processed message ids transactionally)\n\nOne mental model: the outbox turns 'DB write + event publish' into 'DB write (with embedded intent) + eventually-executed intent' — shifting the atomicity to where you actually have it: **inside one database transaction**.",
+      "practiceTask": "Implement a minimal outbox in your LearnMore-style stack: OutboxMessages table, transactional write alongside a business change, BackgroundService relay that logs 'published'. Kill the relay mid-batch and verify no message is lost and duplicates are possible (then explain why that's fine).",
+      "externalLinks": ["https://masstransit.io/documentation/patterns/transactional-outbox"],
+      "quiz": [
+        {
+          "question": "The outbox pattern solves dual-write by:",
+          "options": ["Using two-phase commit with the broker", "Persisting the event in the same DB transaction as the business change; a relay publishes it afterwards", "Retrying the publish forever", "Making the broker transactional"],
+          "correctIndex": 1,
+          "explanation": "Atomicity exists within one database — the outbox exploits it, converting 'publish' into data that survives crashes."
+        }
+      ]
+    },
+    {
+      "title": "Distributed Transactions and Sagas",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# When One Transaction Can't Cover It\n\nOrder placement touching Orders DB + Payment service + Inventory service: no shared transaction exists. **Two-phase commit (2PC)** technically exists (DTC) but couples availability (all participants must be up, locks held across the network) — effectively dead in cloud/microservice practice.\n\n## Sagas: sequence of local transactions + compensations\n\nEach step is a **local, committed transaction**. If a later step fails, run **compensating transactions** to undo the earlier ones — business-level undo, not rollback:\n\n```\nReserveInventory ✅ → ChargePayment ✅ → CreateShipment ❌\n                                            ↓ compensate backwards\n            RefundPayment ← ReleaseInventory\n```\n\nCompensation ≠ rollback: the charge *happened* (statement shows charge+refund). Some steps can't un-happen (email sent) — order steps so hard-to-compensate ones come **last**, and prefer *reservations* over irreversible actions early (hold inventory, don't decrement; authorize payment, capture late).\n\n## Orchestration vs choreography\n\n| | Choreography | Orchestration |\n|---|---|---|\n| Mechanism | each service reacts to events, emits next | central saga/state machine directs each step |\n| Flow visibility | scattered across services | one place to read the whole process |\n| Coupling | low, but implicit | services know the orchestrator |\n| Fits | 2-3 steps, simple | 3+ steps, branches, timeouts, human approvals |\n\nRule of thumb: two steps → choreograph; a real *process* → orchestrate (MassTransit state machine sagas persist state in your SQL Server, handle timeouts — 'payment pending > 30min → cancel' — and survive restarts).\n\n## Design checklist for any saga\n\n1. Every step **idempotent** (retries!) — you have this tool\n2. Every step's **compensation defined** before you build it (if you can't compensate it, move it last)\n3. Timeouts as first-class transitions (waiting-for-payment isn't forever)\n4. The saga's own state persisted transactionally (outbox again)\n5. A human-visible dashboard of stuck sagas — they *will* get stuck; 'stuck at step 3 for 2 days' must be findable\n\nAnd the escape worth naming: sometimes the right answer is **don't distribute** — if Orders and Inventory always change together, maybe they're one service with one database and one honest ACID transaction. Saga complexity is a tax; make sure the service split earns it.",
+      "practiceTask": "Design (on paper) the saga for your domain's most multi-system flow: steps, compensations, step ordering by reversibility, timeout policy per step. Mark any step with no possible compensation and propose the reservation-style redesign.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/reference-architectures/saga/saga"],
+      "quiz": [
+        {
+          "question": "In a saga, a failed step is handled by:",
+          "options": ["Rolling back all databases via DTC", "Executing compensating transactions that business-level-undo the already-committed earlier steps", "Retrying the whole saga from step 1", "Ignoring it — eventual consistency"],
+          "correctIndex": 1,
+          "explanation": "Earlier steps committed locally and can't roll back; compensation (refund, release, cancel) reverses their business effect."
+        },
+        {
+          "question": "Hard-to-compensate steps (sending an email, capturing payment) should be:",
+          "options": ["First, to fail fast", "Ordered last, after reversible/reservable steps have all succeeded", "Wrapped in 2PC", "Skipped in sagas"],
+          "correctIndex": 1,
+          "explanation": "Sequencing by reversibility minimizes the window where an irreversible action needs undoing."
+        }
+      ]
+    },
+    {
+      "title": "Rate Limiting and Backpressure",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Protecting Your System from Its Callers\n\nWithout limits, one aggressive client (or a bug in a loop, or a scraper) consumes capacity meant for everyone. Rate limiting is fairness + self-defense.\n\n## The algorithms\n\n| Algorithm | Behavior | Notes |\n|---|---|---|\n| Fixed window | N per minute, reset at :00 | boundary burst: 2N straddling the reset |\n| Sliding window | N per rolling 60s | smooth, slightly more state |\n| **Token bucket** | tokens refill at rate r, burst up to bucket size b | the practical favorite: steady rate + tolerated bursts |\n| Concurrency limit | max N *in flight* | protects slow endpoints regardless of rate |\n\n## ASP.NET Core has it built in (.NET 7+)\n\n```csharp\nbuilder.Services.AddRateLimiter(o =>\n{\n    o.AddPolicy(\"per-user\", ctx => RateLimitPartition.GetTokenBucketLimiter(\n        partitionKey: ctx.User.Identity?.Name ?? ctx.Connection.RemoteIpAddress!.ToString(),\n        _ => new TokenBucketRateLimiterOptions {\n            TokenLimit = 20, ReplenishmentPeriod = TimeSpan.FromSeconds(1),\n            TokensPerPeriod = 5, QueueLimit = 0 }));\n    o.RejectionStatusCode = 429;\n});\napp.UseRateLimiter();\n```\n\nPartition by **user/API key** (fair) > by IP (corporate NAT = thousands share one IP; mobile carriers too). Return **429 + Retry-After** — well-behaved clients (and your own Polly policies) respect it.\n\nMulti-instance note: in-process limiters count per instance (N instances ≈ N× the intended limit) — usually acceptable; strict global limits need a shared store (Redis token bucket) or the gateway layer.\n\n## Backpressure: the deeper principle\n\nRate limiting rejects at the door; **backpressure** propagates 'slow down' through the whole pipeline: bounded queues (`Channel.CreateBounded` blocks/rejects producers when full), `429`/`503 + Retry-After` telling upstream to back off, consumer lag pausing producers. The alternative to backpressure is unbounded buffering — which is just choosing OOM as your failure mode.\n\nLoad shedding, the last resort: under extreme pressure, deliberately drop *low-value* work (analytics beacons) to preserve *high-value* work (checkout). Deciding priorities **before** the incident is the actual engineering.",
+      "practiceTask": "Add the built-in rate limiter to your API with a token bucket per user. Hammer it with a parallel loop; verify 429s + Retry-After, then implement a client that honors Retry-After and confirm graceful behavior.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit"],
+      "quiz": [
+        {
+          "question": "Token bucket is generally preferred over fixed windows because:",
+          "options": ["It uses less memory", "It allows controlled bursts while enforcing a steady average rate, without window-boundary spikes", "It's the only distributed-safe option", "It never rejects requests"],
+          "correctIndex": 1,
+          "explanation": "Refill rate sets the average; bucket capacity absorbs legitimate bursts; no reset-boundary double-spend."
+        },
+        {
+          "question": "An unbounded in-memory queue between a fast producer and slow consumer eventually causes:",
+          "options": ["Deadlock", "Out-of-memory failure — unbounded buffering is deferred collapse; bounded queues + backpressure are the fix", "Message reordering", "CPU throttling"],
+          "correctIndex": 1,
+          "explanation": "If inflow exceeds outflow with no bound and no signal upstream, memory is the only thing absorbing the difference — until it isn't."
+        }
+      ]
+    },
+    {
+      "title": "API Design: Contracts, Versioning, Pagination",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# APIs Are Contracts\n\nOnce someone you don't control calls your API, every response shape, status code, and field name is a promise. Breaking promises breaks *their* production.\n\n## REST resource discipline (the 20% that matters)\n\n- Nouns for resources, HTTP verbs for actions: `GET /orders/42`, `POST /orders`, not `POST /getOrder`\n- Status codes carry semantics: 200/201/204, 400 (your request is wrong) vs 422 (understood but invalid), 401 (who are you) vs 403 (you can't), 404, 409 (conflict — optimistic concurrency!), 429 (limits lesson)\n- **Error bodies standardized**: ASP.NET Core's `ProblemDetails` (RFC 7807) — machine-readable type/title/detail, one shape for every error\n- Async ops: `202 Accepted + Location: /operations/123` for long-running work — pairs with your queue lesson\n\n## Breaking vs non-breaking (memorize the line)\n\n| Safe (additive) | Breaking |\n|---|---|\n| New optional field in response | Removing/renaming a field |\n| New endpoint | Changing a field's type/format |\n| New optional query param | New required param |\n| | Changing status codes/semantics |\n\nCorollary for clients: **tolerant reader** — ignore unknown fields (System.Text.Json default), never fail on additions.\n\n## Versioning: everyone's favorite bikeshed\n\nURL (`/api/v2/orders`) — visible, cacheable, ugly; header/media-type — purist, invisible; query param — pragmatic. **Choosing one and staying consistent matters 10× more than which.** Version when you *must* break, support N-1 for a real deprecation window (with `Sunset` headers and comms), and design additively to version rarely. `Asp.Versioning` handles the plumbing.\n\n## Pagination, filtering, field selection\n\nCursor/keyset over offset for anything large (your SQL lesson — same reasoning at the API layer: `?after=cursor` beats `?page=5000`), and the cursor is opaque to clients (base64 of your keyset — you can change its internals). Cap page sizes (`?limit=100` max). Consistent filter grammar (`?status=open&createdAfter=...`).\n\nOne more contract: **ids are opaque strings** to clients. Exposing int identity invites enumeration attacks (`/orders/1,2,3...`) and welds your DB key strategy to the public contract — GUIDs/v7 or at minimum non-guessable ids on anything sensitive.",
+      "practiceTask": "Audit one of your production APIs against this lesson: standardized ProblemDetails? 400-vs-422/401-vs-403 correct? Any offset pagination on big tables? Any enumerable int ids on sensitive resources? Fix or ticket the top two findings.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design"],
+      "quiz": [
+        {
+          "question": "Which change is safe to ship without versioning?",
+          "options": ["Renaming 'total' to 'totalAmount'", "Adding a new optional field to the response", "Making an optional parameter required", "Changing date format from ISO to Unix epoch"],
+          "correctIndex": 1,
+          "explanation": "Additive changes don't break tolerant readers; renames, type changes, and new requirements break existing callers."
+        }
+      ]
+    },
+    {
+      "title": "Monolith vs Microservices: The Real Trade",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Architecture Decision Everyone Gets Backwards\n\nMicroservices don't primarily solve *technical* scale — a load-balanced monolith scales horizontally just fine (you built one in lesson 2). They solve **organizational** scale: 8 teams can't share one codebase, one release train, one 2 AM deploy freeze without stepping on each other.\n\n## What microservices actually cost\n\nEvery in-process call that becomes a network call inherits: latency (+network round trip), partial failure (your resilience lesson), serialization, versioned contracts (API lesson), distributed transactions → sagas (that lesson), 'where did my request go' → distributed tracing (next lessons). Plus per-service CI/CD, infra, on-call. **You've now studied ~6 lessons of machinery that exists only because of the network boundary.** That's the price tag, itemized.\n\n## The modular monolith: the underrated default\n\n```\nMyApp.sln\n├─ Modules/Ordering/     ← own DbContext (own schema), public interface, internal everything else\n├─ Modules/Inventory/    ← talks to Ordering ONLY via its public interface or in-proc events\n├─ Modules/Identity/\n└─ Host/                 ← one deployable wiring modules together\n```\n\nModule boundaries enforced at compile time (`internal`, architecture tests like NetArchTest), separate schemas, module-scoped transactions, events between modules (MediatR notifications). You get: monolith deployment simplicity + microservice-shaped seams. **If a module later truly needs independence** (team ownership, divergent scaling, different tech), it extracts cleanly — the interface becomes an API, the events go on a bus, the schema moves out.\n\n## When extraction is actually justified\n\n- A team needs to deploy independently of others (organizational)\n- A component's scaling profile is wildly different (10k RPS image resizing vs 50 RPS admin)\n- Divergent runtime needs (Python ML service in a .NET shop)\n- Genuine fault isolation requirement (payment must survive catalog's death)\n\n'It's more scalable' and 'Netflix does it' are not on the list. Start modular-monolith; extract when a *specific* boundary earns its network tax; expect most never to.\n\nDistributed monolith — services that must deploy together, share a database, chain synchronous calls — is both prices, neither benefit: the worst quadrant. If services can't fail independently, they aren't independent services.",
+      "practiceTask": "Map your current work system's modules and their coupling (shared tables? synchronous call chains? shared deploys?). Identify: one boundary that would extract cleanly, and one 'distributed monolith' symptom if you already have services.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures"],
+      "quiz": [
+        {
+          "question": "The strongest legitimate driver for extracting a microservice is:",
+          "options": ["Microservices are industry best practice", "Independent team ownership/deployment or a genuinely divergent scaling/runtime profile", "The monolith's codebase feels large", "Resume-driven development"],
+          "correctIndex": 1,
+          "explanation": "The network boundary's costs are justified by organizational independence or hard technical divergence — not by fashion or size alone."
+        },
+        {
+          "question": "A 'distributed monolith' is a system where:",
+          "options": ["A monolith runs on many servers", "Services are physically separate but must deploy together / share data / can't fail independently — paying network costs without gaining independence", "One service is much larger than others", "The database is distributed"],
+          "correctIndex": 1,
+          "explanation": "Coupled services inherit all distribution costs (latency, partial failure, tracing) while retaining monolith coordination costs."
+        }
+      ]
+    },
+    {
+      "title": "API Gateways and BFF",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Front Door\n\nWith multiple services (or even a modular monolith exposing multiple APIs), clients shouldn't juggle N base URLs, N auth schemes, N retry policies. An **API gateway** is the single entry point that handles the cross-cutting edge concerns once:\n\n- **Routing**: `/api/orders/*` → ordering service; path rewriting\n- **AuthN at the edge**: validate JWT once; forward identity claims to services (which still authorize!)\n- Rate limiting, request size limits, IP filtering (your limits lesson, applied globally)\n- TLS termination, response compression/caching\n- Telemetry: one place where every request is counted and timed\n\n.NET-native option: **YARP** (reverse proxy as an ASP.NET Core app — config-driven routes, full middleware power). Cloud: Azure API Management / Front Door.\n\n```json\n// YARP essence\n\"Routes\": { \"orders\": { \"ClusterId\": \"ordering\", \"Match\": { \"Path\": \"/api/orders/{**rest}\" } } },\n\"Clusters\": { \"ordering\": { \"Destinations\": { \"d1\": { \"Address\": \"http://ordering:8080\" } } } }\n```\n\nGateway anti-pattern: business logic creeping into it (the gateway becomes a bottleneck monolith owned by nobody). Routing, auth, limits — yes; order validation — no.\n\n## BFF: Backend-for-Frontend\n\nDifferent clients want different shapes: your Angular app needs a dashboard = 1 call, not 6 service calls from the browser (latency × 6, CORS × 6, token juggling). A **BFF** is a thin API tailored to one frontend:\n\n```\nAngular ↔ BFF (aggregates 6 calls server-side, shapes DTOs for screens, holds tokens in HttpOnly cookies)\nMobile  ↔ its own BFF (smaller payloads, different aggregation)\n```\n\nSecurity bonus for SPAs: the **BFF holds the OAuth tokens server-side** (browser gets only an HttpOnly session cookie) — the current OWASP-recommended SPA auth pattern, eliminating tokens-in-localStorage XSS theft.\n\nGateway vs BFF: gateway = generic edge infrastructure (one for everyone); BFF = per-client aggregation layer owned by the frontend team (one per client type). They stack: Client → BFF → gateway → services.",
+      "practiceTask": "Stand up YARP in front of your API(s): one route, JWT validation at the proxy, rate limiting middleware. Then sketch your Angular app's chattiest screen — how many calls would a BFF endpoint collapse into one?",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/yarp/yarp-overview"],
+      "quiz": [
+        {
+          "question": "The BFF pattern's security benefit for SPAs is:",
+          "options": ["It encrypts localStorage", "OAuth tokens live server-side in the BFF; the browser holds only an HttpOnly cookie — XSS can't exfiltrate tokens", "It removes the need for auth", "CORS is disabled"],
+          "correctIndex": 1,
+          "explanation": "Tokens never reach JavaScript-accessible storage; the BFF exchanges the cookie-bound session for tokens when calling downstream."
+        }
+      ]
+    },
+    {
+      "title": "Observability: Logs, Metrics, Traces",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Observability: Debugging Systems You Can't Attach To\n\nMonitoring tells you *that* something's wrong; observability lets you ask *why* without shipping new code. Three pillars, three different questions:\n\n## 1. Structured logs — \"what happened here?\"\n\n```csharp\n// ❌ string soup — unqueryable\nlog.LogInformation($\"Order {id} failed for {email}\");\n// ✅ structured — every property queryable\nlog.LogInformation(\"Order {OrderId} failed for {CustomerEmail} with {Reason}\", id, email, reason);\n```\n\nMessage templates → Seq/ELK/App Insights can answer 'all failures for this customer, this week'. Rules: log levels mean something (Warning = investigate weekly, Error = investigate today); **correlation id on every line** (see traces); never log secrets/PII; logs are expensive at volume — Info for business events, Debug off in prod.\n\n## 2. Metrics — \"is the system healthy?\"\n\nCheap aggregated numbers over time: request rate, error rate, latency percentiles, queue depth, cache hit ratio, DLQ depth (your earlier lessons keep resurfacing). The RED method per service: **R**ate, **E**rrors, **D**uration.\n\n**Percentiles, not averages**: average latency 80ms can hide p99 = 4s — and 1% of your traffic is your unhappiest users, often your biggest customers (more data = slower queries). Alert on p95/p99 and error *rate* (not count).\n\n## 3. Distributed traces — \"where did this request go?\"\n\nOne request → gateway → API → SQL + Redis + queue → consumer. A trace stitches it into a waterfall: every hop a **span** (with timing + metadata), all sharing a **trace id** propagated via the `traceparent` header (W3C standard).\n\n.NET makes this almost free: **OpenTelemetry** auto-instruments ASP.NET Core, HttpClient, SQL, and `ILogger` correlation:\n\n```csharp\nbuilder.Services.AddOpenTelemetry()\n    .WithTracing(t => t.AddAspNetCoreInstrumentation()\n                       .AddHttpClientInstrumentation()\n                       .AddSqlClientInstrumentation()\n                       .AddOtlpExporter())      // → Jaeger/Tempo/App Insights\n    .WithMetrics(m => m.AddAspNetCoreInstrumentation().AddOtlpExporter());\n```\n\nThe payoff moment: 'checkout is slow' → open trace → 40 sequential SQL spans (N+1! — you know that lesson) or one 3s external-API span. Minutes, not days.\n\nEvent-driven flows: propagate trace context in message headers, or the queue hop breaks the story (MassTransit does this automatically). Your invisible-flow problem from the pub/sub lesson? This is its answer.",
+      "practiceTask": "Add OpenTelemetry (tracing + metrics) to your app with console or Jaeger exporter (docker run jaegertracing/all-in-one). Hit a page and read its trace: find the SQL spans, and deliberately create an N+1 to see it visually.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/dotnet/core/diagnostics/observability-with-otel"],
+      "quiz": [
+        {
+          "question": "Alerting on average latency instead of p99 is dangerous because:",
+          "options": ["Averages are hard to compute", "Averages hide tail pain — 1% of requests can be catastrophically slow (often for your heaviest users) while the average looks fine", "p99 is cheaper to store", "Averages require sampling"],
+          "correctIndex": 1,
+          "explanation": "Latency distributions are skewed; the tail is where timeouts, retries, and unhappy big customers live."
+        },
+        {
+          "question": "Distributed tracing connects spans across services via:",
+          "options": ["Shared database rows", "A trace id propagated in headers (W3C traceparent) through every HTTP call and message", "Synchronized clocks", "Service mesh only"],
+          "correctIndex": 1,
+          "explanation": "Context propagation is the whole trick — each hop continues the same trace id, letting the backend assemble the waterfall."
+        }
+      ]
+    },
+    {
+      "title": "Deployments: Zero Downtime and Rollback",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Shipping Without Stopping\n\n'Deploy at 2 AM Sunday' is an architecture smell. Zero-downtime deployment is a solved problem — with a database asterisk.\n\n## Strategies\n\n| Strategy | How | Trade |\n|---|---|---|\n| **Rolling** | replace instances one-by-one behind the LB | both versions live simultaneously (compat burden) |\n| **Blue/green** | full new environment, switch traffic atomically | 2× infra during deploy; instant rollback = switch back |\n| **Canary** | new version gets 1%→5%→50%→100% of traffic, watching metrics | needs traffic splitting + automated rollback triggers |\n| Feature flags | deploy dark, enable per user/tenant/percentage | **decouples deploy from release** — the real superpower |\n\nCommon thread: **two versions run at once** during every non-atomic strategy. Your code must tolerate it.\n\n## The database is the hard part\n\nApp v2 wants `CustomerName` split into First/Last. Deploy v2 + migration together → v1 instances (still running mid-rollout!) crash on the changed schema. The fix: **expand/contract** — every schema change is backward-compatible for one deploy cycle:\n\n```\nEXPAND:   add nullable FirstName/LastName; v2 writes BOTH old and new columns, reads new-else-old\nMIGRATE:  backfill job populates new columns from old\nCONTRACT: (next release) v3 stops touching CustomerName; later, drop it\n```\n\nRules that follow: never rename (add + migrate + drop), never drop in the same release that stops using it, migrations run *before* code deploys and must work with the *previous* app version. EF Core migrations fit — but review the generated SQL for lock behavior on big tables (`ALTER TABLE` can block; your blocking lesson applies).\n\n## Rollback honesty\n\nRollback = deploying the old version — which only works if the DB (expand/contract!) and *emitted events/messages* remain compatible. Data written by v2 in a new format that v1 can't read = you can't actually roll back. **Roll-forward** (fix fast) is often the honest strategy; feature flags give you instant 'rollback' of behavior without redeploying at all.\n\nHealth-check integration: rolling deploys wait for the new instance's **readiness** probe before shifting traffic and killing the next old instance — your health check lesson is literally the deploy gate.",
+      "practiceTask": "Take your last schema change and rewrite it as expand/contract phases. Then simulate a rolling deploy locally: run v1 and v2 of your API simultaneously against the expanded schema and verify both work.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/framework/devops/release-engineering-cd"],
+      "quiz": [
+        {
+          "question": "Renaming a column in the same release that deploys the code using the new name breaks rolling deploys because:",
+          "options": ["EF can't rename columns", "Old-version instances still running during the rollout hit a schema they don't understand", "Renames require downtime by SQL design", "The LB can't route during migrations"],
+          "correctIndex": 1,
+          "explanation": "Non-atomic rollouts mean old and new code share one schema for minutes-to-hours; expand/contract keeps both compatible."
+        },
+        {
+          "question": "Feature flags' core deployment benefit is:",
+          "options": ["Smaller binaries", "Decoupling deploy from release — code ships dark and activates instantly per cohort, with instant behavioral rollback", "Skipping code review", "Faster builds"],
+          "correctIndex": 1,
+          "explanation": "The riskiest moment stops being the deploy; enabling (and disabling) behavior becomes a runtime decision."
+        }
+      ]
+    },
+    {
+      "title": "Real-Time: WebSockets, SignalR, and Alternatives",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Pushing Data to Clients\n\nHTTP is request/response; 'the server tells the browser something changed' needs other machinery.\n\n## The options ladder\n\n| Technique | How | Fit |\n|---|---|---|\n| Short polling | client asks every Ns | dead simple; latency = interval; wasteful at scale |\n| Long polling | server holds the request until data or timeout | near-real-time without WS; connection churn |\n| **SSE** (Server-Sent Events) | one HTTP stream, server→client only | feeds, notifications, LLM token streams — underrated |\n| **WebSockets** | full-duplex persistent TCP | chat, collab editing, games — the full solution |\n\n## SignalR: WebSockets for grown-ups (.NET)\n\nHandles negotiation (WS → SSE → long-poll fallback), reconnection, multiplexing, and RPC-style messaging:\n\n```csharp\npublic class NotificationHub : Hub\n{\n    public override async Task OnConnectedAsync() =>\n        await Groups.AddToGroupAsync(Context.ConnectionId, $\"user:{Context.UserIdentifier}\");\n}\n\n// From anywhere server-side (e.g., your queue consumer!):\nawait hubContext.Clients.Group($\"user:{userId}\").SendAsync(\"orderShipped\", orderId);\n```\n\n```typescript\n// Angular\nthis.connection = new signalR.HubConnectionBuilder()\n    .withUrl('/hubs/notifications').withAutomaticReconnect().build();\nthis.connection.on('orderShipped', id => this.store.markShipped(id));\n```\n\n## Where real-time meets your other lessons\n\n- **Statelessness breaks**: a WebSocket lives on ONE server. Server A can't push to a socket on server B → **backplane** (Redis pub/sub: `AddSignalR().AddStackExchangeRedis(...)`) broadcasts across instances — or offload entirely to **Azure SignalR Service**\n- **Scale math changes**: 20k idle REST users ≈ no load; 20k WebSockets = 20k open connections *held* — memory per connection, LB connection limits, and deploys now *disconnect everyone* (auto-reconnect + resume matters)\n- **Missed messages**: reconnecting clients missed pushes — real-time is a *notification* layer, not the source of truth. Pattern: push 'something changed' → client fetches authoritative state via REST (or track sequence numbers)\n\nDecision shortcut: dashboards/notifications → SSE or SignalR-over-SSE; chat/presence/collab → SignalR WebSockets + Redis backplane; 'refresh every 30s is honestly fine' → polling, don't overbuild.",
+      "practiceTask": "Add a SignalR hub to your app pushing a server event to a toast in Angular (e.g., 'daily item completed' celebration). Then run two API instances and observe cross-instance push failing without a backplane; add Redis backplane and see it fixed.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/signalr/introduction"],
+      "quiz": [
+        {
+          "question": "A Redis backplane (or Azure SignalR) becomes necessary with multiple instances because:",
+          "options": ["WebSockets require Redis", "Each socket is pinned to one server; pushing to a user connected elsewhere needs cross-instance message distribution", "Redis stores the messages durably", "It reduces latency"],
+          "correctIndex": 1,
+          "explanation": "Hub broadcasts must reach connections held by other instances; the backplane republishes every send to all servers."
+        },
+        {
+          "question": "Clients that reconnect after a dropped WebSocket should:",
+          "options": ["Assume they missed nothing", "Re-fetch authoritative state via the API — pushes are notifications, not the source of truth", "Wait for the server to replay automatically", "Create a new user session"],
+          "correctIndex": 1,
+          "explanation": "Messages pushed during the gap are gone (absent explicit replay design); reconcile from the durable store."
+        }
+      ]
+    },
+    {
+      "title": "Full-Text Search and Search Architecture",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Search Is Not WHERE LIKE\n\n`WHERE Name LIKE '%laptop%'` — leading wildcard = full scan (your SARGability lesson), no relevance ranking, no typo tolerance, no 'gaming laptops' understanding. Search is a different data structure problem.\n\n## The inverted index (the core idea)\n\nInstead of rows → words, map **words → documents**:\n\n```\n\"laptop\"  → [doc3, doc7, doc19]\n\"gaming\"  → [doc7, doc42]\nquery \"gaming laptop\" → intersect → [doc7], ranked by relevance (TF-IDF/BM25:\nrare-in-corpus terms matching often in a short doc score highest)\n```\n\nPlus analysis at index time: lowercase, tokenize, **stemming** (running→run), synonyms, language rules. That's how 'Running Shoes' matches 'run shoe'.\n\n## Your options, in escalation order\n\n**1. SQL Server Full-Text Search** — built in, zero new infra:\n```sql\nCREATE FULLTEXT INDEX ON Products(Name, Description) KEY INDEX PK_Products;\nSELECT * FROM Products WHERE CONTAINS((Name, Description), 'NEAR((gaming, laptop), 5)');\n-- or ranked: FREETEXTTABLE / CONTAINSTABLE with RANK\n```\nHandles stemming, thesaurus, ranking. Weaker at: typo tolerance, faceting, complex relevance tuning. **Right answer for most business apps** — exhaust it before adding infrastructure.\n\n**2. Elasticsearch / OpenSearch / Azure AI Search** — dedicated engines: fuzzy matching, facets/aggregations, per-field boosting, highlighting, vectors. Cost: a second data store you must **sync** (outbox → indexer! your lesson again) — search results can lag writes (eventual consistency, again), reindexing strategy, cluster ops.\n\n**3. Vector/semantic search** — embeddings + k-NN: 'affordable computer for games' matches without shared words. Hybrid (keyword + vector) is the modern default for product/document search; SQL Server 2025 and all the engines above are adding native vector types.\n\n## The architecture seam\n\nSearch results are **pointers, not truth**: index stores what's needed to find + display a result list; clicking through loads the authoritative record from SQL. That keeps the index lean and staleness harmless (a result row with a slightly-old price corrects on the detail page).",
+      "practiceTask": "Enable SQL Full-Text on a text-heavy table in LocalDB (install the feature if needed). Compare LIKE '%term%' vs CONTAINS for: plan/reads, stemmed matches ('running' finds 'run'), and ranked output via CONTAINSTABLE.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/search/full-text-search"],
+      "quiz": [
+        {
+          "question": "An inverted index makes text search fast because:",
+          "options": ["It compresses documents", "It precomputes word→documents mappings, turning a query into list intersection instead of scanning every row's text", "It caches recent queries", "It sorts documents alphabetically"],
+          "correctIndex": 1,
+          "explanation": "Like your prefix-sum lesson: pay at write time to make reads near-instant — the search-shaped version of that trade."
+        },
+        {
+          "question": "Adding Elasticsearch alongside SQL Server introduces which recurring problem from this course?",
+          "options": ["Lock escalation", "Dual-write/sync — keeping the index consistent with the source of truth (outbox/indexer, eventual consistency)", "Parameter sniffing", "Connection pooling"],
+          "correctIndex": 1,
+          "explanation": "A second store always raises 'how does data get there reliably and how stale can it be' — the same outbox + eventual-consistency machinery."
+        }
+      ]
+    },
+    {
+      "title": "File Storage: Object Stores, Uploads, and Signed URLs",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Files Don't Belong on Your Web Server\n\nLocal disk fails the 2-instance test (uploaded to A, requested from B), dies with the instance, and doesn't scale. Databases *can* hold blobs but buy bloated backups, buffer-pool pollution (8KB pages full of JPEG!), and expensive storage. The standard answer: **object storage** (Azure Blob / S3).\n\n## Object storage mental model\n\nNot a filesystem: a flat key→blob map (`tenant42/invoices/2026/inv-991.pdf` is a *key*, the folders are illusion). Practically infinite, ~11 nines durability (replicated), tiered pricing (hot/cool/archive), lifecycle rules (auto-move old files to cheap tiers, auto-delete temp).\n\nDatabase stores **metadata**: `Documents(Id, TenantId, BlobKey, FileName, Size, ContentType, UploadedBy, ...)` — queryable, transactional, small. Blob stores bytes.\n\n## The upload pattern that scales: don't proxy bytes\n\n❌ Browser → your API (buffers 200MB) → blob storage: your instances become expensive byte pumps (memory, sockets, request limits).\n\n✅ **Direct upload with a SAS (shared access signature) / presigned URL**:\n\n```\n1. Angular → POST /api/documents/upload-url { fileName, size }     (authZ happens HERE)\n2. API → validates, creates metadata row (status: Pending),\n         returns short-lived write-only SAS URL for a specific blob key\n3. Angular → PUT bytes directly to blob storage (progress bar, retries — SDK handles)\n4. Angular → POST /api/documents/{id}/complete   (or Event Grid notification)\n   → API verifies blob exists, marks metadata Active\n```\n\nYour API handles a few JSON round-trips; storage handles the bytes at its own scale. Downloads mirror it: short-lived read SAS per authorized request (never public container access for user data; the URL expiry *is* the authorization window).\n\n## Safety checklist\n\n- Validate content-type by **magic bytes** server-side (extension lies; an .exe renamed .pdf is still an exe)\n- Never serve user uploads from your app domain without `Content-Disposition: attachment` + correct content-type (stored XSS via uploaded HTML/SVG)\n- Malware scan async (queue lesson) for user-shared files; images: re-encode (strips exploits + EXIF GPS)\n- Blob keys: GUIDs, not user filenames (traversal/collision); orphan cleanup job for Pending-forever rows",
+      "practiceTask": "Implement the SAS-URL upload flow against Azurite (local Azure Storage emulator): endpoint issuing a write SAS, Angular direct PUT, completion callback verifying blob existence. Confirm your API never touches the file bytes.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview"],
+      "quiz": [
+        {
+          "question": "Presigned/SAS direct uploads beat proxying files through your API because:",
+          "options": ["They skip authorization", "Your instances stop pumping bytes — storage absorbs the bandwidth/memory load while your API handles only small authZ round-trips", "They're more secure against viruses", "They compress automatically"],
+          "correctIndex": 1,
+          "explanation": "AuthZ still happens (issuing the scoped, short-lived URL is the auth decision); the heavy I/O just bypasses your compute tier."
+        }
+      ]
+    },
+    {
+      "title": "Back-of-Envelope Estimation",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Numbers Every Architect Should Feel\n\nSystem design decisions are quantitative. Estimation isn't precision — it's catching **order-of-magnitude** errors before building ('will this fit in one SQL Server?' is answerable on a napkin).\n\n## Anchor numbers (memorize the magnitudes)\n\n| Operation | Cost |\n|---|---|\n| Memory read | ~100 ns |\n| SSD random read | ~100 μs (1000× memory) |\n| Same-DC network round trip | ~0.5-1 ms |\n| Cross-region round trip | ~50-150 ms |\n| SQL point query (warm) | ~0.5-2 ms |\n| Redis GET | ~0.2-0.5 ms + network |\n\n| Scale fact | Value |\n|---|---|\n| 1 day | ~86,400 s (~10⁵) |\n| 1M requests/day | **~12 RPS** average (!), ~30-50 peak |\n| One modern server | 10k+ simple RPS |\n| SQL Server, tuned | thousands of TPS, TBs of data |\n\nThat '1M/day ≈ 12 RPS' regularly deflates over-engineering on the spot.\n\n## The method (worked example: your company's e-invoicing)\n\n**Assume**: 50k businesses × 40 invoices/day = 2M invoices/day.\n\n1. **Write load**: 2M / 86,400 ≈ **23 writes/s** (peak ×5 ≈ 115/s) → one SQL Server yawns\n2. **Storage**: invoice row ~2KB × 2M/day ≈ **4GB/day** ≈ 1.5TB/year → fine; PDFs 100KB × 2M = **200GB/day** → object storage + lifecycle tiers, NOT the database (files lesson)\n3. **Reads**: 10 reads per invoice write = 230/s → cache + maybe a replica; easy\n4. **Bandwidth**: PDF downloads 0.5M/day × 100KB ≈ 50GB/day ≈ **5 Mbps average** → trivial; CDN if spiky\n5. **Conclusion in one sentence**: 'SQL Server + blob storage + one cache handles this for years; the only scale problem is PDF storage volume — lifecycle policy from day one.'\n\nThat sentence — deliverable of the estimate — is what changes the design meeting.\n\n## Interview/meeting protocol\n\nState assumptions out loud (they'll be corrected — that's good data). Round aggressively (86,400→100k). Compute per-second, storage per-year, bandwidth average and peak. Compare each number to an anchor ('23 wps vs thousands SQL handles'). Land on the *binding constraint* — the one number that actually shapes the architecture.",
+      "practiceTask": "Estimate your current work system: requests/s (from real daily traffic), storage growth/year, and peak bandwidth. Identify the binding constraint. Then check your estimates against production metrics — calibrate where you were >10× off.",
+      "externalLinks": ["https://github.com/donnemartin/system-design-primer#back-of-the-envelope-calculations"],
+      "quiz": [
+        {
+          "question": "A service expecting 5 million requests/day needs, on average, infrastructure for roughly:",
+          "options": ["~5,000 RPS", "~600 RPS", "~60 RPS (with peaks maybe 3-5×) — a single well-built instance's territory", "~6 RPS"],
+          "correctIndex": 2,
+          "explanation": "5M / 86,400s ≈ 58 RPS. The day-to-seconds division routinely reveals 'big' numbers to be small."
+        }
+      ]
+    },
+    {
+      "title": "Authentication at Scale: JWT, Sessions, OAuth",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Identity Across Services\n\n## Session vs token — the fundamental trade\n\n| | Server session | JWT |\n|---|---|---|\n| State | server-side (Redis at scale) | in the token — server stateless |\n| Validation | lookup per request | signature check, no I/O |\n| **Revocation** | instant (delete session) | **hard — valid until expiry** |\n| Cross-service | services share session store | any service validates with the public key |\n\nJWTs win at service-to-service and API scale; their Achilles heel is revocation. The standard resolution: **short-lived access tokens (5-15 min) + refresh tokens**:\n\n```\naccess token (15 min, stateless validation everywhere)\nrefresh token (days, stored server-side, REVOCABLE, rotated on each use)\n→ logout/compromise = revoke refresh; damage window = access token's remaining minutes\n→ refresh rotation + reuse detection: a replayed old refresh token reveals theft → kill the family\n```\n\n## JWT hygiene (the audit checklist)\n\n- Validate **issuer, audience, expiry, signature** — ASP.NET Core's `AddJwtBearer` does this; don't disable pieces\n- Asymmetric signing (RS256): auth server holds the private key; services fetch public keys via JWKS and validate offline\n- Claims: ids and roles, not PII (JWTs are base64, **readable by anyone** — signed ≠ encrypted)\n- SPA storage: not localStorage (XSS-readable) → HttpOnly cookies or the BFF pattern (your gateway lesson)\n- Clock skew exists: 1-2 min tolerance, don't panic at 'expired 10 seconds ago' logs\n\n## OAuth2/OIDC in one paragraph\n\nOAuth2 = *delegated authorization* framework; **OIDC** = identity layer on top (id_token, /userinfo). Your cases: SPA/mobile → **Authorization Code + PKCE** (never implicit flow, never password grant); service-to-service → **Client Credentials**. Don't build the auth server: Microsoft Entra ID, Auth0, Keycloak, or Duende IdentityServer — password storage, MFA, token lifecycles and their CVEs are someone else's full-time job.\n\n## AuthZ at scale (one rule)\n\nGateway authenticates; **every service still authorizes** (\"does user 42 own order 991?\" — resource-level checks in the service that owns the resource). Trusting 'the gateway checked' for object-level access = one SSRF/misroute from IDOR.",
+      "practiceTask": "Decode (jwt.io) a real access token from any system you use — inventory its claims for PII. Then audit your API's AddJwtBearer config: issuer/audience validation on? Access token lifetime? Refresh rotation? Write the two most urgent fixes.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-jwt-bearer-authentication"],
+      "quiz": [
+        {
+          "question": "Short-lived access tokens + revocable refresh tokens exist because:",
+          "options": ["Short tokens are smaller", "Stateless JWTs can't be revoked — shrinking their lifetime bounds the damage window while refresh tokens provide the revocation point", "Refresh tokens are faster to validate", "OAuth requires two tokens"],
+          "correctIndex": 1,
+          "explanation": "The pattern reconciles stateless validation (scale) with the ability to cut off a compromised session (security)."
+        },
+        {
+          "question": "Putting a user's email and full name inside a JWT is risky because:",
+          "options": ["It makes the token expire faster", "JWT payloads are merely base64-encoded — readable by anything that sees the token; signed is not encrypted", "Claims can't contain strings", "It breaks signature validation"],
+          "correctIndex": 1,
+          "explanation": "Anyone holding the token (browser extensions, logs, proxies) reads the payload; keep claims to opaque ids and roles."
+        }
+      ]
+    },
+    {
+      "title": "Case Study: Design a URL Shortener",
+      "difficulty": 3,
+      "estimatedMinutes": 22,
+      "bodyMarkdown": "# Design bit.ly — The Classic Warm-Up\n\nDeceptively simple; every lesson shows up. Walk the method.\n\n## 1. Requirements & estimation\n\nFunctional: shorten(long)→short; redirect(short)→301/302; optional custom aliases, expiry, click stats.\nScale assumption: 100M new URLs/month ≈ **40 writes/s**; 100:1 read:write ≈ **4k redirects/s**. Storage: ~500B/URL × 100M/mo ≈ 50GB/month — trivial. **Binding constraint: redirect read path latency+volume.**\n\n## 2. The short code\n\nBase62 (a-zA-Z0-9): 62⁷ ≈ **3.5 trillion** codes at 7 chars — enough forever.\n\n| Generation | Verdict |\n|---|---|\n| Hash the URL (MD5, take 7) | collisions need probing; same URL = same code (feature? leak?) |\n| Random + uniqueness check | retry loop under volume |\n| **Counter → base62** | collision-free, trivial — but sequential = enumerable (competitor scrapes your traffic) |\n| Counter × modular multiplicative inverse (or pre-generated shuffled key pool) | collision-free AND non-guessable ✅ |\n\nDistributed counters without coordination: allocate **ranges** per instance (server A: 1M-2M) — your sharding lesson's ID problem, solved the same way.\n\n## 3. Read path (where the design lives)\n\n```\nGET /abc123 → LB → API → Redis GET code:abc123 (hit: ~0.3ms, 90%+)\n                        ↓ miss\n                    SQL point lookup by PK (2ms) → warm cache → 301\n```\n\nCache-aside, TTL + LFU eviction; hot links (viral tweet) = hot key lesson → L1 in-process cache absorbs. 4k RPS of sub-ms lookups: **2-3 stateless API instances + one Redis + one SQL Server**. Resist the urge to shard — the napkin says no.\n\n## 4. Redirect status code — the sneaky trade\n\n**301 (permanent)**: browsers cache → next click skips you entirely → fast for users, **but you lose click analytics**. **302/307**: every click hits you → stats, control, expiry works properly. Business answer: 302 when analytics is the product. (Interviewers love this detail.)\n\n## 5. Click stats without killing the read path\n\nDon't `UPDATE Clicks SET Count=Count+1` inline (write per redirect + hot row lock — your locking lesson). **Fire-and-forget event → queue → aggregate in batches** (or Redis INCR flushed periodically). Redirect latency stays pure; stats are eventual — nobody needs real-time-exact click counts.\n\n## 6. Expiry & abuse\n\nExpiry: check on read (lazy) + background sweep (your batching lesson). Abuse: rate-limit creation (token bucket per key), malware-domain blocklist on create + async re-scan (queues again).\n\n**The pattern to internalize**: estimate → find the binding constraint → design the hot path around it → push everything non-critical off the hot path (async) → deliberately refuse unneeded scale machinery.",
+      "practiceTask": "Build the core in your stack: counter-range allocation, base62 encode, Redis cache-aside redirect, queued click counting (Channel<T> is fine locally). Load test the redirect path (bombardier) and report p99 with/without cache.",
+      "externalLinks": ["https://github.com/donnemartin/system-design-primer/blob/master/solutions/system_design/pastebin/README.md"],
+      "quiz": [
+        {
+          "question": "Choosing 302 over 301 for redirects is a business decision because:",
+          "options": ["302 is faster", "301 lets browsers cache the redirect — subsequent clicks bypass your service, killing analytics and expiry control", "301 is deprecated", "302 saves bandwidth"],
+          "correctIndex": 1,
+          "explanation": "Permanent-redirect caching trades your visibility/control for client-side speed; if click data is the product, 302 wins."
+        },
+        {
+          "question": "Incrementing a click counter synchronously in the redirect path is avoided because:",
+          "options": ["Counters overflow", "It adds a write + hot-row contention to the latency-critical path for data that's fine being eventual — queue and batch it", "SQL can't count that fast", "It breaks the cache"],
+          "correctIndex": 1,
+          "explanation": "Hot path purity: anything not required to serve the redirect moves to async aggregation."
+        }
+      ]
+    },
+    {
+      "title": "Case Study: Design a Chat System",
+      "difficulty": 3,
+      "estimatedMinutes": 22,
+      "bodyMarkdown": "# Design WhatsApp-Lite\n\nReal-time + persistence + fan-out: the lessons compose.\n\n## 1. Requirements & the hard parts\n\n1:1 + group chat, delivery/read receipts, online presence, history, offline delivery. Scale: 1M DAU × 40 msgs ≈ 40M msgs/day ≈ **460/s average, ~2-3k/s peak**. Message ~200B → 8GB/day → partition-by-time territory within a year (SQL partitioning lesson: archival by SWITCH).\n\nHard parts: **connection management** (millions of long-lived sockets), **fan-out** (group of 200 = 200 deliveries per message), **offline sync**, **ordering**.\n\n## 2. Connections\n\nWebSockets (SignalR), sticky-by-necessity: each user's socket lives on one node. A **connection registry** (Redis: `user:42 → node-7`) or a Redis backplane routes messages to the right node. 1M concurrent sockets ÷ ~50k per node ≈ 20 gateway nodes — connection tier scales independently of logic tier (your microservice-extraction criteria: genuinely different scaling profile!).\n\n## 3. The message path (every lesson at once)\n\n```\nsender → gateway node → API:\n  1. persist message (SQL: PK (ConversationId, MessageId↑))   ← durability FIRST\n  2. ack sender ('sent ✓')\n  3. queue fan-out job                                          ← off the hot path\nconsumer: for each recipient → registry lookup →\n  online: push via their node ('delivered ✓✓' when client acks)\n  offline: leave in their sync backlog (+ mobile push notification)\n```\n\nPersist-then-fanout = crash-safe (outbox thinking). Delivery is **at-least-once** → client dedupes by MessageId (idempotency lesson, client edition).\n\n## 4. Ordering & ids\n\nGlobal ordering: impossible-ish and unnecessary. **Per-conversation ordering** suffices (pub/sub lesson's partition-key insight — ConversationId is the key). MessageId: **Snowflake-style** (timestamp bits + node bits + sequence) — time-sortable, globally unique, no coordination; doubles as the ordering key and the sync cursor.\n\n## 5. Offline sync = keyset pagination\n\nClient reconnects with its last seen MessageId per conversation → `WHERE ConversationId=@c AND MessageId > @cursor ORDER BY MessageId` — your keyset lesson, verbatim, on the clustered key. No missed messages (they're in SQL, not in the ether — 'real-time is notification, DB is truth').\n\n## 6. Presence — the deceptive feature\n\nNaive 'broadcast every online/offline flip' = N² storm (500 contacts × every app backgrounding). Reality: heartbeat every 30s → TTL'd Redis key (`presence:42`, EXPIRE 60) → miss = offline; **pull presence on chat-open + subscribe only to open conversations**' participants. Accept 30-60s staleness (consistency-spectrum lesson: presence is the definition of eventual-is-fine).\n\nRead receipts at group scale get the same treatment: batched, eventual, aggregated ('read by 47').",
+      "practiceTask": "Extend your SignalR experiment into mini-chat: persist-then-push with per-conversation ordering (identity or timestamp ids), a sync endpoint using keyset pagination from a client cursor, and TTL-based Redis presence. Kill the connection mid-conversation, reconnect, verify zero message loss.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/example-scenario/signalr/"],
+      "quiz": [
+        {
+          "question": "Messages are persisted to the database BEFORE fan-out delivery because:",
+          "options": ["SQL is faster than WebSockets", "Durability first: a crash mid-fan-out loses pushes but not messages — offline sync from the DB recovers everything", "Ordering requires it", "Push notifications need a row id"],
+          "correctIndex": 1,
+          "explanation": "The DB is the source of truth; delivery is a retryable notification layer on top. Reverse the order and crashes eat messages."
+        },
+        {
+          "question": "Presence uses heartbeat + TTL'd keys instead of connect/disconnect events because:",
+          "options": ["Events are expensive in Redis", "Disconnects are unreliable (crashes, network drops never fire 'clean' disconnect) — expiry-based liveness self-heals", "TTL is more real-time", "SignalR lacks disconnect events"],
+          "correctIndex": 1,
+          "explanation": "Absence of heartbeat is the only trustworthy offline signal; TTL turns it into an automatic mechanism."
+        }
+      ]
+    },
+    {
+      "title": "Case Study: Design a News Feed",
+      "difficulty": 3,
+      "estimatedMinutes": 22,
+      "bodyMarkdown": "# Design the Feed — Fan-out Economics\n\nThe canonical read-vs-write trade-off study.\n\n## 1. The two strategies\n\n**Pull (fan-out on read)**: feed request = query posts of all N followees, merge by time, return top 50.\n- Write: O(1) — insert post, done\n- Read: N queries + k-way merge (your heap lesson!) *per feed view* — and users view feeds ~50× more than they post 💀\n\n**Push (fan-out on write)**: on post, insert a feed entry into **every follower's** precomputed feed list.\n- Read: O(1) — `LRANGE feed:42 0 49` from Redis, single-digit ms ✅\n- Write: O(followers) — 5M followers = 5M inserts *per celebrity post* 💀\n\n## 2. The answer is always hybrid\n\n| User posts | Strategy |\n|---|---|\n| Normal users (99.9%, <10k followers) | **push** — async fan-out via queue (spikes absorbed, your load-leveling lesson) |\n| Celebrities/hot accounts | **pull** — followers' feed reads merge celebrity posts in at read time |\n\nFeed read = precomputed list (push part) + live merge of followed-celebrities' recent posts (pull part). Two sorted sources, one merge — DSA again.\n\n## 3. Storage sketch\n\nPosts: SQL, source of truth. Feeds: **Redis lists/sorted-sets per user, capped ~800 entries** — a feed is a *cache of pointers* (post ids), rebuildable from the social graph if evicted; store ids not payloads (post edits/deletes stay consistent — search lesson's 'pointers not truth' principle). Hydrate posts by id (multi-get, cached) at render.\n\nEstimation: 10M DAU × 800 × 16B ≈ 128GB Redis — real but affordable; capping and inactive-user eviction is why you cap.\n\n## 4. Ranking\n\nChronological = simple, transparent. Ranked (engagement/ML) changes architecture: candidate generation (recent from feed) → scoring service (features: recency, affinity, engagement velocity) → re-rank top ~500. Score at read time (fresh, costly) or pre-score at fan-out (stale, cheap) — same push/pull trade one level up.\n\n## 5. The remaining machinery (all reruns)\n\n- New-post distribution: **outbox** → fan-out workers (reliability lesson)\n- Fan-out worker crash mid-celebrity? Idempotent inserts (sorted-set add = naturally idempotent ✅)\n- Feed pagination: **cursor by post id/score**, not offset (posts arrive between pages — offset double-shows)\n- Unfollow/block: lazy filter at read (remove-from-feed is O(feed) — filter cheaper)\n- Counters (likes): batched/eventual, never synchronous hot-row increments (URL-shortener lesson)\n\n**The interview meta-skill**: you didn't invent anything new today — you *composed* 12 prior lessons. That's what system design actually is.",
+      "practiceTask": "Implement mini-feed locally: follow graph in SQL, push fan-out via a queue worker into Redis sorted sets (score = timestamp), hybrid read merging one 'celebrity' user's posts at read time, cursor pagination. Measure feed-read latency vs the pure-pull SQL version at 100k posts.",
+      "externalLinks": ["https://github.com/donnemartin/system-design-primer#design-the-twitter-timeline-and-search"],
+      "quiz": [
+        {
+          "question": "Push (fan-out on write) is preferred for normal users because:",
+          "options": ["Writes must be fast", "Feed reads vastly outnumber posts — precomputing at write time moves cost to the rare operation and makes the frequent one O(1)", "Redis requires it", "It improves ranking quality"],
+          "correctIndex": 1,
+          "explanation": "Optimize for the dominant operation: 50 reads per write means write-time work amortizes brilliantly — until follower counts explode it."
+        },
+        {
+          "question": "Celebrity accounts switch to pull because:",
+          "options": ["Their posts rank higher", "Fan-out on write = one insert per follower; at millions of followers a single post becomes millions of writes — merging at read time caps the cost", "They post more often", "Redis lists have size limits"],
+          "correctIndex": 1,
+          "explanation": "The hybrid inverts strategy exactly where write amplification crosses over read amplification."
+        }
+      ]
+    },
+    {
+      "title": "Designing for Failure: Timeouts, Bulkheads, Chaos",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Everything Fails — Design for It\n\nDistributed systems' first law: dependencies **will** fail — slowly, partially, and at the worst time. Resilience is designed, not patched. (You have retry/circuit-breaker from the patterns track; this is the architecture layer around them.)\n\n## Slow is worse than down\n\nA *dead* dependency fails fast; a *slow* one holds your threads, sockets, and memory hostage while requests pile up — then **you** die, and whoever calls you follows. Cascading failure is latency propagation. Hence:\n\n- **Timeouts on everything** — every HttpClient, SQL command, Redis call. Budget them: if your SLA is 2s, downstream budget is maybe 500ms each, not 30s defaults\n- **Circuit breakers** convert slow into fast-fail (patterns track)\n- **Bulkheads**: partition resources so one dependency can't drain the pool — separate HttpClient pools per dependency, bounded concurrency per integration (`SemaphoreSlim`/Polly bulkhead), even separate thread pools. Ship-compartment logic: flood one, ship floats\n\n## Degrade gracefully — the product conversation\n\nFor each dependency, decide *before the incident* what its failure means:\n\n| Dependency down | Degraded behavior (not error page!) |\n|---|---|\n| Recommendations service | show bestsellers (static fallback) |\n| Search | category browse still works |\n| Payment | accept order, queue capture, email confirmation later |\n| Analytics | drop silently (load-shedding lesson) |\n\nFallbacks are product decisions wearing engineering clothes — get them agreed with the business, then encode (Polly fallback policies).\n\n## Verify it actually works: chaos engineering\n\nResilience code that's never exercised is Schrödinger's resilience. Netflix's insight: **inject failures on purpose** — kill instances, add latency, blackhole a dependency — in controlled experiments (staging first, prod eventually, blast-radius-limited). Even manual game days ('unplug Redis, watch dashboards, follow the runbook') find the gaps: the retry storm you misconfigured, the health check that takes the whole fleet down (LB lesson!), the fallback that NPEs.\n\n## Blast radius thinking\n\nCell-based architecture: partition users across independent stacks (cells) — an incident hits one cell = 10% of users, not all. Regional isolation, per-tenant pools for whale customers — same idea at different granularity. The question for every design review: **'when this fails, who is affected, and how do we make that set smaller?'**",
+      "practiceTask": "Run a mini game day on your app: (1) add 5s artificial latency to your DB or an external call (toxiproxy or a middleware delay), (2) observe threads/latency/timeouts cascade, (3) add timeout + circuit breaker + one graceful fallback, (4) re-run and document the difference.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/azure/architecture/framework/resiliency/chaos-engineering"],
+      "quiz": [
+        {
+          "question": "A slow dependency is more dangerous than a dead one because:",
+          "options": ["Slow responses corrupt data", "It silently consumes your threads/connections while requests queue — resource exhaustion cascades upstream before anyone alarms", "DNS caches it longer", "Retries don't work on slow services"],
+          "correctIndex": 1,
+          "explanation": "Fast failure releases resources immediately; slowness holds them at scale — timeouts + breakers exist to convert slow into fast-fail."
+        },
+        {
+          "question": "Bulkheads in service design mean:",
+          "options": ["Redundant servers", "Partitioned resource pools (connections, concurrency) per dependency so one failing integration can't drain everything", "Encrypted channels", "Database partitions"],
+          "correctIndex": 1,
+          "explanation": "Like ship compartments: isolation limits the flood — the recommendation service's outage keeps its own pool, not checkout's."
+        }
+      ]
+    },
+    {
+      "title": "The System Design Interview Method",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# A Repeatable Method (Interview & Real Life)\n\nThe case studies followed a hidden script. Here it is, explicit — 45 minutes structured:\n\n## 1. Requirements (5 min) — *talk, don't design*\n\n- **Functional**: core flows only, cut scope out loud ('v1: no groups, no editing — agreed?')\n- **Non-functional**: scale (DAU? ratio reads:writes?), latency targets, consistency needs per feature (your CAP lesson's per-item skill), availability target\n- Interview signal: juniors design features; seniors interrogate constraints first\n\n## 2. Estimation (5 min)\n\nNapkin math → **binding constraint** (estimation lesson). Say the conclusion: 'writes are trivial, reads need a cache tier, storage forces lifecycle policy'. The estimate *drives* the design; skipping to boxes-and-arrows without it is decoration.\n\n## 3. API + data model (5-10 min)\n\nCore endpoints (REST discipline), key entities, the ids (Snowflake? GUID? — you know the trade-offs), the one or two critical indexes/access patterns. This grounds everything after.\n\n## 4. High-level design (10 min)\n\nDraw the request path: client → CDN/LB/gateway → services → cache/DB/queue. **Start boring**: LB + stateless API + SQL + Redis + one queue covers a shocking fraction of systems. Every box must earn its place with a sentence tied to a requirement.\n\n## 5. Deep-dive the binding constraint (10-15 min)\n\nThe interviewer picks, or you propose: the hot path (shortener's redirect), the fan-out (feed), the connection tier (chat). Go lesson-deep: exact caching strategy + invalidation, exact consistency trade + failure mode + degraded behavior. One area deep > everything shallow.\n\n## 6. Failure & evolution sweep (5 min)\n\nWalk your diagram: 'this dies → what happens?' (bulkheads/fallbacks/lesson-of-failure). Then: 'at 10× scale, what breaks first?' — name the next bottleneck and its known fix. This sweep is where senior signal concentrates.\n\n## The trade-off reflex (the actual skill being tested)\n\nEvery statement pairs with its cost: 'Cache here — accepting up to 60s staleness, which is fine for X because Y.' 'Push fan-out — paying write amplification to buy O(1) reads, hybrid for celebrities.' Naming what you *give up* is what separates architecture from feature-listing. If you can't say what a choice costs, you haven't made a choice — you've followed a fashion.\n\nAnd in real life: the method is the same, minus the clock — plus writing it down (ADRs: context → decision → consequences) so the next engineer knows *why*.",
+      "practiceTask": "Run the full method solo, 45 minutes timed, on 'design a ride-sharing dispatch system' (or notification service). Produce: requirements list, napkin math + binding constraint, API sketch, diagram, one deep-dive, failure sweep. Review yourself against the trade-off reflex — count how many decisions name their cost.",
+      "externalLinks": ["https://github.com/donnemartin/system-design-primer"],
+      "quiz": [
+        {
+          "question": "The estimation step matters in system design because:",
+          "options": ["Interviewers like arithmetic", "It identifies the binding constraint that should drive the architecture — without it, box-drawing is unjustified decoration", "It proves you know SQL", "It fills time"],
+          "correctIndex": 1,
+          "explanation": "Design follows numbers: 12 RPS and 12k RPS deserve different systems, and only the estimate tells you which one you're building."
+        },
+        {
+          "question": "The strongest senior signal in design discussions is:",
+          "options": ["Knowing many technologies by name", "Stating each decision's trade-off — what is gained, what is paid, and why it's acceptable here", "Drawing microservices by default", "Finishing quickly"],
+          "correctIndex": 1,
+          "explanation": "Architecture is choosing among costs; articulating the cost you accepted proves the choice was deliberate."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "topic": "Data Structures & Algorithms",
+  "items": [
+    {
+      "level": 1,
+      "question": "What is the average time complexity of looking up a value by key in a Dictionary<TKey,TValue>?",
+      "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+      "correctIndex": 0,
+      "explanation": "Hashing the key computes the bucket directly — no scanning. Worst case degrades to O(n) only with mass collisions.",
+      "relatedLessonTitle": "Hash Tables: How Dictionary<TKey,TValue> Works"
+    },
+    {
+      "level": 1,
+      "question": "Why is accessing arr[i] in an array O(1)?",
+      "options": ["Arrays are cached by the OS", "The address is computed directly: base + i × elementSize", "The runtime keeps an index of positions", "It isn't — it's O(log n)"],
+      "correctIndex": 1,
+      "explanation": "Contiguous memory means simple address arithmetic — no traversal needed.",
+      "relatedLessonTitle": "Arrays: Memory Layout and Why Cache Matters"
+    },
+    {
+      "level": 1,
+      "question": "Which data structure processes items strictly first-in, first-out?",
+      "options": ["Stack", "Queue", "HashSet", "Binary tree"],
+      "correctIndex": 1,
+      "explanation": "Queue = FIFO (Enqueue at the back, Dequeue from the front). Stack is the opposite (LIFO).",
+      "relatedLessonTitle": "Queues: FIFO, Deques, and PriorityQueue"
+    },
+    {
+      "level": 1,
+      "question": "Building a string with += inside a loop of n iterations costs overall:",
+      "options": ["O(n)", "O(n²) — each concatenation copies the whole string so far", "O(log n)", "O(1) amortized"],
+      "correctIndex": 1,
+      "explanation": ".NET strings are immutable; every += allocates and copies. Use StringBuilder for loops.",
+      "relatedLessonTitle": "Strings, Immutability and StringBuilder"
+    },
+    {
+      "level": 1,
+      "question": "What must be true about the data before you can apply binary search?",
+      "options": ["It must fit in memory", "It must be sorted", "It must contain unique values", "It must be numeric"],
+      "correctIndex": 1,
+      "explanation": "Binary search discards half the range each step — only valid when order tells you which half to keep.",
+      "relatedLessonTitle": "Binary Search: Beyond Finding an Element"
+    },
+    {
+      "level": 1,
+      "question": "A balanced binary tree contains 1,000,000 nodes. Its height is approximately:",
+      "options": ["1000", "20", "500,000", "100"],
+      "correctIndex": 1,
+      "explanation": "Height ≈ log₂(n) ≈ 20 — the reason balanced trees (and database indexes) are fast.",
+      "relatedLessonTitle": "Trees: Terminology and Recursive Thinking"
+    },
+    {
+      "level": 1,
+      "question": "The cleanest way to remove duplicates from a list of emails is:",
+      "options": ["Nested loops comparing every pair", "Sort then scan", "Put them in a HashSet", "Use string.Join"],
+      "correctIndex": 2,
+      "explanation": "HashSet ignores duplicates on Add in O(1) each — one pass, done. Sorting works but is O(n log n) and changes order.",
+      "relatedLessonTitle": "HashSet and Set Operations"
+    },
+    {
+      "level": 2,
+      "question": "Code calls orders.FirstOrDefault(o => o.Id == id) inside a loop over 10,000 customers. The right fix is:",
+      "options": ["Parallelize with PLINQ", "Build a Dictionary<int,Order> once before the loop", "Sort both lists first", "Cache the lambda"],
+      "correctIndex": 1,
+      "explanation": "O(n×m) becomes O(n+m): one dictionary build converts each in-loop lookup to O(1). The most common real-world optimization.",
+      "relatedLessonTitle": "Choosing the Right Data Structure: A Decision Framework"
+    },
+    {
+      "level": 2,
+      "question": "\"Find the longest substring without repeating characters\" is a classic fit for which technique?",
+      "options": ["Binary search", "Sliding window", "Union-Find", "Topological sort"],
+      "correctIndex": 1,
+      "explanation": "Contiguous + optimize = sliding window: expand right, shrink left on violation — O(n).",
+      "relatedLessonTitle": "Sliding Window: Substrings and Subarrays in O(n)"
+    },
+    {
+      "level": 2,
+      "question": "Why does BFS find shortest paths in an unweighted graph?",
+      "options": ["It sorts edges by weight", "It explores all nodes at distance k before any node at distance k+1", "It uses a priority queue", "It prunes long paths"],
+      "correctIndex": 1,
+      "explanation": "The queue processes nodes in distance order — first arrival at a node used the fewest edges.",
+      "relatedLessonTitle": "Graph BFS: Shortest Paths and Degrees of Separation"
+    },
+    {
+      "level": 2,
+      "question": "LINQ's OrderBy(...).ThenBy(...) works correctly because OrderBy is:",
+      "options": ["Parallel", "Stable — equal keys keep their relative order", "In-place", "Lazy"],
+      "correctIndex": 1,
+      "explanation": "ThenBy refines groups of equal primary keys — only meaningful if the primary sort preserved their order. Array.Sort is NOT stable.",
+      "relatedLessonTitle": "Sorting I: What O(n log n) Buys You"
+    },
+    {
+      "level": 2,
+      "question": "Two-pointer technique on a sorted array finds a pair summing to a target in O(n) because:",
+      "options": ["It hashes the values", "Each comparison eliminates one candidate from consideration permanently", "Sorted arrays have O(1) search", "It skips duplicates"],
+      "correctIndex": 1,
+      "explanation": "Sum too small → left++ (need bigger); too big → right-- (need smaller). Every step discards one element for good.",
+      "relatedLessonTitle": "Two Pointers: O(n²) → O(n)"
+    },
+    {
+      "level": 2,
+      "question": "To find the 10 largest values in a stream of 10 million numbers with minimal memory, use:",
+      "options": ["Sort everything and take 10", "A min-heap of size 10 — replace the minimum when something bigger arrives", "A max-heap of size 10 million", "A sorted list updated per item"],
+      "correctIndex": 1,
+      "explanation": "O(n log 10) time, O(10) memory. The heap's min is the weakest of the current top-10.",
+      "relatedLessonTitle": "Heaps: PriorityQueue Internals and Top-K"
+    },
+    {
+      "level": 2,
+      "question": "Naive QuickSort degrades to O(n²) when:",
+      "options": ["The array has duplicates", "Partitions are consistently maximally unbalanced (e.g., sorted input with first-element pivot)", "n is a power of two", "Memory is fragmented"],
+      "correctIndex": 1,
+      "explanation": "Every partition splitting n into 1 and n-1 gives n levels of O(n) work. Random/median pivots avoid it.",
+      "relatedLessonTitle": "Sorting II: QuickSort and Partitioning"
+    },
+    {
+      "level": 3,
+      "question": "Kahn's topological sort finishes with fewer nodes in its output than the graph contains. This proves:",
+      "options": ["The graph was disconnected", "The graph contains a cycle", "Some nodes had zero edges", "The queue was too small"],
+      "correctIndex": 1,
+      "explanation": "Nodes in a cycle never reach in-degree 0, so they're never emitted — free cycle detection.",
+      "relatedLessonTitle": "Topological Sort: Dependency Ordering"
+    },
+    {
+      "level": 3,
+      "question": "Dijkstra's algorithm fails with negative edge weights because:",
+      "options": ["Priority queues reject negative numbers", "A settled node's distance can't be revisited, but a negative edge could later provide a cheaper path", "Distances overflow", "It only fails with negative cycles"],
+      "correctIndex": 1,
+      "explanation": "The greedy proof assumes settled = final; negative edges break that assumption. Bellman-Ford handles them.",
+      "relatedLessonTitle": "Dijkstra: Shortest Paths with Weights"
+    },
+    {
+      "level": 3,
+      "question": "Memoization turns naive recursive Fibonacci from O(2ⁿ) to O(n) because:",
+      "options": ["Recursion becomes iteration", "There are only n distinct subproblems; caching bounds work at one computation each", "The dictionary sorts keys", "Stack frames are reused"],
+      "correctIndex": 1,
+      "explanation": "The exponential call tree collapses: repeated subproblems become O(1) lookups.",
+      "relatedLessonTitle": "Dynamic Programming I: Memoization"
+    },
+    {
+      "level": 3,
+      "question": "In 0/1 knapsack, dp[i][w] = max(dp[i-1][w], dp[i-1][w-wᵢ] + vᵢ). The two arms represent:",
+      "options": ["Two different sort orders", "Skipping item i vs taking it (paying weight, gaining value)", "Left and right subtrees", "Best and worst cases"],
+      "correctIndex": 1,
+      "explanation": "Each item has exactly two futures — excluded or included — and the recurrence takes the better one.",
+      "relatedLessonTitle": "Dynamic Programming II: Tabulation and Classic Problems"
+    },
+    {
+      "level": 3,
+      "question": "Path compression speeds up Union-Find by:",
+      "options": ["Sorting the parent array", "Re-pointing every node visited during Find directly at the root", "Deleting merged sets", "Using a B-tree"],
+      "correctIndex": 1,
+      "explanation": "After one Find, the whole path hangs off the root — subsequent Finds on those nodes are O(1). With union-by-rank: near-constant amortized.",
+      "relatedLessonTitle": "Union-Find: Dynamic Connectivity"
+    },
+    {
+      "level": 3,
+      "question": "In backtracking, effective pruning matters because:",
+      "options": ["It reduces memory to O(1)", "The search space is exponential — rejecting doomed branches early is the difference between milliseconds and impossible", "It guarantees the first solution is optimal", "It avoids recursion"],
+      "correctIndex": 1,
+      "explanation": "Worst case stays exponential; pruning cuts the actual explored tree by orders of magnitude.",
+      "relatedLessonTitle": "Backtracking: Systematic Trial and Error"
+    }
+  ]
+}

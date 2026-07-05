@@ -1,0 +1,165 @@
+{
+  "topic": "SQL Server Optimization",
+  "items": [
+    {
+      "level": 1,
+      "question": "The most reliable metric for comparing two versions of a query is:",
+      "options": ["Elapsed time", "Logical reads — pages touched, independent of cache and load", "Row count", "CPU percentage"],
+      "correctIndex": 1,
+      "explanation": "Elapsed time varies with caching and server load; logical reads measures the work the plan actually does.",
+      "relatedLessonTitle": "How SQL Server Stores Data: Pages, Extents, Heaps"
+    },
+    {
+      "level": 1,
+      "question": "How many clustered indexes can a table have?",
+      "options": ["One — the leaf level IS the table rows in key order", "Up to 999", "One per column", "Unlimited"],
+      "correctIndex": 0,
+      "explanation": "The clustered index physically orders the rows; data can exist in only one physical order.",
+      "relatedLessonTitle": "Clustered Indexes: The Table IS the Index"
+    },
+    {
+      "level": 1,
+      "question": "SELECT * hurts index design because:",
+      "options": ["It's slower to parse", "No nonclustered index can cover every column — key lookups or scans become inevitable", "It locks more rows", "It disables statistics"],
+      "correctIndex": 1,
+      "explanation": "Covering queries need the selected columns in the index; * makes that impossible. Project only what you need.",
+      "relatedLessonTitle": "Nonclustered Indexes and the Key Lookup Tax"
+    },
+    {
+      "level": 1,
+      "question": "An Index Seek differs from an Index Scan in that a seek:",
+      "options": ["Reads the whole leaf level", "Navigates the B-tree to specific rows — cost proportional to rows returned", "Only works on clustered indexes", "Is always chosen when an index exists"],
+      "correctIndex": 1,
+      "explanation": "Seek = targeted navigation; scan = read everything. Neither is universally better — selectivity decides.",
+      "relatedLessonTitle": "Seeks vs Scans: Selectivity Decides"
+    },
+    {
+      "level": 1,
+      "question": "Every foreign key column should usually be indexed because:",
+      "options": ["SQL Server requires it", "Joins on it and parent DELETE checks otherwise scan the child table (inside a transaction!)", "It reduces storage", "It prevents duplicates"],
+      "correctIndex": 1,
+      "explanation": "The FK check needs child rows by parent id; without an index that's a full scan holding locks.",
+      "relatedLessonTitle": "Blocking and Locking: Diagnosis First Aid"
+    },
+    {
+      "level": 1,
+      "question": "WITH (NOLOCK) can return:",
+      "options": ["Only committed data", "Uncommitted data that later rolls back — plus skipped or double-read rows during page splits", "Encrypted data", "Stale statistics"],
+      "correctIndex": 1,
+      "explanation": "It's READ UNCOMMITTED: dirty reads plus scan anomalies. Acceptable for rough monitoring, never for correctness.",
+      "relatedLessonTitle": "Isolation Levels: What Locks Are Held When"
+    },
+    {
+      "level": 1,
+      "question": "When analyzing a slow query in SSMS you should prefer:",
+      "options": ["The estimated plan — it's faster to get", "The actual plan (Ctrl+M) — it includes real row counts to compare against estimates", "Client statistics", "The query text only"],
+      "correctIndex": 1,
+      "explanation": "Estimate-vs-actual mismatch is the single most diagnostic signal in a plan.",
+      "relatedLessonTitle": "Reading Execution Plans: Your Debugger for SQL"
+    },
+    {
+      "level": 2,
+      "question": "WHERE YEAR(OrderDate) = 2026 scans despite an index on OrderDate. The fix is:",
+      "options": ["Add an index on YEAR(OrderDate)", "Rewrite as OrderDate >= '2026-01-01' AND OrderDate < '2027-01-01'", "Use OPTION (RECOMPILE)", "Update statistics"],
+      "correctIndex": 1,
+      "explanation": "Functions on columns are unSARGable — the half-open date range preserves index order and seeks.",
+      "relatedLessonTitle": "SARGability: Don't Wrap Columns in Functions"
+    },
+    {
+      "level": 2,
+      "question": "A .NET string parameter queries a VARCHAR column and causes a table scan because:",
+      "options": [".NET strings are too long", ".NET sends NVARCHAR; type precedence converts the COLUMN per row, killing the seek", "VARCHAR can't be indexed", "Collation conflicts"],
+      "correctIndex": 1,
+      "explanation": "Implicit conversion on the column side is unSARGable. Fix: HasColumnType in EF or DbType.AnsiString in Dapper/ADO.NET.",
+      "relatedLessonTitle": "Implicit Conversions: The Silent Scan Generator"
+    },
+    {
+      "level": 2,
+      "question": "A plan shows Index Seek + Key Lookup executed 5,000 times. The standard fix is:",
+      "options": ["Rebuild the index", "Add the selected columns as INCLUDE columns, making the index covering", "Force a scan with a hint", "Increase memory"],
+      "correctIndex": 1,
+      "explanation": "INCLUDE puts payload columns in the leaf level — the index answers the whole query, zero lookups.",
+      "relatedLessonTitle": "Nonclustered Indexes and the Key Lookup Tax"
+    },
+    {
+      "level": 2,
+      "question": "OFFSET 100000 ROWS FETCH NEXT 10 gets slower as the offset grows because:",
+      "options": ["Network latency accumulates", "All skipped rows are still read and discarded server-side — keyset pagination seeks past them instead", "The index fragments", "Locks accumulate"],
+      "correctIndex": 1,
+      "explanation": "OFFSET is 'read and throw away'. Keyset (WHERE key < @last ORDER BY key) makes every page cost the same.",
+      "relatedLessonTitle": "Paging Done Right: OFFSET, Keyset, and COUNT"
+    },
+    {
+      "level": 2,
+      "question": "The optimizer chooses seek-vs-scan and join types based on:",
+      "options": ["Live sampling during compilation", "Cardinality estimates from statistics histograms", "The last execution's runtime", "Table creation order"],
+      "correctIndex": 1,
+      "explanation": "Planning never looks at actual data — only statistics. Stale or skew-blind stats produce bad plans.",
+      "relatedLessonTitle": "Statistics: What the Optimizer Actually Knows"
+    },
+    {
+      "level": 2,
+      "question": "A @table variable joined to a million-row table often produces a terrible plan because:",
+      "options": ["Table variables are stored in memory only", "Table variables have no statistics — the optimizer historically estimates 1 row and picks nested loops", "They can't have primary keys", "tempdb is slower"],
+      "correctIndex": 1,
+      "explanation": "Use #temp tables (which have statistics) for anything beyond ~100 rows or any join.",
+      "relatedLessonTitle": "tempdb, Sorts, and Spills: The Hidden Workhorse"
+    },
+    {
+      "level": 2,
+      "question": "Under READ COMMITTED SNAPSHOT (RCSI), a SELECT hitting a row mid-update by another transaction:",
+      "options": ["Blocks until commit", "Returns the last committed version from the version store immediately", "Returns the uncommitted value", "Deadlocks"],
+      "correctIndex": 1,
+      "explanation": "Row versioning removes reader/writer blocking — the biggest one-line concurrency win for OLTP (tempdb pays the bill).",
+      "relatedLessonTitle": "RCSI and Snapshot: Readers Stop Blocking Writers"
+    },
+    {
+      "level": 3,
+      "question": "A stored procedure is fast for months, then suddenly slow for everyone until a restart. The classic cause:",
+      "options": ["Index corruption", "Plan cache eviction + recompilation with an atypical sniffed parameter on skewed data", "Log file growth", "Too many connections"],
+      "correctIndex": 1,
+      "explanation": "Parameter sniffing: whoever triggers compilation donates their value's plan to everyone. Fixes: RECOMPILE, covering indexes, OPTIMIZE FOR, SQL 2022 PSP.",
+      "relatedLessonTitle": "Parameter Sniffing: One Plan, Many Parameter Values"
+    },
+    {
+      "level": 3,
+      "question": "Deleting 50M old rows should be done in TOP(4000) batches because:",
+      "options": ["DELETE has a row limit", "Small transactions allow log truncation, stay under the ~5000-lock escalation threshold, and let other work interleave", "It's faster in total", "Indexes update lazily"],
+      "correctIndex": 1,
+      "explanation": "One giant DELETE = massive log growth + table lock + hour-long rollback risk. Batching bounds all three.",
+      "relatedLessonTitle": "Transaction Log and Batching Large Modifications"
+    },
+    {
+      "level": 3,
+      "question": "A query regressed overnight after a plan change. Query Store's fastest mitigation is:",
+      "options": ["Rebuild all indexes", "Restart SQL Server", "Force the previously good plan while you fix the root cause", "Clear the plan cache"],
+      "correctIndex": 2,
+      "explanation": "Plan forcing pins the known-good plan surgically — reversible, no cache-wide side effects.",
+      "relatedLessonTitle": "Query Store: Your Performance Flight Recorder"
+    },
+    {
+      "level": 3,
+      "question": "A nonclustered columnstore index on a hot OLTP table enables:",
+      "options": ["Faster single-row lookups", "Real-time analytics: columnar batch-mode scans for aggregates while B-trees keep serving OLTP", "Smaller transaction logs", "Automatic partitioning"],
+      "correctIndex": 1,
+      "explanation": "HTAP: one table, two storage formats — the optimizer routes point queries to rowstore and big aggregations to columnstore.",
+      "relatedLessonTitle": "Columnstore Indexes: Analytics at 10-100x"
+    },
+    {
+      "level": 3,
+      "question": "A filtered index WHERE Status='Open' is ignored by WHERE Status=@status because:",
+      "options": ["Filtered indexes can't be seeked", "The cached plan must be valid for ANY @status value — it can't assume 'Open'", "Parameters disable all indexes", "The filter needs schema binding"],
+      "correctIndex": 1,
+      "explanation": "Only literals (or OPTION(RECOMPILE)-time values) provably satisfy the filter — a critical gotcha for parameterized EF queries.",
+      "relatedLessonTitle": "Filtered Indexes and Index Strategy Review"
+    },
+    {
+      "level": 3,
+      "question": "Dominant ASYNC_NETWORK_IO waits usually mean:",
+      "options": ["The network card is failing", "The client app requests large result sets and consumes them slowly — fix the app's paging/processing, not the server", "SQL Server needs more RAM", "Replication lag"],
+      "correctIndex": 1,
+      "explanation": "SQL is waiting for the client to take rows off the wire — almost always oversized results or row-by-row client processing.",
+      "relatedLessonTitle": "Wait Statistics: What Is SQL Server Waiting For?"
+    }
+  ]
+}

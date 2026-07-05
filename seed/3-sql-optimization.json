@@ -1,0 +1,549 @@
+{
+  "topic": "SQL Server Optimization",
+  "color": "#ef4444",
+  "icon": "🗄️",
+  "items": [
+    {
+      "title": "How SQL Server Stores Data: Pages, Extents, Heaps",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Storage Fundamentals\n\nEverything in SQL Server lives on **8KB pages**. A row must fit on a page (~8060 bytes; larger values go off-row). Eight pages = one **extent** (64KB), the allocation unit.\n\nWhy you care: **I/O is counted in pages**. A query reading 10,000 rows scattered across 10,000 pages costs vastly more than the same rows packed into 100 pages. Every optimization ultimately reduces page reads.\n\n## Heap vs clustered table\n\n- **Heap** — table without a clustered index. Rows go wherever there's space; located via RID (file:page:slot).\n- **Clustered table** — rows physically ordered by the clustering key in a B-tree.\n\nHeaps look fine until: forwarding pointers from updates scatter reads; no efficient range scans; `TOP N ORDER BY` must sort everything.\n\n## See it yourself (runnable on your LocalDB)\n\n```sql\n-- Pages consumed by each table in the current DB\nSELECT t.name, p.rows, au.data_pages, au.data_pages * 8 / 1024.0 AS size_mb\nFROM sys.tables t\nJOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0,1)\nJOIN sys.allocation_units au ON au.container_id = p.partition_id\nWHERE au.type = 1;\n\n-- Logical reads per query: the number that matters most\nSET STATISTICS IO ON;\nSELECT * FROM LearningItems;\n-- Messages tab: 'logical reads N' = pages touched\n```\n\n**Logical reads** (pages from memory) is your primary tuning metric — deterministic, unlike elapsed time which varies with load and caching.",
+      "practiceTask": "Run both queries above against your LearnMore LocalDB database. Note logical reads for SELECT * FROM LearningItems vs SELECT Id, Title FROM LearningItems — then explain why they're the same (hint: row layout) but would differ with a covering index.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/pages-and-extents-architecture-guide"],
+      "quiz": [
+        {
+          "question": "The most reliable metric for comparing two versions of a query is:",
+          "options": ["Elapsed time", "Logical reads — pages touched, independent of cache state and server load", "Row count", "CPU time"],
+          "correctIndex": 1,
+          "explanation": "Elapsed time varies with caching, load, and hardware; logical reads measures the work the plan actually does."
+        }
+      ]
+    },
+    {
+      "title": "Clustered Indexes: The Table IS the Index",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Clustered Indexes\n\nA clustered index **is the table** — leaf pages contain full rows, ordered by the key, organized as a B-tree. One per table (rows exist in one physical order).\n\n```\n        [root page]              ← level 2\n       /          \\\n  [intermediate] [intermediate]  ← level 1: key ranges → child pages\n   /    |    \\    /    |    \\\n [leaf][leaf][leaf][leaf][leaf]  ← level 0: the actual rows\n```\n\nMillions of rows → 3-4 levels. Finding a row by key = one page per level: 3-4 logical reads total. That's the O(log n) from your DSA lessons, with a huge branching factor.\n\n## Choosing the clustering key — NUSE\n\n| Property | Why |\n|---|---|\n| **N**arrow | The clustering key is stored in *every nonclustered index* — wide key bloats everything |\n| **U**nique | Non-unique keys get a hidden 4-byte uniqueifier |\n| **S**tatic | Updating the key physically moves the row and updates all NC indexes |\n| **E**ver-increasing | New rows append at the end — no page splits mid-table |\n\n`INT IDENTITY` / sequential IDs: textbook. **Random GUIDs (NEWID()): the classic disaster** — inserts land on random pages, splitting full pages constantly (fragmentation + write amplification). If you need GUIDs, use NEWSEQUENTIALID or a separate NC unique index over an int clustering key.\n\n```sql\n-- Watch the B-tree depth of your own tables\nSELECT OBJECT_NAME(object_id) AS tbl, index_type_desc, index_depth, page_count\nFROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'DETAILED')\nWHERE index_level = 0 AND index_id = 1;\n```\n\nEF Core note: `Id` int primary key = clustered by convention. You're usually fine — just don't cluster on Guid Id without thinking.",
+      "practiceTask": "Run the index_depth query on your LearnMore database. Then create a scratch table clustered on UNIQUEIDENTIFIER DEFAULT NEWID(), insert 100k rows, and check avg_fragmentation_in_percent vs an INT IDENTITY twin table.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-index-design-guide"],
+      "quiz": [
+        {
+          "question": "Clustering on NEWID() GUIDs hurts because:",
+          "options": ["GUIDs can't be indexed", "Random key values insert into random pages, causing constant page splits and fragmentation", "GUID comparison is slow", "It prevents foreign keys"],
+          "correctIndex": 1,
+          "explanation": "Ever-increasing keys append neatly at the end; random keys force splits of already-full pages throughout the table."
+        }
+      ]
+    },
+    {
+      "title": "Nonclustered Indexes and the Key Lookup Tax",
+      "difficulty": 1,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Nonclustered Indexes\n\nA separate B-tree: leaf pages hold the **index key columns + the clustered key** (the 'row locator'), not the whole row. Up to 999 per table.\n\n```sql\nCREATE INDEX IX_Orders_CustomerId ON Orders (CustomerId);\n-- leaf level effectively contains: (CustomerId, OrderId←clustering key)\n```\n\n## The Key Lookup tax\n\n```sql\nSELECT OrderDate, Total FROM Orders WHERE CustomerId = 42;\n```\n\nThe index finds the matching OrderIds fast — but `OrderDate` and `Total` aren't in the index. For **each row**, SQL Server does a **Key Lookup** into the clustered index (3-4 reads each). 1,000 matching orders ≈ 4,000 extra reads.\n\nWorse: if the optimizer estimates *many* lookups, it abandons the index entirely and **scans the table** — 'why isn't my index used?' — this is why.\n\n## The fix: covering indexes with INCLUDE\n\n```sql\nCREATE INDEX IX_Orders_CustomerId_Covering\nON Orders (CustomerId)                 -- key: what you seek/sort on\nINCLUDE (OrderDate, Total);            -- leaf-only payload: what you SELECT\n```\n\nNow the index answers the whole query — zero lookups. INCLUDE columns aren't sorted (cheap to maintain) and don't count against key size limits.\n\n## Design rules\n\n- Key columns: equality predicates first, then range/sort columns\n- INCLUDE: the handful of columns the query selects\n- Every index costs writes: INSERT/UPDATE/DELETE maintains all of them — indexes are bought with write speed and storage\n- `SELECT *` makes covering impossible — another reason to project only needed columns (EF: `.Select(x => new {...})`)",
+      "practiceTask": "In your LearnMore DB: SET STATISTICS IO ON, query DailyAssignments by Date selecting Status. Check reads. Create an index on (Date) INCLUDE (Status, LearningItemId), re-run, compare logical reads and the plan (lookup should vanish).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-index-design-guide#nonclustered-index-design-guidelines"],
+      "quiz": [
+        {
+          "question": "A query using a nonclustered index shows 'Key Lookup' per row in the plan. This means:",
+          "options": ["The index is corrupt", "Columns needed by the query aren't in the index, forcing a clustered-index visit per row", "Statistics are stale", "The index is being rebuilt"],
+          "correctIndex": 1,
+          "explanation": "The NC index only stores its keys + clustering key; missing columns require fetching the full row — fixable with INCLUDE."
+        },
+        {
+          "question": "INCLUDE columns differ from key columns in that they:",
+          "options": ["Are stored sorted", "Exist only at the leaf level, unsorted — usable for covering but not seeking", "Can't be nullable", "Are compressed"],
+          "correctIndex": 1,
+          "explanation": "INCLUDE adds payload for covering queries cheaply; only key columns drive seek/sort ability."
+        }
+      ]
+    },
+    {
+      "title": "Reading Execution Plans: Your Debugger for SQL",
+      "difficulty": 1,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Execution Plans\n\nThe plan shows *how* SQL Server executes your query — the operator tree the optimizer chose. Reading plans is to SQL what reading stack traces is to C#.\n\n## Getting plans\n\n- SSMS: **Ctrl+M** (actual plan) then run; Ctrl+L for estimated\n- `SET STATISTICS XML ON` for XML\n- EF Core: log the SQL (`LogTo`/`ToQueryString`), paste into SSMS\n\n**Prefer actual plans** — they include real row counts vs estimates, and that difference is diagnostic gold.\n\n## How to read one\n\n- Data flows **right to left**, top to bottom; each arrow = rows passing between operators\n- **Arrow thickness** ≈ row count — a fat arrow into a Sort or Hash operator is a red flag\n- Hover any operator: estimated vs **actual rows**. A 100× mismatch means stale statistics or an unSARGable predicate misleading the optimizer\n- Operator **cost %** points at the expensive step (it's an estimate — trust actual rows more)\n\n## The operators that matter first\n\n| Operator | Meaning | Reaction |\n|---|---|---|\n| Clustered Index **Seek** | B-tree navigation to specific rows | 😊 usually optimal |\n| Clustered Index **Scan** | reading the whole table | 😐 fine for small tables/reports; bad for selective lookups |\n| Index Seek + **Key Lookup** | see previous lesson | consider INCLUDE |\n| **Sort** | explicit sorting — memory or tempdb | can an index provide the order? |\n| **Hash Match** | building hash table (join/aggregate) | fine, but memory-hungry at volume |\n\n## Warnings (yellow ⚠ on operators)\n\nImplicit conversions, tempdb spills, missing join predicates — always hover and read them; they're the plan telling you exactly what's wrong.",
+      "practiceTask": "Capture the actual plan for your app's /api/stats queries (grab SQL from EF logging, run in SSMS with Ctrl+M). Identify: one seek or scan, the fattest arrow, and any estimate-vs-actual mismatch. Write one sentence on each.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/execution-plans"],
+      "quiz": [
+        {
+          "question": "In an actual execution plan, estimated rows = 1 but actual rows = 50,000 on an operator. This usually indicates:",
+          "options": ["A perfect plan", "Stale statistics or a predicate the optimizer can't estimate — the plan shape was chosen for the wrong data volume", "A network problem", "Index corruption"],
+          "correctIndex": 1,
+          "explanation": "The optimizer picked operators (e.g., nested loops) believing 1 row would flow; 50,000 rows through that shape is a performance disaster."
+        }
+      ]
+    },
+    {
+      "title": "Seeks vs Scans: Selectivity Decides",
+      "difficulty": 1,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Seek vs Scan\n\n**Seek**: navigate the B-tree to a key range — cost proportional to rows *returned*.\n**Scan**: read every leaf page — cost proportional to table *size*.\n\n## Neither is universally good\n\n| Query returns | Better plan |\n|---|---|\n| 5 rows of 10M | Seek, obviously |\n| 9M rows of 10M | **Scan** — seeking 9M rows one at a time would be far slower |\n\nThe optimizer weighs **selectivity**: roughly, if a predicate matches more than a few percent of a large table, scanning sequential pages beats millions of random B-tree navigations. The tipping point (~1-3% with lookups involved) explains many 'SQL ignored my index' mysteries.\n\n## Why your index gets ignored — checklist\n\n1. **Low selectivity** — `WHERE IsActive = 1` matching 95% of rows: scan wins, correctly\n2. **Key Lookup cost** — index isn't covering and too many rows match (previous lesson)\n3. **UnSARGable predicate** — function wrapped around the column (dedicated lesson coming)\n4. **Stale statistics** — optimizer misjudges selectivity\n5. **Tiny table** — a 2-page table is cheaper to scan than seek; ignore index advice on small tables\n\n```sql\n-- Force-compare (diagnostics ONLY — hints don't belong in production code)\nSELECT * FROM Orders WHERE Status = 'Open';                          -- optimizer's choice\nSELECT * FROM Orders WITH (FORCESEEK) WHERE Status = 'Open';        -- forced seek\n-- Compare logical reads with SET STATISTICS IO ON: the optimizer is usually right\n```\n\n**Residual predicate** trap: a seek on `CustomerId` with a hidden filter on `Status` inside means the index served only half the WHERE — check the seek operator's 'Predicate' (vs 'Seek Predicate') in the plan.",
+      "practiceTask": "Run the FORCESEEK comparison on a low-selectivity predicate against a scratch table with 100k rows (e.g., Status with 3 values). Record logical reads both ways and confirm the optimizer chose correctly.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/subqueries-and-the-query-optimizer"],
+      "quiz": [
+        {
+          "question": "WHERE IsDeleted = 0 matches 97% of a 10M-row table. The optimizer scans despite an index on IsDeleted. Why is it right?",
+          "options": ["It isn't — force the index", "Retrieving 9.7M rows via seek + lookups costs far more random I/O than one sequential scan", "Bit columns can't be indexed", "Statistics must be stale"],
+          "correctIndex": 1,
+          "explanation": "Seeks win when returning few rows; for most-of-the-table results, sequential scanning is the cheaper access path."
+        }
+      ]
+    },
+    {
+      "title": "SARGability: Don't Wrap Columns in Functions",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# SARGable Predicates\n\n**S**earch **ARG**umentable = the predicate can use an index seek. The rule: **the column stands alone on one side; computation goes to the other side**.\n\n## The killers (all force scans)\n\n```sql\n-- ❌ function on the column: must evaluate for EVERY row\nWHERE YEAR(OrderDate) = 2026\nWHERE UPPER(Email) = 'X@Y.COM'\nWHERE LTRIM(RTRIM(Code)) = 'AB12'\nWHERE CAST(CreatedAt AS date) = '2026-07-05'\nWHERE Total * 1.14 > 1000\nWHERE ISNULL(Status, 'None') = 'Open'\nWHERE LastName LIKE '%son'          -- leading wildcard: no B-tree entry point\n\n-- ✅ SARGable rewrites: same logic, seekable\nWHERE OrderDate >= '2026-01-01' AND OrderDate < '2027-01-01'\nWHERE Email = 'x@y.com'                          -- rely on CI collation\nWHERE CreatedAt >= '2026-07-05' AND CreatedAt < '2026-07-06'\nWHERE Total > 1000 / 1.14\nWHERE (Status = 'Open')                          -- handle NULL logic explicitly\nWHERE LastName LIKE 'John%'                      -- trailing wildcard seeks fine\n```\n\nThe date range rewrite (`>= start AND < next-day`) is the single most common fix — memorize the open-upper-bound form; `BETWEEN` with dates invites 23:59:59.997 edge bugs.\n\n## Why it matters doubly\n\nUnSARGable predicates don't just force scans — they **wreck cardinality estimates** (optimizer can't use statistics through a function), causing bad joins downstream.\n\n## EF Core angle\n\n```csharp\n// ❌ translates to unSARGable SQL\n.Where(o => o.CreatedAt.Year == 2026)\n// ✅\n.Where(o => o.CreatedAt >= start && o.CreatedAt < end)\n```\n\nEscape hatch when you truly need computation: a **persisted computed column** with an index on it, or (SQL 2022+) indexed exact-match via trailing computed columns.",
+      "practiceTask": "Create a 500k-row scratch table with a DATETIME2 column + index. Compare logical reads and plans: WHERE YEAR(col)=2026 vs the range rewrite. Then grep your work codebase for '.Year ==' in EF queries.",
+      "externalLinks": ["https://use-the-index-luke.com/sql/where-clause/obfuscation"],
+      "quiz": [
+        {
+          "question": "WHERE CAST(CreatedAt AS date) = '2026-07-05' scans despite an index on CreatedAt because:",
+          "options": ["Dates can't be indexed", "The function must run on every row's value before comparing — the B-tree order of raw values can't be used", "CAST is deprecated", "The literal format is wrong"],
+          "correctIndex": 1,
+          "explanation": "Index entries are ordered by CreatedAt, not by CAST(CreatedAt AS date); rewrite as a half-open range to seek."
+        },
+        {
+          "question": "Which LIKE pattern can use an index seek?",
+          "options": ["LIKE '%smith'", "LIKE '%smith%'", "LIKE 'smith%'", "None — LIKE always scans"],
+          "correctIndex": 2,
+          "explanation": "A known prefix maps to a B-tree range; leading wildcards give no entry point (consider full-text search for those)."
+        }
+      ]
+    },
+    {
+      "title": "Implicit Conversions: The Silent Scan Generator",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Implicit Conversions\n\nWhen predicate types mismatch, SQL Server converts one side automatically — governed by **data type precedence**. If the *column* gets converted, every row is converted before comparison: **scan**, exactly like wrapping it in a function yourself.\n\n## The classic .NET-developer case\n\n```sql\n-- Column is VARCHAR(20); parameter arrives as NVARCHAR (default for .NET strings!)\nSELECT * FROM Customers WHERE AccountNumber = @p1  -- @p1 NVARCHAR\n-- nvarchar > varchar in precedence → the COLUMN is converted:\n-- CONVERT_IMPLICIT(nvarchar, AccountNumber) = @p1 → index useless\n```\n\nADO.NET/Dapper send C# strings as NVARCHAR by default. Against VARCHAR columns = silent table scans. **EF Core handles this** when the model knows the column type (`HasColumnType(\"varchar(20)\")` / scaffolded correctly) — raw ADO.NET/Dapper code must specify `DbType.AnsiString`.\n\n## Spotting it\n\n- Plan operator warning: ⚠ `CONVERT_IMPLICIT(...)` \"may affect cardinality estimate / seek plan\"\n- Plan XML: search `PlanAffectingConvert`\n\n```sql\n-- Find plans in cache suffering from it\nSELECT TOP 20 qs.execution_count, qt.text\nFROM sys.dm_exec_query_stats qs\nCROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt\nCROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp\nWHERE CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE '%PlanAffectingConvert%';\n```\n\n## Fix directions\n\n1. **Match types at the source** — parameter type = column type (best)\n2. Standardize schema on NVARCHAR if you genuinely need Unicode (accepting 2× storage)\n3. Explicitly convert the *parameter*, never the column: `WHERE AccountNumber = CAST(@p1 AS VARCHAR(20))`\n\nSame trap variants: `INT` parameter vs `VARCHAR` column (`WHERE Code = 123` — column converted to int, plus conversion-failure risk), and joining tables whose FK/PK types drifted apart.",
+      "practiceTask": "Create a table with a VARCHAR(20) indexed column. From C# (raw SqlCommand), query it with AddWithValue (sends NVARCHAR) vs SqlDbType.VarChar. Capture both plans and find the CONVERT_IMPLICIT warning.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-type-precedence-transact-sql"],
+      "quiz": [
+        {
+          "question": "A .NET string parameter queries a VARCHAR column and causes a scan because:",
+          "options": [".NET strings are too long", ".NET sends NVARCHAR; precedence forces the VARCHAR column to convert per-row, killing the seek", "VARCHAR can't be indexed", "The collation is wrong"],
+          "correctIndex": 1,
+          "explanation": "Higher-precedence nvarchar wins the conversion; converting the column side is unSARGable. Set DbType.AnsiString or fix the model."
+        }
+      ]
+    },
+    {
+      "title": "Statistics: What the Optimizer Actually Knows",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Statistics\n\nThe optimizer never looks at your data while planning — it consults **statistics**: histograms (up to 201 steps) describing value distribution per column/index, plus density info for multi-column correlation.\n\nEvery cost decision — seek vs scan, join type, memory grants, operator order — flows from **cardinality estimates** derived from these histograms. Garbage stats → garbage plans.\n\n```sql\n-- Inspect a statistic's histogram\nDBCC SHOW_STATISTICS ('LearningItems', 'IX_LearningItems_TopicId_Title');\n-- Or the modern way:\nSELECT * FROM sys.dm_db_stats_histogram(OBJECT_ID('LearningItems'), 2);\n\n-- When were stats last updated, and how much changed since?\nSELECT s.name, sp.last_updated, sp.rows, sp.rows_sampled, sp.modification_counter\nFROM sys.stats s\nCROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) sp\nWHERE OBJECT_NAME(s.object_id) = 'DailyAssignments';\n```\n\n## Maintenance reality\n\n- Auto-create (on predicate columns) and auto-update are **on by default** — leave them on\n- Auto-update triggers after ~`SQRT(1000 × rows)` modifications (modern default) — for big tables that's still a lot of drift\n- Nightly `UPDATE STATISTICS` / Ola Hallengren maintenance is standard practice for busy databases\n- `UPDATE STATISTICS t WITH FULLSCAN` when sampled stats mislead on skewed data\n\n## Symptoms of stale/misleading stats\n\n- Actual rows ≫ estimated rows in plans (the mismatch you learned to spot)\n- A query suddenly slow after a big data load (stats describe yesterday's data)\n- **Ascending date problem**: new rows beyond the histogram's last step → estimates of ~1 row for 'today's data' queries\n\nSkewed data (one customer owns 60% of orders) defeats averages — that's the parameter sniffing lesson next.",
+      "practiceTask": "Run DBCC SHOW_STATISTICS on an index in your LearnMore DB. Read the histogram: find RANGE_HI_KEY, EQ_ROWS. Insert 1000 rows into DailyAssignments (script dates), check modification_counter, run a query, and see if auto-update fired (last_updated changes).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/statistics/statistics"],
+      "quiz": [
+        {
+          "question": "The optimizer decides seek vs scan and join types based on:",
+          "options": ["Live sampling of table data during compilation", "Cardinality estimates from statistics histograms", "The last plan's actual runtime", "Table size only"],
+          "correctIndex": 1,
+          "explanation": "Planning consults statistics, never the actual data — which is why stale or skew-blind stats produce bad plans."
+        }
+      ]
+    },
+    {
+      "title": "Parameter Sniffing: One Plan, Many Parameter Values",
+      "difficulty": 3,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Parameter Sniffing\n\nOn first execution of a parameterized query/proc, SQL Server **sniffs the actual parameter value**, builds the optimal plan *for that value*, and **caches it for everyone**.\n\nUsually good (plans tailored to real values). With **skewed data**, it's a time bomb:\n\n```sql\n-- Customer 1: 3 orders. Customer 2: 4,000,000 orders.\nCREATE PROC GetOrders @CustomerId INT AS\nSELECT * FROM Orders WHERE CustomerId = @CustomerId;\n\nEXEC GetOrders 1;   -- plan: index seek + key lookups (perfect for 3 rows)\nEXEC GetOrders 2;   -- reuses that plan: 4M key lookups ≈ 16M reads 💀\n-- If proc compiled with @CustomerId=2 first: scan plan — wasteful for customer 1 but survivable.\n```\n\nSignature symptom: **\"the same query is fast sometimes, slow sometimes\"** or \"it got slow suddenly, and a restart/rebuild fixed it\" (plan got evicted and recompiled with a different sniffed value).\n\n## Fix toolbox (know the trade-offs)\n\n| Fix | Effect | Cost |\n|---|---|---|\n| `OPTION (RECOMPILE)` | fresh optimal plan per execution | compile CPU each run — fine for infrequent heavy queries |\n| `OPTIMIZE FOR (@p = value)` / `UNKNOWN` | plan for a chosen/average value | someone's still suboptimal |\n| Recode: IF/ELSE into two procs | separate plans per branch | code duplication |\n| Covering index removing lookups | both plans converge to seek | best when feasible |\n| SQL 2022+ **PSP optimization** | multiple plans per query, per cardinality bucket | needs dbcompat 160 |\n\n```sql\n-- Diagnose: compare sniffed vs actual\n-- In the actual plan XML: ParameterCompiledValue vs ParameterRuntimeValue\n```\n\n**Not** a fix: `DBCC FREEPROCCACHE` in production — it's a defibrillator, not a treatment.\n\nEF Core relevance: LINQ queries are parameterized (good — plan reuse), which means they're sniffable. The same skewed-tenant problem hits multi-tenant apps hard: tenant with 100 rows vs tenant with 10M sharing plans.",
+      "practiceTask": "Build the skew scenario on LocalDB: Orders table, customer A with 10 rows, customer B with 500k. Parameterized query via sp_executesql; execute A-first then B, check reads; clear the plan (sp_recompile), execute B-first then A. Record the four timings/read counts.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/parameter-sensitivity-plan-optimization"],
+      "quiz": [
+        {
+          "question": "A proc is fast for months, then suddenly slow for everyone until someone reruns it after a restart. Likeliest cause:",
+          "options": ["Disk failure", "Plan eviction + recompilation with an atypical sniffed parameter value on a skewed column", "SQL Server update", "Too many indexes"],
+          "correctIndex": 1,
+          "explanation": "The cached plan lottery: whoever triggers compilation donates their parameter's plan to everyone — with skew, that plan can be terrible for the majority."
+        }
+      ]
+    },
+    {
+      "title": "Join Operators: Nested Loops, Hash, Merge",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Physical Join Operators\n\n`JOIN` in SQL is logical; the optimizer picks one of three physical algorithms — the same algorithms from your DSA lessons:\n\n## Nested Loops\n\nFor each outer row, seek/scan the inner table. Your DSA nested-for-loop, but the inner side can *seek*.\n\n- **Great**: small outer input + indexed inner side (OLTP point queries: order + its 5 lines)\n- **Terrible**: large outer input (10k outer rows × inner seek = 10k seeks) — this is what a bad cardinality estimate produces\n\n## Hash Match\n\nBuild a hash table on the smaller input, probe with the larger — your Dictionary-based join.\n\n- **Great**: large unsorted, unindexed inputs (reporting, ETL)\n- **Costs**: memory grant; spills to tempdb when the estimate was too low (⚠ warning in plan)\n- Blocking-ish: build phase must finish before output starts\n\n## Merge Join\n\nTwo sorted inputs walked with two pointers — your merge-sort merge step.\n\n- **Great**: both inputs already sorted by join key (clustered indexes on both PK/FK)\n- If a Sort operator appears just to feed a merge join, the optimizer decided sorting was still cheaper — but question it\n\n## Reading trouble\n\n| Symptom in plan | Meaning |\n|---|---|\n| Nested Loops with fat outer arrow | estimate was wrong (expected few, got many) — stats/SARGability issue |\n| Hash Match spill warning | memory grant too small — cardinality underestimate |\n| Unexpected Sort before Merge | maybe missing index that would provide order |\n\n```sql\n-- Watch the optimizer switch strategies as volume grows\nSELECT o.*, c.Name FROM Orders o JOIN Customers c ON c.Id = o.CustomerId WHERE o.Id = 5;          -- loops\nSELECT o.*, c.Name FROM Orders o JOIN Customers c ON c.Id = o.CustomerId;                          -- hash/merge\n```\n\nYou don't choose join types (hints exist; avoid) — you **enable good choices** with accurate statistics, SARGable predicates, and useful indexes.",
+      "practiceTask": "On your scratch Orders/Customers tables, capture plans for: single-order join (expect loops), full-table join (expect hash or merge). Then drop the FK index and watch the plan change. Note which DSA algorithm each operator corresponds to.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/joins"],
+      "quiz": [
+        {
+          "question": "Nested Loops joining 50,000 outer rows against an inner seek performs poorly because:",
+          "options": ["Loops can't use indexes", "50,000 separate inner-side B-tree navigations (random I/O) — hash would build once and probe", "It requires sorted input", "It locks the table"],
+          "correctIndex": 1,
+          "explanation": "Loops shine with small outer inputs; at volume, per-row seeks lose to one hash build + streaming probe."
+        }
+      ]
+    },
+    {
+      "title": "Key Lookups at Scale & the Tipping Point",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Tipping Point\n\nYou know Key Lookups (lesson 3). Here's the systemic view: for a non-covering index, the optimizer estimates lookup cost as **random I/O per row**. At some estimated row count — often just **1-3% of the table** — the math flips and a full scan becomes cheaper. That's the tipping point.\n\n## Consequences you'll observe\n\n1. **Same query, different plans by parameter**: `WHERE Status='Rare'` seeks; `WHERE Status='Common'` scans. Correct behavior, confusing without this mental model.\n2. **Index 'randomly' unused**: the estimate crossed the threshold — maybe because stats drifted.\n3. **Parameter sniffing amplifier**: sniffed rare value → seek+lookup plan → reused for common value → catastrophic lookups (the previous lesson's bomb, mechanism now clear).\n\n## Quantify a lookup's cost\n\n```sql\nSET STATISTICS IO ON;\n-- Non-covering: seek + N lookups\nSELECT Id, CustomerName, Total FROM Orders WHERE Region = 'West';\n-- reads ≈ (seek pages) + N × (CI depth ~3)\n```\n\n1,000 rows via lookups ≈ 3,000+ reads; the same rows from a covering index ≈ 10-20 reads; scanning 50k pages might beat 20k lookups — now the optimizer's choice makes sense.\n\n## Decision framework\n\n| Situation | Action |\n|---|---|\n| Hot query, few SELECT columns | Add INCLUDE — kill the lookups |\n| Wide SELECT (many columns) | Fix the query first: project less (`SELECT *` can't be covered) |\n| Reporting query hitting 30% of table | Accept the scan; consider columnstore (later lesson) |\n| Lookup on rarely-run query | Leave it — indexes cost writes; not every query deserves one |\n\nEvery index is a bet: read savings must outweigh permanent write tax + storage. The tipping point tells you when the bet pays.",
+      "practiceTask": "On a 500k-row scratch table with a non-covering index on Region: find the tipping point experimentally — query increasingly common Region values until the plan flips from seek+lookup to scan. Record the row percentage where it flipped.",
+      "externalLinks": ["https://www.brentozar.com/archive/2013/02/how-key-lookups-can-make-queries-2x-slower/"],
+      "quiz": [
+        {
+          "question": "The 'tipping point' where SQL Server abandons a seek+lookup plan for a scan is typically around:",
+          "options": ["50% of the table", "25% of the table", "A few percent of the table — random lookups are that expensive", "It never abandons an available index"],
+          "correctIndex": 2,
+          "explanation": "Each lookup costs ~CI-depth random reads; sequential scanning wins surprisingly early — often at 1-3% selectivity."
+        }
+      ]
+    },
+    {
+      "title": "Paging Done Right: OFFSET, Keyset, and COUNT",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Pagination Performance\n\n## OFFSET/FETCH — fine until page 1000\n\n```sql\nSELECT Id, Title, CreatedAt FROM Articles\nORDER BY CreatedAt DESC, Id DESC\nOFFSET 990 ROWS FETCH NEXT 10 ROWS ONLY;\n```\n\nOFFSET must **read and discard** all skipped rows: page 1 reads 10 rows, page 100 reads 1,000, page 10,000 reads 100,010. Linear degradation — the deep-page timeout classic. (EF's `.Skip().Take()` generates exactly this.)\n\n## Keyset (seek) pagination — constant time per page\n\nRemember the last row seen; seek directly past it:\n\n```sql\nSELECT TOP 10 Id, Title, CreatedAt FROM Articles\nWHERE (CreatedAt, Id) < (@lastCreatedAt, @lastId)   -- conceptually; T-SQL spells it:\n-- WHERE CreatedAt < @lastCreatedAt OR (CreatedAt = @lastCreatedAt AND Id < @lastId)\nORDER BY CreatedAt DESC, Id DESC;\n```\n\nWith an index on `(CreatedAt DESC, Id DESC)`: every page = one seek + 10 rows, page 1 or page 100,000 identical cost.\n\nTrade-offs: no 'jump to page 57' (only next/prev), needs a **deterministic unique sort** (the Id tiebreaker is mandatory — without it rows can repeat/vanish across pages). Perfect for infinite scroll and APIs (`?after=cursor`).\n\n## The hidden second query: COUNT(*)\n\nTotal-count-for-pager often costs more than the page itself (full index scan). Options: cache the count; return 'has more' instead of total (fetch pageSize+1 rows); estimate from `sys.dm_db_partition_stats` for admin dashboards.\n\n## EF Core\n\n```csharp\n// keyset\n.Where(a => a.CreatedAt < lastCreated || (a.CreatedAt == lastCreated && a.Id < lastId))\n.OrderByDescending(a => a.CreatedAt).ThenByDescending(a => a.Id).Take(10)\n```\n\nAlways `OrderBy` before `Skip/Take` — EF throws otherwise, because SQL without ORDER BY has **no defined row order**.",
+      "practiceTask": "Create 1M-row scratch table. Compare logical reads: OFFSET page 1 vs page 50,000 vs keyset equivalent of page 50,000. Then implement keyset paging for one list endpoint in any project.",
+      "externalLinks": ["https://use-the-index-luke.com/no-offset"],
+      "quiz": [
+        {
+          "question": "OFFSET 100000 ROWS FETCH NEXT 10 gets slower as the offset grows because:",
+          "options": ["Network latency", "All 100,000 skipped rows are still read and discarded server-side", "The index fragments", "Locks accumulate"],
+          "correctIndex": 1,
+          "explanation": "OFFSET is 'read and throw away', not 'jump to' — keyset pagination seeks directly instead."
+        },
+        {
+          "question": "Keyset pagination requires the ORDER BY to include a unique tiebreaker column because:",
+          "options": ["SQL syntax demands it", "Ties in the sort column make 'after this row' ambiguous — rows can repeat or vanish between pages", "It speeds up sorting", "EF Core requires it"],
+          "correctIndex": 1,
+          "explanation": "Deterministic total order is what makes the 'seek past last seen row' predicate correct."
+        }
+      ]
+    },
+    {
+      "title": "Isolation Levels: What Locks Are Held When",
+      "difficulty": 2,
+      "estimatedMinutes": 20,
+      "bodyMarkdown": "# Transaction Isolation Levels\n\nIsolation levels trade **consistency anomalies** against **concurrency**. Know the anomaly each level eliminates:\n\n| Level | Dirty read | Non-repeatable read | Phantom | Mechanism |\n|---|---|---|---|---|\n| READ UNCOMMITTED | possible | possible | possible | no shared locks — reads in-flight data |\n| READ COMMITTED (default) | ✗ | possible | possible | shared lock per row, released immediately |\n| REPEATABLE READ | ✗ | ✗ | possible | shared locks held to txn end |\n| SERIALIZABLE | ✗ | ✗ | ✗ | + range locks on scanned ranges |\n| SNAPSHOT | ✗ | ✗ | ✗ | row versions in tempdb, no read locks; write-conflict errors |\n\n## The anomalies in business terms\n\n- **Dirty read**: report includes an order whose transaction rolls back — money that never existed\n- **Non-repeatable read**: same row read twice in one txn differs (balance check → debit uses changed value)\n- **Phantom**: re-running a range query finds new rows (audit count ≠ detail rows)\n\n## What NOLOCK actually means\n\n`WITH (NOLOCK)` = READ UNCOMMITTED per table. Beyond dirty reads: page splits during your scan can make you **skip rows or read rows twice**. Acceptable for approximate monitoring dashboards; indefensible for anything financial or user-facing correctness. It's tech debt with a cute name.\n\n```sql\n-- See current sessions' isolation levels\nSELECT session_id, transaction_isolation_level  -- 1=RU, 2=RC, 3=RR, 4=Serializable, 5=Snapshot\nFROM sys.dm_exec_sessions WHERE session_id = @@SPID;\n```\n\nEF Core: `BeginTransaction(IsolationLevel.Snapshot)` sets per transaction. Next lesson: RCSI — the setting that changes the default game.",
+      "practiceTask": "Two SSMS windows on LocalDB: window A starts a transaction updating a row without committing; window B reads it under READ COMMITTED (blocks) then WITH (NOLOCK) (returns uncommitted data). Roll back A and confirm B's NOLOCK read reported data that never existed.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/t-sql/statements/set-transaction-isolation-level-transact-sql"],
+      "quiz": [
+        {
+          "question": "Beyond dirty reads, NOLOCK scans can also:",
+          "options": ["Deadlock more often", "Skip rows or count rows twice when page splits relocate data mid-scan", "Escalate to table locks", "Corrupt indexes"],
+          "correctIndex": 1,
+          "explanation": "Allocation-order scans without locks race against page splits — rows move under the scan and get missed or double-read."
+        }
+      ]
+    },
+    {
+      "title": "RCSI and Snapshot: Readers Stop Blocking Writers",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Row Versioning: RCSI & Snapshot Isolation\n\nClassic READ COMMITTED: readers take shared locks → **readers block writers, writers block readers**. The endless blocking-chain misery of busy OLTP.\n\n**READ COMMITTED SNAPSHOT (RCSI)** changes the mechanism, not the level: readers get the **last committed version** of each row from the tempdb version store — no shared locks at all.\n\n```sql\nALTER DATABASE MyDb SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;\n-- Check:\nSELECT name, is_read_committed_snapshot_on, snapshot_isolation_state_desc FROM sys.databases;\n```\n\n| | Classic RC | RCSI |\n|---|---|---|\n| Reader hits row being updated | **blocks** until commit | reads prior committed version instantly |\n| Writer hits row being read | blocks | proceeds |\n| Writer vs writer | blocks | still blocks (unchanged) |\n\nAzure SQL Database has RCSI **on by default**; on-prem defaults off — one of the biggest 'why is prod different' surprises.\n\n## Costs & gotchas\n\n- **tempdb pressure**: version store lives there; long-running transactions pin versions (monitor `sys.dm_tran_version_store_space_usage`)\n- 14 bytes/row versioning overhead\n- **Semantic change**: queries read a *point-in-time* view. Rare patterns relying on blocking-as-coordination (queue tables doing `UPDATE ... WHERE Status='New'` races) need `UPDLOCK`/`READPAST` hints instead\n\n## Full SNAPSHOT isolation (the stricter sibling)\n\nEntire *transaction* sees one consistent point-in-time; concurrent committed writes to data you then update → **error 3960 update conflict** (retry needed). Use for long consistent reads (reports spanning many tables); RCSI for general OLTP.\n\nFor your ASP.NET Core apps: RCSI + short transactions eliminates the majority of read/write blocking with almost no code change — usually the single highest-leverage concurrency fix.",
+      "practiceTask": "Enable RCSI on a scratch LocalDB database. Repeat the previous lesson's two-window experiment: reader no longer blocks on the in-flight update and sees the old committed value. Then check version store usage DMV during the open transaction.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide"],
+      "quiz": [
+        {
+          "question": "Under RCSI, a SELECT hitting a row mid-update by another transaction:",
+          "options": ["Blocks until the update commits", "Returns the last committed version from the version store immediately", "Returns the uncommitted new value", "Throws a conflict error"],
+          "correctIndex": 1,
+          "explanation": "Row versioning serves readers a consistent committed snapshot — no shared locks, no blocking."
+        }
+      ]
+    },
+    {
+      "title": "Blocking and Locking: Diagnosis First Aid",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Locking & Blocking\n\nLocks are how SQL Server serializes access: **S** (shared, reads), **X** (exclusive, writes), **U** (update — S that intends to become X, deadlock-avoidance), plus intent locks (IS/IX) marking 'something below is locked' at page/table level.\n\n**Blocking** = waiting for an incompatible lock. Normal in small doses; pathological when transactions are long or touch more than needed.\n\n## First-aid diagnosis kit\n\n```sql\n-- Who blocks whom, with statements\nSELECT r.session_id, r.blocking_session_id, r.wait_type, r.wait_time,\n       t.text, r.status\nFROM sys.dm_exec_requests r\nCROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t\nWHERE r.blocking_session_id <> 0;\n\n-- The head of the blocking chain (block others, not blocked themselves)\nSELECT s.session_id, s.login_name, s.host_name, s.program_name,\n       (SELECT text FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS last_sql\nFROM sys.dm_exec_sessions s\nJOIN sys.dm_exec_connections c ON c.session_id = s.session_id\nWHERE s.session_id IN (SELECT blocking_session_id FROM sys.dm_exec_requests WHERE blocking_session_id <> 0)\n  AND s.session_id NOT IN (SELECT session_id FROM sys.dm_exec_requests WHERE blocking_session_id <> 0);\n```\n\nThe classic head-blocker: an **idle session with an open transaction** (`sleeping`, `open_transaction_count > 0`) — an app that began a transaction and went off to call an API or wait for a user.\n\n## Lock escalation\n\n~5,000 locks on one object → SQL Server swaps them for one **table lock**. Your 100k-row batch delete just serialized the whole table. Fix: chunk large modifications (WHILE loop, 1-4k rows per transaction).\n\n## Prevention beats diagnosis\n\n1. **Short transactions** — never hold one across network calls (the #1 rule). EF: `SaveChanges` late, once\n2. Touch rows in **consistent order** across code paths\n3. Index your **foreign keys** — deleting a parent scans the child table *inside the transaction* without one\n4. RCSI (previous lesson) for the read/write half of the problem",
+      "practiceTask": "Create a blocking chain on LocalDB (window A: BEGIN TRAN + UPDATE, no commit; windows B, C: touch the same row). Run the diagnosis queries, identify the head blocker, then demonstrate lock escalation by updating 10,000 rows in one transaction and checking sys.dm_tran_locks for an object-level X lock.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/understand-resolve-blocking"],
+      "quiz": [
+        {
+          "question": "The most common head of a long blocking chain in web apps is:",
+          "options": ["A missing index", "An idle session holding an open transaction while the app does non-database work", "Too many connections", "A large SELECT"],
+          "correctIndex": 1,
+          "explanation": "Locks live until COMMIT/ROLLBACK; a transaction held across an API call or user think-time blocks everyone behind it."
+        },
+        {
+          "question": "Un-indexed foreign keys cause blocking on parent DELETEs because:",
+          "options": ["FKs disable locks", "Verifying no children reference the parent requires scanning the entire child table inside the transaction", "Cascades are always slow", "Statistics go stale"],
+          "correctIndex": 1,
+          "explanation": "The FK check needs child rows by parent ID; without an index that's a full scan holding locks — index every FK column."
+        }
+      ]
+    },
+    {
+      "title": "Deadlocks: Reading the Graph, Breaking the Cycle",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Deadlocks\n\nSession A holds lock 1, wants lock 2; session B holds lock 2, wants lock 1. Neither can proceed — SQL Server detects the cycle (checks every ~5s) and **kills the cheaper victim** with error **1205**.\n\nDeadlock ≠ blocking: blocking resolves when the holder commits; deadlock never would — hence the kill.\n\n## Get the deadlock graph (no setup needed)\n\n```sql\n-- system_health Extended Events session records them automatically\nSELECT CAST(event_data AS XML).query('(event/data/value/deadlock)[1]') AS graph\nFROM (\n  SELECT CAST(target_data AS XML) AS td\n  FROM sys.dm_xe_session_targets st\n  JOIN sys.dm_xe_sessions s ON s.address = st.event_session_address\n  WHERE s.name = 'system_health' AND st.target_name = 'ring_buffer') x\nCROSS APPLY td.nodes('//RingBufferTarget/event[@name=\"xml_deadlock_report\"]') AS t(event_data);\n```\n\nRead the XML/graph: two **process** nodes (the queries), two **resource** nodes (the locks), arrows showing who owns and who waits. The victim has the ✖.\n\n## Classic causes & cures\n\n| Cause | Cure |\n|---|---|\n| Two code paths lock the same rows in **opposite order** (A: Orders→Customers; B: Customers→Orders) | Lock in one canonical order everywhere |\n| Read-then-update races (`SELECT` then `UPDATE` same row from two sessions) | `UPDLOCK` hint on the initial read: `SELECT ... WITH (UPDLOCK)` takes U lock upfront |\n| Key lookup deadlocks (seek on NC index + update of CI in crossfire) | Covering index removes the lookup leg |\n| Long transactions widening the window | Shorten; batch |\n\n## Application side (EF Core / ADO.NET)\n\nError 1205 is **retryable by design** — the victim should retry the whole transaction:\n\n```csharp\n// EnableRetryOnFailure retries connection faults but NOT deadlocks by default;\n// wrap deadlock-prone units in an explicit retry (Polly) catching SqlException 1205.\n```\n\nA deadlock a week: normal noise. A deadlock storm on one code path: read the graph — it names the exact statements; fix ordering or add the UPDLOCK.",
+      "practiceTask": "Manufacture a deadlock on LocalDB: two windows, each BEGIN TRAN, update row 1 in A and row 2 in B, then cross (A updates row 2, B updates row 1). Retrieve the graph from system_health and identify both resources and the victim.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-deadlocks-guide"],
+      "quiz": [
+        {
+          "question": "The canonical deadlock prevention for code paths touching the same pair of tables is:",
+          "options": ["Retry loops", "SERIALIZABLE isolation", "Acquire locks in the same consistent order in every code path", "More indexes"],
+          "correctIndex": 2,
+          "explanation": "Cycles require opposite acquisition orders; one canonical order makes cycles impossible (retry remains the safety net)."
+        }
+      ]
+    },
+    {
+      "title": "tempdb, Sorts, and Spills: The Hidden Workhorse",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# tempdb and Memory Grants\n\ntempdb is one shared database doing everyone's dirty work: sort/hash overflow, version store (RCSI!), temp tables, table variables, triggers' inserted/deleted, online index builds.\n\n## Memory grants and spills\n\nBefore executing, each query gets a **memory grant** sized from cardinality estimates for its Sorts and Hash operations. Estimate too low → the operation **spills**: partitions get written to tempdb and processed in passes. Plans show ⚠ 'Operator used tempdb to spill data'.\n\nSpill chain of causation you now fully understand:\n**bad stats / unSARGable predicate → wrong row estimate → small grant → tempdb spill → slow query + tempdb I/O storm**\n\n```sql\n-- Spills in recent plans (Query Store, SQL 2017+)\nSELECT TOP 20 qt.query_sql_text, rs.avg_tempdb_space_used\nFROM sys.query_store_runtime_stats rs\nJOIN sys.query_store_plan p ON p.plan_id = rs.plan_id\nJOIN sys.query_store_query q ON q.query_id = p.query_id\nJOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id\nWHERE rs.avg_tempdb_space_used > 0 ORDER BY rs.avg_tempdb_space_used DESC;\n```\n\n## Fixing sorts (often better than fixing spills)\n\nThe cheapest Sort is no Sort: an index on the ORDER BY columns delivers rows pre-sorted. Check plans for Sort operators feeding TOP — `ORDER BY CreatedAt DESC` + matching index = Sort disappears entirely.\n\n## Temp tables vs table variables (interview staple)\n\n| | #temp table | @table variable |\n|---|---|---|\n| Statistics | ✅ yes | ❌ none (est. 1 row pre-2019; deferred compilation helps after) |\n| Indexes | any | inline PK/unique only |\n| Recompiles | can cause | fewer |\n| Verdict | >100 rows or joined | tiny row counts only |\n\nThe '@table variable joined to a million-row table' disaster: optimizer plans for 1 row, picks nested loops, gets 100k — now you know all three lessons behind why.",
+      "practiceTask": "Force a spill on LocalDB: sort a 1M-row scratch table on an unindexed wide column and find the spill warning in the actual plan. Add the index, re-run, confirm the Sort operator vanished. Then join a 100k-row @table variable vs #temp table to a table and compare plans.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/databases/tempdb-database"],
+      "quiz": [
+        {
+          "question": "A Hash Match spills to tempdb primarily because:",
+          "options": ["tempdb is faster than memory", "The memory grant — sized from cardinality estimates — was too small for actual row volume", "The table has no clustered index", "Parallelism is disabled"],
+          "correctIndex": 1,
+          "explanation": "Underestimates produce undersized grants; the overflow partitions to tempdb — fix the estimate, fix the spill."
+        }
+      ]
+    },
+    {
+      "title": "Query Store: Your Performance Flight Recorder",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Query Store\n\nBuilt-in per-database recorder of **queries, plans, and runtime stats over time**. The answer to \"it was fast yesterday — what changed?\" (On by default SQL 2022+ / Azure SQL; enable everywhere else.)\n\n```sql\nALTER DATABASE MyDb SET QUERY_STORE = ON;\nALTER DATABASE MyDb SET QUERY_STORE (OPERATION_MODE = READ_WRITE,\n    QUERY_CAPTURE_MODE = AUTO, MAX_STORAGE_SIZE_MB = 1000);\n```\n\n## What it answers\n\n| Question | SSMS report / query |\n|---|---|\n| What got slower recently? | **Regressed Queries** |\n| What's most expensive overall? | Top Resource Consumers (by CPU/reads/duration) |\n| Did the plan change? When? | Tracked Queries — plan timeline |\n| Different plans for same query? | plan_id history per query_id |\n\n## The killer feature: plan forcing\n\nParameter-sniffing regression at 2 AM? Find the query, see the good old plan and the bad new plan side by side, click **Force Plan** — the optimizer must use the chosen plan until you unforce. A surgical rollback, buying time to fix root cause properly.\n\n```sql\nEXEC sp_query_store_force_plan @query_id = 42, @plan_id = 118;\n-- Later: sp_query_store_unforce_plan\n```\n\n## Practical notes\n\n- Runtime stats aggregate per interval (default 60 min) — fine for trends\n- `QUERY_CAPTURE_MODE = AUTO` skips trivial queries (right default)\n- It's also the data source for **automatic plan correction** (`FORCE_LAST_GOOD_PLAN`) on Enterprise/Azure\n- EF Core apps benefit hugely: parameterized LINQ queries aggregate cleanly by query_id, so your worst endpoints surface fast\n\nInterview one-liner: \"First thing I check for a sudden regression: Query Store plan history — did the plan flip, and does forcing the previous plan restore performance?\"",
+      "practiceTask": "Enable Query Store on your LearnMore LocalDB. Run the app, browse around, then open Top Resource Consumers in SSMS and identify your app's heaviest query. Check whether it has multiple plans.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store"],
+      "quiz": [
+        {
+          "question": "A query regressed after a plan change last night. Query Store's fastest mitigation is:",
+          "options": ["Rebuild all indexes", "Restart SQL Server", "Force the previously good plan for that query while you fix the root cause", "Clear the plan cache"],
+          "correctIndex": 2,
+          "explanation": "Plan forcing pins the known-good plan surgically — no restart, no cache-wide side effects, reversible."
+        }
+      ]
+    },
+    {
+      "title": "Wait Statistics: What Is SQL Server Waiting For?",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Wait Statistics\n\nEvery moment a request isn't executing on CPU, it's **waiting** on something — and SQL Server records what. Wait stats are the top-down entry point for 'the server is slow' (vs plan analysis for 'this query is slow').\n\n```sql\n-- Aggregate waits since restart (filter the benign noise)\nSELECT TOP 15 wait_type, wait_time_ms / 1000.0 AS wait_sec,\n       signal_wait_time_ms * 100.0 / NULLIF(wait_time_ms,0) AS signal_pct\nFROM sys.dm_os_wait_stats\nWHERE wait_type NOT IN ('SLEEP_TASK','BROKER_TO_FLUSH','LAZYWRITER_SLEEP','XE_TIMER_EVENT',\n    'REQUEST_FOR_DEADLOCK_SEARCH','CHECKPOINT_QUEUE','WAITFOR','SP_SERVER_DIAGNOSTICS_SLEEP',\n    'HADR_FILESTREAM_IOMGR_IOCOMPLETION','QDS_PERSIST_TASK_MAIN_LOOP_SLEEP','DIRTY_PAGE_POLL')\nORDER BY wait_time_ms DESC;\n```\n\n## The translation table\n\n| Wait type | Means | First reaction |\n|---|---|---|\n| `PAGEIOLATCH_SH/EX` | waiting for pages from **disk** | queries reading too much (missing indexes) or too little RAM |\n| `LCK_M_*` | lock waits — **blocking** | blocking-chain lesson toolkit; RCSI; shorter txns |\n| `CXPACKET`/`CXCONSUMER` | parallelism coordination | normal in moderation; with skew, check estimates/MAXDOP |\n| `PAGELATCH_*` (not IO!) | **memory** page contention — often tempdb allocation | classic tempdb contention; more tempdb files (pre-2019) |\n| `WRITELOG` | transaction log flush | log disk latency; too many tiny transactions — batch |\n| `SOS_SCHEDULER_YIELD` + high `signal_pct` | CPU pressure | plan cache CPU hogs; reduce compilation |\n| `ASYNC_NETWORK_IO` | client slow to consume rows | app streaming huge results — page/limit; not a SQL problem! |\n\n`ASYNC_NETWORK_IO` deserves a highlight for app developers: it usually means **your app requested a huge result set** and processes it row by row. Fix the query/paging, not the server.\n\n## Method\n\n1. Snapshot waits → identify dominant category\n2. Correlate with Query Store top consumers in that dimension (reads for PAGEIOLATCH, duration for locks)\n3. Fix the queries; re-baseline (`DBCC SQLPERF('sys.dm_os_wait_stats', CLEAR)` on dev)\n\nWaits tell you *which lesson of this course to apply*.",
+      "practiceTask": "Run the wait stats query on your LocalDB after exercising the app. Then generate ASYNC_NETWORK_IO: SELECT a large table from C# reading rows with Thread.Sleep(1) per row, and watch the wait counter climb — proof it's a client-side pattern.",
+      "externalLinks": ["https://www.sqlskills.com/help/waits/"],
+      "quiz": [
+        {
+          "question": "Dominant ASYNC_NETWORK_IO waits usually indicate:",
+          "options": ["Network card failure", "The client app fetches large result sets and consumes them slowly — fix the app's query size/processing", "SQL Server needs more RAM", "Log file growth"],
+          "correctIndex": 1,
+          "explanation": "SQL is waiting for the client to take rows off the wire — almost always oversized results or row-by-row client processing."
+        }
+      ]
+    },
+    {
+      "title": "Missing Index DMVs: Free Advice, Read Critically",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Missing Index Suggestions\n\nSQL Server logs every time a query *wished* an index existed:\n\n```sql\nSELECT TOP 20\n    CONVERT(DECIMAL(12,1), migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans)) AS score,\n    mid.statement AS table_name,\n    mid.equality_columns, mid.inequality_columns, mid.included_columns,\n    migs.user_seeks, migs.last_user_seek\nFROM sys.dm_db_missing_index_groups mig\nJOIN sys.dm_db_missing_index_group_stats migs ON migs.group_handle = mig.index_group_handle\nJOIN sys.dm_db_missing_index_details mid ON mid.index_handle = mig.index_handle\nORDER BY score DESC;\n```\n\nColumn meanings → index shape: **equality_columns** first (key), then **inequality_columns** (key), **included_columns** → INCLUDE.\n\n## Why you must NOT create them blindly\n\n- Suggestions are **per-query myopic**: 20 near-duplicate suggestions for one table (only column order/includes differ) should become **one consolidated index**\n- No awareness of **existing indexes** — often a suggestion = existing index + 1 include column → *modify*, don't add\n- No write-cost consideration: 15 indexes on a hot OLTP table tax every INSERT/UPDATE\n- Column order within equality_columns is **not optimized** — put the most selective/most-filtered-alone column first yourself\n\n## The audit habit (both directions)\n\n```sql\n-- Unused/write-only indexes: candidates for removal (stats since restart!)\nSELECT OBJECT_NAME(s.object_id) AS tbl, i.name,\n       s.user_seeks + s.user_scans + s.user_lookups AS reads, s.user_updates AS writes\nFROM sys.dm_db_index_usage_stats s\nJOIN sys.indexes i ON i.object_id = s.object_id AND i.index_id = s.index_id\nWHERE s.database_id = DB_ID() AND i.type_desc = 'NONCLUSTERED'\nORDER BY reads ASC, writes DESC;\n```\n\nHigh writes + zero reads (over a *representative* period — beware restarts and rare-but-critical month-end reports) = the index costs and never pays.\n\nHealthy ritual: monthly — consolidate missing-index suggestions, drop confirmed dead weight, re-check Query Store impact.",
+      "practiceTask": "Run both DMV queries against a database your team uses (or your LearnMore DB after heavy app use). Consolidate any duplicate suggestions into one index definition on paper, and identify one unused-index removal candidate with justification.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/indexes/tune-nonclustered-missing-index-suggestions"],
+      "quiz": [
+        {
+          "question": "Creating every missing-index suggestion verbatim is wrong because:",
+          "options": ["The DMVs are usually empty", "Suggestions are per-query and overlap heavily; they ignore existing indexes and write costs — consolidate instead", "Only Enterprise edition supports them", "They expire daily"],
+          "correctIndex": 1,
+          "explanation": "The DMV is a wishlist, not a design: merge near-duplicates, extend existing indexes, and weigh the write tax."
+        }
+      ]
+    },
+    {
+      "title": "Columnstore Indexes: Analytics at 10-100x",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Columnstore Indexes\n\nRowstore pages store complete rows — perfect for OLTP point queries. Analytics queries (\"SUM revenue by month over 100M rows, 3 columns of 40\") pay to read every column anyway. **Columnstore** stores each column separately in compressed ~1M-row segments.\n\n## Why it's 10-100× for aggregation\n\n1. **Column elimination**: read only the 3 referenced columns — 90%+ I/O gone\n2. **Extreme compression** (10× typical): repetitive column data compresses beautifully; more data per read\n3. **Batch mode execution**: operators process ~900-row vectors instead of row-at-a-time\n4. **Segment elimination**: per-segment min/max metadata skips whole segments (`WHERE Year=2026` skips 2024 segments)\n\n```sql\n-- Analytics copy of a big fact table\nCREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_Orders_Analytics\nON Orders (OrderDate, CustomerId, Region, Total, Quantity);\n-- OLTP keeps its rowstore B-trees; reporting queries use the NCCI automatically\n```\n\n| Type | What | Use |\n|---|---|---|\n| Clustered CS | the table itself, columnar | pure fact/history tables, DW |\n| **Nonclustered CS** | additional columnar copy | **HTAP**: OLTP table + real-time analytics — the sweet spot for app databases |\n\n## Limits and care\n\n- Point lookups/seeks: bad — that's rowstore's job (hence hybrid)\n- Trickle updates create **delta rowgroups** (uncompressed B-tree overflow) — degrades until tuple mover compresses; bulk loads of ≥102,400 rows go straight to compressed segments\n- Monitor: `sys.dm_db_column_store_row_group_physical_stats` for open/deleted rowgroup bloat; REORGANIZE to force compression\n\nDashboard queries aggregating millions of rows while OLTP hums along on the same table — this is the feature. Your reporting endpoints (like this app's /api/stats at scale) are exactly the shape it serves.",
+      "practiceTask": "Load 2M rows into a scratch Sales table on LocalDB. Compare logical reads + elapsed for SUM(Total) GROUP BY Month: plain rowstore vs after adding a nonclustered columnstore. Check the plan for 'Batch' execution mode.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/indexes/columnstore-indexes-overview"],
+      "quiz": [
+        {
+          "question": "A nonclustered columnstore index on an OLTP table enables:",
+          "options": ["Faster single-row lookups", "Real-time analytics on live data — columnar scans for aggregates while B-trees serve OLTP", "Smaller transaction logs", "Automatic partitioning"],
+          "correctIndex": 1,
+          "explanation": "HTAP: one table, two storage formats — the optimizer routes point queries to rowstore and big aggregations to columnstore."
+        }
+      ]
+    },
+    {
+      "title": "EF Core Performance I: Killing N+1 and Over-Fetching",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# EF Core Query Hygiene\n\nThe ORM writes your SQL — these habits decide whether it writes good SQL.\n\n## N+1: the classic\n\n```csharp\nvar orders = await db.Orders.Take(100).ToListAsync();          // 1 query\nforeach (var o in orders)\n    Console.Write(o.Customer.Name);   // lazy loading: +100 queries 💀\n```\n\nFixes, in order of preference:\n\n```csharp\n// 1. Projection — fetch exactly what the screen needs (no entities, no tracking)\nvar rows = await db.Orders.Take(100)\n    .Select(o => new OrderRowDto(o.Id, o.Customer.Name, o.Total))\n    .ToListAsync();                       // ONE query with a JOIN\n\n// 2. Eager load when you need real entities\nvar orders = await db.Orders.Include(o => o.Customer).Take(100).ToListAsync();\n```\n\n## Over-fetching: SELECT * disease\n\nFull entities drag every column (including that NVARCHAR(MAX) Description) plus change-tracking overhead. **Projection (`Select`) is the single highest-impact EF habit** — less I/O, covering-index-friendly SQL, no tracking.\n\n## AsNoTracking for reads\n\n```csharp\ndb.Orders.AsNoTracking()...   // no snapshot per entity; big win on large reads\n// or projections — DTOs are never tracked anyway\n```\n\n## Cartesian explosion with multiple Includes\n\n```csharp\ndb.Blogs.Include(b => b.Posts).Include(b => b.Tags)   // rows = posts × tags per blog!\n    .AsSplitQuery()                                    // → separate queries per collection\n```\n\nWatch for it when including **two+ collections**; `AsSplitQuery` trades one bloated result set for multiple clean ones.\n\n## See what EF sends (non-negotiable habit)\n\n```csharp\nquery.ToQueryString();                        // exact SQL, paste into SSMS + Ctrl+M\nbuilder.LogTo(Console.WriteLine, LogLevel.Information);   // or watch live\n```\n\nEvery lesson in this track applies to EF output: SARGable lambdas, covering indexes for hot projections, keyset paging — the ORM is just a SQL generator you steer.",
+      "practiceTask": "Turn on LogTo in a project. Find one endpoint doing N+1 or full-entity fetching for a list screen; rewrite with projection; compare query count and payload before/after (and ToQueryString both versions in SSMS).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying"],
+      "quiz": [
+        {
+          "question": "The highest-impact default habit for EF read endpoints is:",
+          "options": ["Adding AsParallel()", "Projecting to DTOs with Select — fetching only needed columns, untracked, in one query", "Using raw SQL everywhere", "Adding Include on everything"],
+          "correctIndex": 1,
+          "explanation": "Projection eliminates over-fetching, tracking overhead, and most N+1s in one move, and produces index-friendly SQL."
+        },
+        {
+          "question": "Include(b => b.Posts).Include(b => b.Tags) can explode row counts because:",
+          "options": ["EF runs them serially", "One JOINed result multiplies collections: rows = |Posts| × |Tags| per blog — use AsSplitQuery", "Tags can't be included", "It disables indexes"],
+          "correctIndex": 1,
+          "explanation": "Two sibling collection JOINs produce a cartesian product per parent; split queries avoid the multiplication."
+        }
+      ]
+    },
+    {
+      "title": "EF Core Performance II: SaveChanges, Bulk Ops, Compiled Queries",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# EF Core Write-Side and Hot-Path Tuning\n\n## How SaveChanges actually works\n\nChange tracker diffs snapshots → generates INSERT/UPDATE/DELETE **batched** into few round-trips (default max ~42 statements/batch, configurable via `MaxBatchSize`) → wraps them in **one implicit transaction**. You rarely need `BeginTransaction` for a single SaveChanges.\n\n## The row-at-a-time trap\n\n```csharp\n// ❌ loads 50k entities into memory, tracks them, updates one by one\nvar stale = await db.Products.Where(p => p.DiscontinuedAt < cutoff).ToListAsync();\nforeach (var p in stale) p.IsActive = false;\nawait db.SaveChangesAsync();\n\n// ✅ EF7+: one UPDATE statement, no loading, no tracking\nawait db.Products.Where(p => p.DiscontinuedAt < cutoff)\n    .ExecuteUpdateAsync(s => s.SetProperty(p => p.IsActive, false));\n\nawait db.Products.Where(p => p.IsOrphaned).ExecuteDeleteAsync();\n```\n\n`ExecuteUpdate`/`ExecuteDelete` bypass the change tracker entirely — set-based SQL, exactly what the database wants. Caveats: no concurrency tokens, no domain events from tracked entities — use consciously.\n\nTrue bulk inserts (100k+ rows): `SqlBulkCopy` (or EFCore.BulkExtensions) — orders of magnitude over Add+SaveChanges.\n\n## Change tracker hygiene on big imports\n\nLong-lived context accumulating 100k tracked entities = quadratic slowdown. Batch: SaveChanges every ~1-5k, then `db.ChangeTracker.Clear()`, or new context per batch.\n\n## Compiled queries for ultra-hot paths\n\n```csharp\nprivate static readonly Func<AppDbContext, int, Task<Product?>> GetProduct =\n    EF.CompileAsyncQuery((AppDbContext db, int id) =>\n        db.Products.FirstOrDefault(p => p.Id == id));\n```\n\nSkips LINQ-to-SQL translation per call (~10-30% on trivial queries called thousands/sec). Measure first; it's a micro-optimization with maintenance cost.\n\n## Connection resiliency\n\n```csharp\noptions.UseSqlServer(cs, o => o.EnableRetryOnFailure());\n```\n\nRetries transient connection faults (Azure SQL failovers). Note: with explicit BeginTransaction you must wrap the whole unit in `CreateExecutionStrategy().ExecuteAsync(...)`.",
+      "practiceTask": "Benchmark three ways to deactivate 50k rows on LocalDB: tracked foreach+SaveChanges, ExecuteUpdateAsync, and raw SQL. Record elapsed time and SQL round-trips (LogTo) for each.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/ef/core/performance/efficient-updating"],
+      "quiz": [
+        {
+          "question": "ExecuteUpdateAsync beats load-modify-SaveChanges for mass updates because:",
+          "options": ["It uses a faster connection", "It issues one set-based UPDATE without materializing or tracking entities", "It disables logging", "It runs in parallel"],
+          "correctIndex": 1,
+          "explanation": "Set-based SQL does the work where the data lives; the tracked approach pays materialization, memory, and per-entity statement costs."
+        }
+      ]
+    },
+    {
+      "title": "Index Maintenance and Fill Factor: What Still Matters",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Fragmentation, Rebuilds, and Modern Reality\n\n## Two kinds of fragmentation\n\n- **Logical**: page order on disk ≠ index order (page splits insert out-of-sequence pages). Hurts large sequential scans on **spinning disks**; nearly irrelevant on SSDs for typical OLTP\n- **Low page density**: pages half-empty after splits/deletes — this one still matters everywhere: same rows, more pages, more reads, more buffer pool waste\n\n```sql\nSELECT OBJECT_NAME(ips.object_id) AS tbl, i.name,\n       ips.avg_fragmentation_in_percent, ips.avg_page_space_used_in_percent, ips.page_count\nFROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'SAMPLED') ips\nJOIN sys.indexes i ON i.object_id = ips.object_id AND i.index_id = ips.index_id\nWHERE ips.page_count > 100\nORDER BY ips.avg_fragmentation_in_percent DESC;\n```\n\n## The modern stance (post-SSD)\n\nObsessive nightly rebuilds are legacy cargo cult. What matters:\n\n1. **Page density** (`avg_page_space_used`) — low density = real wasted I/O\n2. **Statistics freshness** — half the historical 'rebuild fixed it!' wins were actually the free stats update (FULLSCAN) a rebuild includes\n3. REBUILD vs REORGANIZE: rebuild = new index (offline unless Enterprise ONLINE=ON, updates stats); reorganize = in-place shuffle (always online, no stats update, interruptible)\n\nSensible defaults: Ola Hallengren's IndexOptimize weekly; thresholds ~30% frag AND >1000 pages; prioritize UPDATE STATISTICS daily on hot tables over rebuilding.\n\n## Fill factor: pre-paying for inserts\n\n`FILLFACTOR = 90` leaves 10% free per leaf page at rebuild time — room for future rows, fewer page splits on **random-insert** patterns (that GUID key you were warned about, or indexed columns that update frequently).\n\nTrade: 10% more pages to read *all the time*. Default 100 (0) is right for ever-increasing keys; lower it only for indexes with **measured** split pain (`sys.dm_db_index_operational_stats` leaf_allocation_count).",
+      "practiceTask": "Run the fragmentation query on your LearnMore DB. Then create the GUID-clustered scratch table again, insert 200k rows, record density/fragmentation, rebuild WITH (FILLFACTOR = 90), insert 50k more, and compare split behavior (leaf_allocation_count) vs FILLFACTOR 100.",
+      "externalLinks": ["https://ola.hallengren.com/"],
+      "quiz": [
+        {
+          "question": "On SSD-backed OLTP, the fragmentation metric that still genuinely wastes resources is:",
+          "options": ["avg_fragmentation_in_percent (logical order)", "Low avg_page_space_used_in_percent — half-empty pages inflate reads and buffer pool usage", "Index depth", "Extent count"],
+          "correctIndex": 1,
+          "explanation": "Random I/O penalty of logical fragmentation faded with SSDs; paying for empty page space did not."
+        }
+      ]
+    },
+    {
+      "title": "Transaction Log and Batching Large Modifications",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Transaction Log\n\nEvery modification writes to the log **first** (write-ahead logging) — commit isn't done until the log record hits disk. The log is sequential-write and per-database single stream: it's often the true ceiling on write throughput (`WRITELOG` waits).\n\n## Recovery models\n\n| Model | Log behavior | Point-in-time restore | Use |\n|---|---|---|---|\n| SIMPLE | truncates at checkpoint | ❌ | dev, ETL staging, rebuild-able data |\n| FULL | kept until **log backup** | ✅ | production OLTP |\n\nThe classic incident: FULL recovery + no log backups → log grows until disk full. Log backups (every 5-15 min in prod) are what truncate it. `DBCC SQLPERF(LOGSPACE)` / `sys.dm_db_log_space_usage` to check.\n\n## Why one giant DELETE is a disaster\n\n`DELETE FROM History WHERE CreatedAt < @cutoff` on 50M rows:\n- All 50M row-deletes logged in **one transaction** — massive log growth (can't truncate past an active transaction)\n- Lock escalation → table lock → app blocked for the duration\n- Rollback (if killed) takes as long as the delete did — or longer\n\n## The batching pattern (memorize)\n\n```sql\nDECLARE @batch INT = 4000;\nWHILE 1 = 1\nBEGIN\n    DELETE TOP (@batch) FROM History WHERE CreatedAt < @cutoff;\n    IF @@ROWCOUNT < @batch BREAK;\n    -- each iteration = its own transaction: log truncates (with backups),\n    -- locks stay row/page level, other work interleaves\nEND\n```\n\n4000 stays under the ~5000 lock-escalation threshold. Add `WAITFOR DELAY '00:00:01'` between batches on busy systems. Same pattern for UPDATEs (`UPDATE TOP...` with a filter that excludes already-updated rows) — and for EF: loop `ExecuteDeleteAsync` on `.Take(4000)` (EF8+) or raw SQL.\n\nArchival alternative when deleting *most* of a table: copy keepers to a new table, swap names — logging proportional to survivors instead of victims. Partition switching (Enterprise) makes it metadata-instant.",
+      "practiceTask": "On LocalDB (SIMPLE recovery): insert 1M rows, then compare deleting 500k in one statement vs 4000-row batches — watch sys.dm_db_log_space_usage during each and check sys.dm_tran_locks for escalation in the single-statement version.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/logs/the-transaction-log-sql-server"],
+      "quiz": [
+        {
+          "question": "Batched deletes (TOP 4000 in a loop) beat one giant DELETE because:",
+          "options": ["TOP is faster to parse", "Each small transaction allows log truncation, avoids lock escalation, and lets other work interleave", "Fewer total rows are deleted", "Indexes update lazily"],
+          "correctIndex": 1,
+          "explanation": "Small transactions bound log growth, stay under the escalation threshold, and make rollback/interruption cheap."
+        }
+      ]
+    },
+    {
+      "title": "Computed Columns and Indexed Views",
+      "difficulty": 3,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Precomputing: Columns and Views\n\nWhen a query keeps computing the same expression, store the computation.\n\n## Computed columns\n\n```sql\nALTER TABLE Orders ADD TotalWithTax AS (Total * 1.14) PERSISTED;\nCREATE INDEX IX_Orders_TotalWithTax ON Orders (TotalWithTax);\n```\n\n- Non-persisted: computed on read (no storage)\n- **PERSISTED**: stored, maintained on write — and **indexable** (deterministic expressions only)\n\nThe SARGability escape hatch: `WHERE Total * 1.14 > 1000` is unSARGable, but with the indexed computed column the optimizer **matches the expression automatically** and seeks — you don't even have to reference the new column.\n\nOther uses: extracting a JSON property (`JSON_VALUE(Doc,'$.customerId') AS CustomerId PERSISTED`) then indexing it; normalized search columns (`LOWER(Email)`).\n\n## Indexed views: materialized aggregates\n\n```sql\nCREATE VIEW dbo.vSalesByDay WITH SCHEMABINDING AS\nSELECT OrderDate, COUNT_BIG(*) AS Cnt, SUM(ISNULL(Total,0)) AS Revenue\nFROM dbo.Orders GROUP BY OrderDate;\n\nCREATE UNIQUE CLUSTERED INDEX IX_vSalesByDay ON dbo.vSalesByDay (OrderDate);\n```\n\nThe aggregate is now **stored and maintained** by SQL Server on every Orders write. A dashboard summing millions of rows becomes a seek into pre-aggregated data — and (Enterprise/modern editions) the optimizer can auto-match base-table queries to it.\n\nCosts and constraints: every write to Orders also updates the view (write tax on hot tables); SCHEMABINDING locks schema; long requirements list (COUNT_BIG required with GROUP BY, no OUTER JOIN, deterministic everything, two-part names...).\n\n## Choosing\n\n| Need | Tool |\n|---|---|\n| Expression per row, filtered/sorted often | Persisted computed column + index |\n| Pre-aggregated totals maintained real-time | Indexed view |\n| Analytics at scale, tolerate batch-mode scans | Columnstore (often simpler than indexed views) |\n| Can tolerate staleness | Scheduled summary table refresh — cheapest writes |",
+      "practiceTask": "Add a persisted computed column extracting a value you filter on (e.g., LOWER(Email) or a JSON property) to a scratch table, index it, and confirm expression auto-matching: the original unSARGable WHERE now produces a seek.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/views/create-indexed-views"],
+      "quiz": [
+        {
+          "question": "An indexed view differs from a regular view in that it:",
+          "options": ["Runs its SELECT faster at query time", "Physically stores and continuously maintains its result set, like a table", "Can't be queried directly", "Only works with columnstore"],
+          "correctIndex": 1,
+          "explanation": "Regular views are inlined query text; an indexed view is materialized data updated on every base-table write — read speed bought with write cost."
+        }
+      ]
+    },
+    {
+      "title": "Table Partitioning: Managing Big Tables by Slices",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Table Partitioning\n\nSplit one huge table into slices by a key (almost always **date**), transparent to queries. Available in all editions since SQL 2016 SP1.\n\n```sql\nCREATE PARTITION FUNCTION pfMonthly (datetime2)\nAS RANGE RIGHT FOR VALUES ('2026-01-01','2026-02-01','2026-03-01', ...);\n\nCREATE PARTITION SCHEME psMonthly AS PARTITION pfMonthly ALL TO ([PRIMARY]);\n\nCREATE TABLE Events (...) ON psMonthly(CreatedAt);\n```\n\n## What it's actually for: **data lifecycle management**\n\n- **Sliding window archival**: `SWITCH` a whole month out to an archive table = **metadata operation, instant** — vs the batched-DELETE lesson's minutes/hours. This is THE killer feature\n- Loading: stage a month, SWITCH it in — bulk load without touching the live table\n- Partition-level maintenance: rebuild/compress only recent partitions; older ones on cheaper filegroups\n\n## What it's NOT (the #1 misconception)\n\n**Partitioning is not primarily a query-speed feature.** Partition elimination (scanning only relevant partitions when the WHERE filters on the partitioning key) helps scans — but a good **index** usually helps more. A seek on a non-partitioned 500M-row table is still 4-5 reads. Queries that *don't* filter on the partition key can even get slightly slower (per-partition B-trees to probe).\n\n## Gotchas\n\n- Unique indexes must include the partitioning key (or be non-aligned, losing SWITCH)\n- `$PARTITION.pfMonthly(CreatedAt)` to see row placement per partition\n- Always keep empty partitions at both ends; automate `SPLIT`/`MERGE` maintenance (forgetting = giant catch-all last partition)\n\n```sql\n-- Row counts per partition\nSELECT p.partition_number, p.rows\nFROM sys.partitions p WHERE p.object_id = OBJECT_ID('Events') AND p.index_id IN (0,1);\n```\n\nDecision rule: reach for partitioning when **retention/archival/load management** on 50M+ row tables hurts — not because queries are slow.",
+      "practiceTask": "On LocalDB: create a monthly-partitioned Events table with 4 partitions, load rows across months, verify placement with $PARTITION, then SWITCH the oldest partition to an archive table and time it against deleting the same rows.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/partitions/partitioned-tables-and-indexes"],
+      "quiz": [
+        {
+          "question": "The primary production justification for table partitioning is:",
+          "options": ["Making all queries faster", "Instant metadata-level archival/load via partition SWITCH, and per-slice maintenance", "Reducing storage size", "Avoiding indexes"],
+          "correctIndex": 1,
+          "explanation": "It's a data-management feature; query gains are situational while SWITCH-based lifecycle operations are transformative."
+        }
+      ]
+    },
+    {
+      "title": "Memory & the Buffer Pool: Why Cold Queries Are Slow",
+      "difficulty": 2,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# The Buffer Pool\n\nSQL Server reads pages through RAM: every page touched is cached in the **buffer pool** (the majority of SQL Server's memory). Logical read = page from RAM; **physical read** = disk → RAM first (10-1000× slower).\n\n```sql\nSET STATISTICS IO ON;\n-- run twice: first run shows physical reads, second only logical — the cache warmed\n```\n\nThis explains everyday mysteries:\n- \"Query is slow first time each morning\" — cold cache (plus maybe overnight maintenance evicted pages)\n- \"Dev is faster than prod\" — dev's tiny data fits entirely in RAM\n- \"Adding RAM fixed everything\" — the working set finally fit\n\n## Page Life Expectancy & memory pressure\n\n```sql\nSELECT object_name, counter_name, cntr_value\nFROM sys.dm_os_performance_counters\nWHERE counter_name IN ('Page life expectancy','Buffer cache hit ratio');\n\n-- What's occupying the buffer pool, per table\nSELECT OBJECT_NAME(p.object_id) AS tbl, COUNT(*) * 8 / 1024 AS mb_cached\nFROM sys.dm_os_buffer_descriptors bd\nJOIN sys.allocation_units au ON au.allocation_unit_id = bd.allocation_unit_id\nJOIN sys.partitions p ON p.partition_id = au.container_id\nWHERE bd.database_id = DB_ID()\nGROUP BY p.object_id ORDER BY mb_cached DESC;\n```\n\nPLE crashing after a specific query = that query flushed everyone's hot pages by scanning something huge — **one bad scan taxes every other query on the server**. (Now the full damage model of missing indexes is visible: not just that query's reads, but cache eviction for all.)\n\n## App-side implications\n\n- Reading only needed columns/rows (projections! covering indexes!) = fewer pages cached = more of *everything else* stays hot\n- That 'harmless' hourly `SELECT *` report over 20GB is a server-wide cache bomb — columnstore or replica it\n- `MAX_SERVER_MEMORY`: always cap it (leave OS 4GB+); default unlimited fights the OS",
+      "practiceTask": "On LocalDB: restart the instance (cold cache), run a table-scanning query with SET STATISTICS IO ON and note physical reads; re-run for logical-only. Then run the buffer-descriptor query to see your LearnMore tables' cache residency.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/memory-management-architecture-guide"],
+      "quiz": [
+        {
+          "question": "A giant table scan degrades OTHER queries' performance because:",
+          "options": ["It holds locks on their tables", "It evicts their hot pages from the shared buffer pool — they now pay physical reads", "It consumes all CPU", "It fragments their indexes"],
+          "correctIndex": 1,
+          "explanation": "The buffer pool is shared; one scan's flood of pages pushes out everyone's working set — cache pollution."
+        }
+      ]
+    },
+    {
+      "title": "TVPs and Set-Based Thinking: Stop Calling SQL in Loops",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Set-Based Thinking\n\nThe #1 mindset gap between app developers and database engines: apps think **row by row** (RBAR — Row By Agonizing Row); SQL engines are optimized for **sets**.\n\n## The everyday crimes\n\n```csharp\n// ❌ 500 round-trips\nforeach (var id in productIds)\n    results.Add(await db.Products.FirstOrDefaultAsync(p => p.Id == id));\n\n// ✅ one query\nvar results = await db.Products.Where(p => productIds.Contains(p.Id)).ToListAsync();\n```\n\n`Contains` translates to `IN (...)` — good to a few hundred values. Thousands of values = giant SQL text, plan cache pollution (every count = different query), and an 8k-parameter limit. Enter TVPs:\n\n## Table-Valued Parameters\n\n```sql\nCREATE TYPE dbo.IntList AS TABLE (Id INT PRIMARY KEY);\n```\n\n```csharp\nvar table = new DataTable();\ntable.Columns.Add(\"Id\", typeof(int));\nforeach (var id in ids) table.Rows.Add(id);\n\nvar p = new SqlParameter(\"@ids\", SqlDbType.Structured)\n{ TypeName = \"dbo.IntList\", Value = table };\n\nvar products = await db.Products\n    .FromSqlRaw(\"SELECT p.* FROM Products p JOIN @ids i ON i.Id = p.Id\", p)\n    .ToListAsync();\n```\n\nOne parameterized round-trip, real JOIN semantics, one cached plan regardless of list size, 10k+ ids no problem. Also ideal for **bulk upserts**: pass a TVP of rows to a proc doing `MERGE`/`UPDATE+INSERT`.\n\n## The general rewrite discipline\n\n| RBAR pattern | Set-based fix |\n|---|---|\n| Loop of SELECT by id | `IN` / TVP JOIN |\n| Loop of UPDATE per row | one UPDATE with JOIN / `ExecuteUpdateAsync` |\n| Loop INSERT | batched SaveChanges / SqlBulkCopy / TVP |\n| Cursor in T-SQL computing running totals | window functions (`SUM() OVER`) |\n\nRule of thumb: **if there's a database call inside a foreach, stop and redesign.** The database can almost always do the whole set in one statement — and the round-trip latency you save often dwarfs every index tweak in this course.",
+      "practiceTask": "Find a loop-with-query in any codebase you own (foreach + await db.*). Rewrite set-based (Contains, TVP, or ExecuteUpdate). Measure round-trips before/after with LogTo or SQL Profiler-style logging.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/tables/use-table-valued-parameters-database-engine"],
+      "quiz": [
+        {
+          "question": "TVPs beat giant IN(...) lists for thousands of values because:",
+          "options": ["IN is deprecated", "One cached parameterized plan, real join semantics, no SQL-text/parameter-count limits", "TVPs skip the transaction log", "IN can't use indexes"],
+          "correctIndex": 1,
+          "explanation": "Each distinct IN-list length is a distinct plan polluting the cache; a TVP is one stable, joinable table parameter."
+        }
+      ]
+    },
+    {
+      "title": "A Query Tuning Methodology: The Checklist",
+      "difficulty": 2,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# The Tuning Checklist\n\nEverything in this track, ordered into the sequence to apply when something is slow.\n\n## 0. Reproduce & measure honestly\n\n```sql\nSET STATISTICS IO, TIME ON;   -- logical reads = your currency\n-- Actual execution plan on (Ctrl+M)\n```\n\nGet the *real* SQL (EF: `ToQueryString`). Establish the baseline number before touching anything.\n\n## 1. Is the query asking for too much?\n\n- `SELECT *`? Columns nobody reads? → project\n- Rows the app filters afterward? → filter in SQL\n- Huge result the user never scrolls? → page (keyset)\n- Same data every request? → cache it; the fastest query is none\n\n## 2. Can the engine find the rows efficiently?\n\n- Plan: Scan where you expected Seek?\n- Predicates SARGable? (functions on columns, implicit conversion warnings)\n- Index exists for the WHERE + covers the SELECT? (missing index DMV as *input*, then design)\n- Estimates ≈ actuals? If wildly off → statistics, or predicate opacity\n\n## 3. Are the operators sane?\n\n- Nested Loops with a fat outer arrow → estimate problem upstream\n- Sort that an index could provide → index the ORDER BY\n- Hash spill warnings → estimates again (it's always estimates)\n- Key Lookup × thousands → INCLUDE columns\n\n## 4. Is it even the query?\n\n- Blocked, not slow: `sys.dm_exec_requests` wait type (LCK_*) → blocking toolkit\n- Server-wide pressure: wait stats triage → PAGEIOLATCH/WRITELOG/CPU lessons\n- Regression: Query Store plan history → sniffing? force last good plan as tourniquet\n\n## 5. Only then: structural weapons\n\nCovering/filtered indexes → computed columns → indexed views → columnstore → partitioning (lifecycle, remember, not speed) → read replicas / caching tiers.\n\n## The meta-rules\n\n1. **One change at a time**, re-measure logical reads after each\n2. The fix is usually in steps 1-2 (the query), not step 5 (the infrastructure)\n3. Keep a before/after log — numbers convince teammates, feelings don't\n4. If reads dropped 100× but it's still 'slow', the bottleneck moved: network, app serialization, rendering — go profile there",
+      "practiceTask": "Take the slowest endpoint you own. Run the full checklist top to bottom, documenting each step's finding and the logical-reads number after each change. Produce the before/after table.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/performance/performance-monitoring-and-tuning-tools"],
+      "quiz": [
+        {
+          "question": "According to the methodology, before creating any index for a slow query you should first:",
+          "options": ["Rebuild existing indexes", "Verify the query requests only needed rows/columns and its predicates are SARGable", "Add OPTION(RECOMPILE)", "Increase server memory"],
+          "correctIndex": 1,
+          "explanation": "Indexing a wasteful query cements the waste; shrink and SARG-ify the ask first — often no new index is needed."
+        }
+      ]
+    },
+    {
+      "title": "Filtered Indexes and Index Strategy Review",
+      "difficulty": 3,
+      "estimatedMinutes": 15,
+      "bodyMarkdown": "# Filtered Indexes\n\nAn index over a **subset of rows** — a WHERE clause in the index definition:\n\n```sql\n-- 95% of orders are 'Closed'; queries always want the open 5%\nCREATE INDEX IX_Orders_Open ON Orders (CustomerId) INCLUDE (Total)\nWHERE Status = 'Open';\n```\n\nBenefits: fraction of the size (faster seeks, tiny maintenance cost — closed orders never touch it), stats over just the interesting rows (better estimates on skew!), and cheap uniqueness tricks:\n\n```sql\n-- 'unique when not null' — the classic\nCREATE UNIQUE INDEX UX_Users_NationalId ON Users (NationalId) WHERE NationalId IS NOT NULL;\n\n-- 'only one active default per customer'\nCREATE UNIQUE INDEX UX_Addr_Default ON Addresses (CustomerId) WHERE IsDefault = 1;\n```\n\nThat second one enforces a **business rule the schema otherwise can't express** — a constraint disguised as an index.\n\n## Gotchas\n\n- The query's predicate must **provably imply** the filter (`WHERE Status = 'Open'` matches; `WHERE Status = @s` does NOT — parameter could be anything → filtered index unusable with parameterized status!) — the big one for EF apps\n- Workaround when values are known: `OPTION (RECOMPILE)` lets the optimizer see the runtime value\n- SET options requirements (ANSI_NULLS etc.) — modern drivers comply by default\n\n## Full index strategy in five lines\n\n1. Cluster on narrow/static/increasing (usually the int PK) — every NC index carries it\n2. Index every **foreign key** (join + delete-check performance)\n3. For each *hot* query pattern: key = equality cols then range/sort col, INCLUDE = selected cols\n4. Prefer **consolidation**: one index serving five queries beats five near-duplicates (leftmost-prefix rule: (A,B,C) also serves (A) and (A,B))\n5. Filtered for hot subsets and conditional uniqueness; review usage DMVs quarterly; every index is a write tax — justify or drop",
+      "practiceTask": "Add a filtered unique index expressing a real business rule in your schema ('one default X per Y', 'unique when not null'). Then demonstrate the parameterization gotcha: show the filtered index used with a literal but ignored with a parameter, and fix with OPTION(RECOMPILE).",
+      "externalLinks": ["https://learn.microsoft.com/en-us/sql/relational-databases/indexes/create-filtered-indexes"],
+      "quiz": [
+        {
+          "question": "A filtered index WHERE Status='Open' is ignored by WHERE Status=@status because:",
+          "options": ["Filtered indexes can't be seeked", "The optimizer must build a plan valid for ANY @status value — it can't assume 'Open'", "Parameters disable all indexes", "The filter syntax is wrong"],
+          "correctIndex": 1,
+          "explanation": "Cached plans must be correct for every parameter value; only literals (or RECOMPILE-time known values) provably satisfy the filter."
+        }
+      ]
+    },
+    {
+      "title": "Concurrency Control in Apps: Optimistic vs Pessimistic",
+      "difficulty": 3,
+      "estimatedMinutes": 18,
+      "bodyMarkdown": "# Application Concurrency Patterns\n\nTwo users load the same record; both edit; both save. Who wins? Without a strategy: **last writer silently destroys the first's changes** — the lost update.\n\n## Optimistic concurrency (default choice for web apps)\n\nAssume conflicts are rare; **detect** rather than prevent:\n\n```csharp\npublic class Order\n{\n    [Timestamp] public byte[] RowVersion { get; set; }   // SQL rowversion column\n}\n// UPDATE Orders SET ... WHERE Id=@id AND RowVersion=@original\n// 0 rows affected → someone changed it → DbUpdateConcurrencyException\n```\n\nSQL Server auto-bumps `rowversion` on every write. EF Core turns the version into the WHERE; your job is the **catch**: reload + retry (last-write-wins-with-awareness), merge fields, or surface \"reloaded — reapply your change\" to the user. Web-friendly: no locks held while a human thinks (HTTP is stateless anyway — you *can't* hold a lock across requests sanely).\n\n## Pessimistic concurrency (short critical sections only)\n\nPrevent the conflict by locking up front — inside one transaction:\n\n```sql\nBEGIN TRAN;\nSELECT @seat = Status FROM Seats WITH (UPDLOCK, HOLDLOCK) WHERE Id = @id;\nIF @seat = 'Free' UPDATE Seats SET Status='Held', HeldBy=@user WHERE Id=@id;\nCOMMIT;   -- lock lifetime = milliseconds, not user think-time\n```\n\n`UPDLOCK` on the read prevents two sessions both seeing 'Free' and both updating (the read-then-write race — also the deadlock-prevention trick from that lesson). For queue-table consumers: `UPDLOCK, READPAST` = 'lock mine, skip others' locked rows' — the SQL-native work queue idiom.\n\n## Choosing\n\n| Scenario | Strategy |\n|---|---|\n| Human edit forms | Optimistic (rowversion) + good conflict UX |\n| Inventory decrement, seat booking | Atomic UPDATE with guard (`SET Qty=Qty-1 WHERE Qty>0` — check @@ROWCOUNT) — often no explicit lock needed |\n| Job/queue pickup | UPDLOCK + READPAST |\n| Long business process 'locks' | Application-level (status column + owner + expiry), never DB locks |\n\nThe atomic-guard row deserves emphasis: a single conditional UPDATE is the cheapest correct concurrency control — the database's atomicity does all the work.",
+      "practiceTask": "Add a rowversion concurrency token to one EF entity. Simulate the conflict: load in two contexts, save both, catch DbUpdateConcurrencyException and implement reload-and-inform handling. Then write the atomic inventory decrement and prove with two parallel tasks it never oversells.",
+      "externalLinks": ["https://learn.microsoft.com/en-us/ef/core/saving/concurrency"],
+      "quiz": [
+        {
+          "question": "UPDATE Stock SET Qty = Qty - 1 WHERE ProductId = @p AND Qty > 0 (checking rows affected) prevents overselling because:",
+          "options": ["It uses SERIALIZABLE", "The check and decrement are one atomic statement — no gap for another session to race into", "Qty columns lock automatically", "EF retries it"],
+          "correctIndex": 1,
+          "explanation": "Read-then-write in separate statements leaves a race window; one guarded UPDATE closes it with plain statement atomicity."
+        }
+      ]
+    }
+  ]
+}

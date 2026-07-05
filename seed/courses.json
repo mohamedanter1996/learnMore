@@ -1,0 +1,72 @@
+{
+  "topics": [
+    {
+      "topic": "Data Structures & Algorithms",
+      "courses": [
+        { "title": "Data Structures Easy to Advanced (freeCodeCamp)", "provider": "YouTube — William Fiset", "url": "https://www.youtube.com/watch?v=RBSGKlAvoiM", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "NeetCode Roadmap — structured problem practice", "provider": "neetcode.io", "url": "https://neetcode.io/roadmap", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "C# Data Structures (Microsoft collections docs + tutorials)", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/dotnet/standard/collections/", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "Data Structures شرح عربي كامل", "provider": "YouTube — Adel Nasim", "url": "https://www.youtube.com/@AdelNasim", "level": 1, "isPaid": false, "lang": "ar" },
+        { "title": "Grokking Algorithms (book — visual, friendly)", "provider": "Manning", "url": "https://www.manning.com/books/grokking-algorithms-second-edition", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "LeetCode — targeted practice by topic tag", "provider": "leetcode.com", "url": "https://leetcode.com/problemset/", "level": 2, "isPaid": false, "lang": "en" },
+        { "title": "Arabic Competitive Programming — تدريب خوارزميات بالعربي", "provider": "YouTube — Mostafa Saad", "url": "https://www.youtube.com/@ArabicCompetitiveProgramming", "level": 2, "isPaid": false, "lang": "ar" },
+        { "title": "Competitive Programmer's Handbook (free book)", "provider": "cses.fi", "url": "https://cses.fi/book/book.pdf", "level": 3, "isPaid": false, "lang": "en" },
+        { "title": "AlgoExpert — curated interview problems with video solutions", "provider": "algoexpert.io", "url": "https://www.algoexpert.io/", "level": 3, "isPaid": true, "lang": "en" }
+      ]
+    },
+    {
+      "topic": "Design Patterns",
+      "courses": [
+        { "title": "Refactoring.Guru — patterns with visuals and C# examples", "provider": "refactoring.guru", "url": "https://refactoring.guru/design-patterns/csharp", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "SOLID Principles for C# Developers", "provider": "Microsoft Learn / dotnet docs", "url": "https://learn.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/architectural-principles", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "Design Patterns شرح بالعربي", "provider": "YouTube — Mohammed Reda", "url": "https://www.youtube.com/@MohammedRedaOfficial", "level": 1, "isPaid": false, "lang": "ar" },
+        { "title": "Head First Design Patterns (book — the classic intro)", "provider": "O'Reilly", "url": "https://www.oreilly.com/library/view/head-first-design/9781492077992/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "C# Design Patterns learning path", "provider": "Pluralsight", "url": "https://www.pluralsight.com/paths/design-patterns-in-c", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "Deep Dive into C# and .NET Design Patterns", "provider": "Dometrain", "url": "https://dometrain.com/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "Architect Modern Web Applications with ASP.NET Core (free eBook)", "provider": "Microsoft", "url": "https://learn.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/", "level": 3, "isPaid": false, "lang": "en" },
+        { "title": "Clean Architecture (book — Robert C. Martin)", "provider": "Pearson", "url": "https://www.oreilly.com/library/view/clean-architecture-a/9780134494272/", "level": 3, "isPaid": true, "lang": "en" }
+      ]
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "courses": [
+        { "title": "SQL Server tutorial for beginners (full playlist)", "provider": "YouTube — kudvenkat", "url": "https://www.youtube.com/@Csharp-video-tutorialsBlogspot", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "SQL Server fundamentals learning path", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/training/browse/?products=sql-server", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "SQL Server شرح عربي شامل", "provider": "YouTube — Adel Sabour", "url": "https://www.youtube.com/@AdelSabour", "level": 1, "isPaid": false, "lang": "ar" },
+        { "title": "How to Think Like the SQL Server Engine (free course)", "provider": "Brent Ozar", "url": "https://www.brentozar.com/training/think-like-sql-server-engine/", "level": 2, "isPaid": false, "lang": "en" },
+        { "title": "Use The Index, Luke — SQL indexing explained", "provider": "use-the-index-luke.com", "url": "https://use-the-index-luke.com/", "level": 2, "isPaid": false, "lang": "en" },
+        { "title": "SQL Server Performance Tuning courses", "provider": "Udemy", "url": "https://www.udemy.com/topic/sql-server/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "Mastering Index Tuning / Query Tuning (deep-dive classes)", "provider": "Brent Ozar", "url": "https://www.brentozar.com/training/", "level": 3, "isPaid": true, "lang": "en" },
+        { "title": "SQLskills — Immersion training and free video archive", "provider": "sqlskills.com", "url": "https://www.sqlskills.com/", "level": 3, "isPaid": true, "lang": "en" },
+        { "title": "Erik Darling — advanced query tuning videos", "provider": "YouTube — Erik Darling Data", "url": "https://www.youtube.com/@ErikDarlingData", "level": 3, "isPaid": false, "lang": "en" }
+      ]
+    },
+    {
+      "topic": "System Design",
+      "courses": [
+        { "title": "System Design Primer (the canonical free repo)", "provider": "GitHub — donnemartin", "url": "https://github.com/donnemartin/system-design-primer", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "ByteByteGo — system design explained visually", "provider": "YouTube — ByteByteGo", "url": "https://www.youtube.com/@ByteByteGo", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "Backend engineering fundamentals", "provider": "YouTube — Hussein Nasser", "url": "https://www.youtube.com/@hnasr", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "Azure Architecture Center — patterns catalog", "provider": "Microsoft", "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/", "level": 2, "isPaid": false, "lang": "en" },
+        { "title": "ByteByteGo System Design course + newsletter", "provider": "bytebytego.com", "url": "https://bytebytego.com/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "Grokking the System Design Interview", "provider": "designgurus.io", "url": "https://www.designgurus.io/course/grokking-the-system-design-interview", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "Designing Data-Intensive Applications (THE book)", "provider": "O'Reilly — Martin Kleppmann", "url": "https://dataintensive.net/", "level": 3, "isPaid": true, "lang": "en" },
+        { "title": "Azure Well-Architected Framework", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/azure/well-architected/", "level": 3, "isPaid": false, "lang": "en" }
+      ]
+    },
+    {
+      "topic": "Frontend Engineering",
+      "courses": [
+        { "title": "أساسيات الفرونت اند كاملة بالعربي — HTML/CSS/JS", "provider": "YouTube — Elzero Web School", "url": "https://www.youtube.com/@ElzeroWebSchool", "level": 1, "isPaid": false, "lang": "ar" },
+        { "title": "Angular official tutorial + docs (angular.dev)", "provider": "Angular team", "url": "https://angular.dev/tutorials", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "MDN Web Docs — the reference for JS/CSS/HTML", "provider": "Mozilla", "url": "https://developer.mozilla.org/en-US/docs/Learn", "level": 1, "isPaid": false, "lang": "en" },
+        { "title": "Decoded Frontend — advanced Angular (DI, signals, performance)", "provider": "YouTube — Dmytro Mezhenskyi", "url": "https://www.youtube.com/@DecodedFrontend", "level": 2, "isPaid": false, "lang": "en" },
+        { "title": "Angular University — deep-dive Angular courses", "provider": "angular-university.io", "url": "https://angular-university.io/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "CSS for JavaScript Developers", "provider": "Josh W. Comeau", "url": "https://css-for-js.dev/", "level": 2, "isPaid": true, "lang": "en" },
+        { "title": "web.dev — performance and Core Web Vitals guides", "provider": "Google Chrome team", "url": "https://web.dev/learn/", "level": 3, "isPaid": false, "lang": "en" },
+        { "title": "Enterprise Angular: Micro Frontends and Moduliths (free book)", "provider": "Manfred Steyer", "url": "https://www.angulararchitects.io/en/ebooks/", "level": 3, "isPaid": false, "lang": "en" },
+        { "title": "Frontend Masters — advanced JS/CSS/architecture courses", "provider": "frontendmasters.com", "url": "https://frontendmasters.com/", "level": 3, "isPaid": true, "lang": "en" }
+      ]
+    }
+  ]
+}

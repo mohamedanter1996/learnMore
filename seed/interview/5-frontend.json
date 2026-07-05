@@ -1,0 +1,165 @@
+{
+  "topic": "Frontend Engineering",
+  "items": [
+    {
+      "level": 1,
+      "question": "Promise.resolve().then(A); setTimeout(B, 0); — which callback runs first after the current script?",
+      "options": ["B — timers are precise", "A — microtasks drain completely before the next task", "Random order", "They run in parallel"],
+      "correctIndex": 1,
+      "explanation": "The microtask queue (promises) empties after the current task; setTimeout callbacks wait in the task queue behind it.",
+      "relatedLessonTitle": "The JavaScript Event Loop: Tasks and Microtasks"
+    },
+    {
+      "level": 1,
+      "question": "for (var i = 0; i < 3; i++) setTimeout(() => console.log(i)); prints 3,3,3 because:",
+      "options": ["setTimeout batches calls", "All three closures capture the same variable binding, read after the loop finished — let creates a fresh binding per iteration", "console.log caches", "var is asynchronous"],
+      "correctIndex": 1,
+      "explanation": "Closures capture variables, not values. let's per-iteration scoping prints 0,1,2.",
+      "relatedLessonTitle": "Closures: The Feature Behind Everything"
+    },
+    {
+      "level": 1,
+      "question": "A <div (click)=\"save()\"> instead of <button> is an accessibility bug because:",
+      "options": ["Divs render differently", "It's unfocusable, ignores Enter/Space, and exposes no role — keyboard and screen-reader users can't use it", "It's slower", "Angular forbids it"],
+      "correctIndex": 1,
+      "explanation": "Native button brings focus, keyboard activation, and semantics for free.",
+      "relatedLessonTitle": "Accessibility: The Engineering Basics"
+    },
+    {
+      "level": 1,
+      "question": "In flexbox, justify-content and align-items control:",
+      "options": ["Font and color", "Main-axis distribution and cross-axis alignment respectively", "Margins and padding", "Grid rows and columns"],
+      "correctIndex": 1,
+      "explanation": "And flex-direction decides which axis is which — always ask 'which axis is main right now?'",
+      "relatedLessonTitle": "CSS Flexbox: One-Dimensional Layout Mastery"
+    },
+    {
+      "level": 1,
+      "question": "rem units are preferred for font sizes because:",
+      "options": ["They render faster", "They respect the user's browser font-size setting — an accessibility win", "They're required by Angular", "Pixels are deprecated"],
+      "correctIndex": 1,
+      "explanation": "rem scales with user preferences; px ignores them. Use px only for borders and fine details.",
+      "relatedLessonTitle": "Responsive Design: Container Queries and Fluid Sizing"
+    },
+    {
+      "level": 1,
+      "question": "this.http.post('/api/orders', order); with no .subscribe() results in:",
+      "options": ["The request fires, response is dropped", "No request at all — observables are lazy; subscription starts execution", "A memory leak", "A compile error"],
+      "correctIndex": 1,
+      "explanation": "Cold observables are recipes; subscribe is 'cook'. The silently-never-sent save is a rite of passage.",
+      "relatedLessonTitle": "RxJS Foundations: Observables, Subscriptions, Laziness"
+    },
+    {
+      "level": 1,
+      "question": "track item.id in @for matters because without meaningful tracking:",
+      "options": ["The loop won't compile", "Replacing the array immutably destroys and recreates every DOM row instead of reusing unchanged ones", "Items render out of order", "Change detection stops"],
+      "correctIndex": 1,
+      "explanation": "Immutable updates produce new references by design; track restores row identity across replacements.",
+      "relatedLessonTitle": "Rendering Lists: @for, trackBy, and Virtual Scrolling"
+    },
+    {
+      "level": 2,
+      "question": "An OnPush component's list doesn't update after this.items.push(newItem) because:",
+      "options": ["push() is async", "OnPush compares input references — mutation keeps the same array reference, so the check is skipped", "Zone.js missed it", "The async pipe is missing"],
+      "correctIndex": 1,
+      "explanation": "OnPush's contract is immutability: replace the reference (spread/concat) so === sees the change.",
+      "relatedLessonTitle": "Angular Change Detection: Zone.js and OnPush"
+    },
+    {
+      "level": 2,
+      "question": "Search-as-you-type uses switchMap because:",
+      "options": ["It's the fastest operator", "Each new query cancels the in-flight request — no stale response can overwrite results for a newer query", "It retries failures", "It caches responses"],
+      "correctIndex": 1,
+      "explanation": "Out-of-order responses are the killer bug of naive typeahead; switch semantics make 'latest wins' structural.",
+      "relatedLessonTitle": "RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap"
+    },
+    {
+      "level": 2,
+      "question": "The most leak-proof way to render stream data in a template is:",
+      "options": ["subscribe in ngOnInit and assign a field", "toSignal or the async pipe — the framework manages the subscription with the view lifecycle", "shareReplay", "Subscribing in the constructor"],
+      "correctIndex": 1,
+      "explanation": "Declarative binding removes the manual lifecycle entirely — no subscription you write, none you forget to dispose.",
+      "relatedLessonTitle": "Subscription Leaks and Lifecycle: takeUntilDestroyed"
+    },
+    {
+      "level": 2,
+      "question": "computed() signal dependencies are determined by:",
+      "options": ["A dependency array you pass", "Whatever signals the function actually reads during execution — tracked automatically", "Class decorators", "Template compilation"],
+      "correctIndex": 1,
+      "explanation": "Reading a signal inside a reactive context registers the dependency — even conditionally.",
+      "relatedLessonTitle": "Angular Signals: Fine-Grained Reactivity"
+    },
+    {
+      "level": 2,
+      "question": "Two async pipes bound to the same raw http.get observable cause:",
+      "options": ["A compile warning", "Two actual HTTP requests — cold observables re-execute per subscriber; shareReplay fixes it", "A race condition", "Nothing — Angular dedupes"],
+      "correctIndex": 1,
+      "explanation": "Each subscription runs the recipe again. shareReplay({bufferSize:1, refCount:true}) multicasts one execution.",
+      "relatedLessonTitle": "Subjects and Multicasting: Sharing One Execution"
+    },
+    {
+      "level": 2,
+      "question": "canMatch beats canActivate for guarding lazy admin routes because:",
+      "options": ["It supports async", "It rejects before the chunk downloads — unauthorized users never even fetch the admin bundle", "It runs on the server", "canActivate is deprecated"],
+      "correctIndex": 1,
+      "explanation": "canMatch gates route matching itself (and thus loadChildren); canActivate runs after the code loaded.",
+      "relatedLessonTitle": "Lazy Loading and Route-Level Code Splitting"
+    },
+    {
+      "level": 2,
+      "question": "repeat(auto-fill, minmax(280px, 1fr)) gives responsive card grids without media queries because:",
+      "options": ["It uses container queries internally", "The browser fits as many ≥280px tracks as width allows and stretches them — continuous reflow", "fr units are viewport-relative", "auto-fill reads breakpoints"],
+      "correctIndex": 1,
+      "explanation": "The constraint encodes the intent; the engine solves it at every width instead of at discrete breakpoints.",
+      "relatedLessonTitle": "CSS Grid: Two-Dimensional Layout"
+    },
+    {
+      "level": 3,
+      "question": "A submit button wired with mergeMap (or switchMap) lets an impatient user cause duplicate orders. The correct operator is:",
+      "options": ["concatMap always", "exhaustMap — ignore new clicks while the first save is in flight (plus server-side idempotency keys)", "debounceTime alone", "retry"],
+      "correctIndex": 1,
+      "explanation": "merge runs every click in parallel; switch 'cancels' client-side but the request may still reach the server. exhaust ignores extras.",
+      "relatedLessonTitle": "RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap"
+    },
+    {
+      "level": 3,
+      "question": "Animating with transform/opacity stays smooth under load because:",
+      "options": ["They run in a Web Worker", "They skip layout AND paint — the compositor moves existing GPU layers, often off the main thread", "The browser prioritizes them", "They batch automatically"],
+      "correctIndex": 1,
+      "explanation": "Composite-only changes are the cheapest pipeline tier — animating left/width reflows every frame instead.",
+      "relatedLessonTitle": "Browser Rendering: Reflow, Repaint, Compositing"
+    },
+    {
+      "level": 3,
+      "question": "Storing JWTs in localStorage is risky because:",
+      "options": ["localStorage is slow", "Any successful XSS reads it silently — HttpOnly cookies / the BFF pattern keep tokens out of JavaScript's reach", "It expires with the session", "Browsers limit it to 5MB"],
+      "correctIndex": 1,
+      "explanation": "Script-readable storage turns one XSS into full token theft; HttpOnly cookies remove the bulk-exfiltration payoff.",
+      "relatedLessonTitle": "Frontend Security: XSS, Sanitization, CSP"
+    },
+    {
+      "level": 3,
+      "question": "Copying server data (product lists, orders) into a global NgRx/signals store by default is problematic because:",
+      "options": ["Stores can't hold arrays", "You've re-created cache invalidation — staleness, refetching, consistency — without the tooling a fetch-cache layer provides", "It breaks OnPush", "Change detection loops"],
+      "correctIndex": 1,
+      "explanation": "The server owns that truth; treat it as cached server state, and reserve the store for true client state (session, cart, preferences).",
+      "relatedLessonTitle": "State Management: Signals Stores vs NgRx"
+    },
+    {
+      "level": 3,
+      "question": "Reading offsetHeight inside a loop that also writes styles causes:",
+      "options": ["Memory leaks", "Forced synchronous layout per iteration (layout thrashing) — batch all reads before all writes", "Event loop starvation", "Paint flashing"],
+      "correctIndex": 1,
+      "explanation": "Geometry reads on a dirty tree force immediate layout; interleaving multiplies it. DevTools flags 'Forced reflow'.",
+      "relatedLessonTitle": "Browser Rendering: Reflow, Repaint, Compositing"
+    },
+    {
+      "level": 3,
+      "question": "Angular's TransferState exists because without it:",
+      "options": ["Hydration fails entirely", "Every HTTP call made during server rendering repeats on client boot — double API load and a visible flicker", "SEO breaks", "localStorage conflicts with SSR"],
+      "correctIndex": 1,
+      "explanation": "Server-fetched responses are serialized into the HTML so the client's HttpClient answers from the embedded cache.",
+      "relatedLessonTitle": "SSR and Hydration: When the Server Renders Angular"
+    }
+  ]
+}

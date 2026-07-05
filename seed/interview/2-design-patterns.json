@@ -1,0 +1,173 @@
+{
+  "topic": "Design Patterns",
+  "items": [
+    {
+      "level": 1,
+      "question": "The Single Responsibility Principle is best stated as:",
+      "options": ["A class should have only one method", "A class should have one reason to change", "Each class needs its own file", "Classes should be under 100 lines"],
+      "correctIndex": 1,
+      "explanation": "SRP is about axes of change (stakeholders), not size or method count.",
+      "relatedLessonTitle": "SOLID I: Single Responsibility Principle"
+    },
+    {
+      "level": 1,
+      "question": "The main benefit of constructor dependency injection is:",
+      "options": ["Faster object creation", "Dependencies are visible, swappable, and fakeable in tests", "Less memory usage", "Automatic caching"],
+      "correctIndex": 1,
+      "explanation": "Explicit dependencies in the constructor make coupling visible and let tests inject fakes — the practical payoff of DIP.",
+      "relatedLessonTitle": "SOLID V: Dependency Inversion Principle"
+    },
+    {
+      "level": 1,
+      "question": "Passing an IComparer<T> to List<T>.Sort is an example of which pattern?",
+      "options": ["Template Method", "Strategy", "Visitor", "Facade"],
+      "correctIndex": 1,
+      "explanation": "Sort owns the invariant algorithm; the injected comparer is the swappable piece — Strategy.",
+      "relatedLessonTitle": "Strategy: Swappable Algorithms"
+    },
+    {
+      "level": 1,
+      "question": "In modern ASP.NET Core, the recommended way to get a single shared instance of a service is:",
+      "options": ["A static Instance property", "services.AddSingleton<IFoo, Foo>() — singleton the lifetime, not the pattern", "A global variable", "ThreadLocal storage"],
+      "correctIndex": 1,
+      "explanation": "Container-managed lifetime keeps the single instance injectable, visible, and replaceable in tests.",
+      "relatedLessonTitle": "Singleton: The Pattern You Should Rarely Hand-Roll"
+    },
+    {
+      "level": 1,
+      "question": "The highest-value Builder you'll typically write yourself is:",
+      "options": ["An HTTP request builder", "A fluent test-data builder with sensible defaults", "A string builder replacement", "A UI layout builder"],
+      "correctIndex": 1,
+      "explanation": "Tests state only what they care about; defaults cover the rest — kills the 9-parameter constructor repeated in 40 tests.",
+      "relatedLessonTitle": "Builder: Constructing Complex Objects Step by Step"
+    },
+    {
+      "level": 1,
+      "question": "Your business code calls a third-party SDK's types directly in controllers. The pattern that fixes this is:",
+      "options": ["Singleton", "Adapter — wrap the SDK behind an interface your domain owns", "Composite", "Memento"],
+      "correctIndex": 1,
+      "explanation": "Vendor types stop at the adapter boundary; swapping vendors becomes one new adapter instead of surgery.",
+      "relatedLessonTitle": "Adapter: Making Incompatible Interfaces Fit"
+    },
+    {
+      "level": 1,
+      "question": "Facade differs from Adapter in that a Facade:",
+      "options": ["Converts one interface to match another", "Provides one simplified entry point over a whole subsystem", "Only works with static classes", "Requires inheritance"],
+      "correctIndex": 1,
+      "explanation": "Adapter = shape conversion for compatibility; Facade = convenience front door over multiple components.",
+      "relatedLessonTitle": "Facade: One Simple Door to a Complex Subsystem"
+    },
+    {
+      "level": 2,
+      "question": "A switch statement over shipping carriers keeps growing with each new carrier. The idiomatic ASP.NET Core fix is:",
+      "options": ["Move the switch to a helper class", "Strategy classes registered in DI, injected as IEnumerable<T>, resolved by matching", "A bigger switch with regions", "Reflection over class names"],
+      "correctIndex": 1,
+      "explanation": "New carrier = new class + one registration; zero modification of tested code — OCP via the container.",
+      "relatedLessonTitle": "SOLID II: Open/Closed Principle"
+    },
+    {
+      "level": 2,
+      "question": "A singleton service takes a scoped DbContext in its constructor. What happens?",
+      "options": ["It works fine", "Captive dependency: one context frozen for the app's lifetime — concurrency chaos; ASP.NET Core throws in Development", "The singleton becomes scoped automatically", "EF Core pools it"],
+      "correctIndex": 1,
+      "explanation": "The singleton outlives the scope and captures the context forever. Inject IDbContextFactory or create scopes manually instead.",
+      "relatedLessonTitle": "Singleton: The Pattern You Should Rarely Hand-Roll"
+    },
+    {
+      "level": 2,
+      "question": "Decorator beats subclassing for cross-cutting concerns (caching, logging) because:",
+      "options": ["It compiles faster", "Layers compose at runtime in any order and apply to any implementation of the interface", "It uses less memory", "Virtual dispatch is avoided"],
+      "correctIndex": 1,
+      "explanation": "Inheritance fixes behavior at compile time to one parent; decorators wrap any implementation and stack freely.",
+      "relatedLessonTitle": "Decorator: Layering Behavior Transparently"
+    },
+    {
+      "level": 2,
+      "question": "Placing UseAuthorization before UseAuthentication in the pipeline breaks because:",
+      "options": ["It's a compile error", "Chain order defines data flow: authorization needs the identity that authentication attaches to the context", "Both must be terminal middleware", "HTTPS must come between them"],
+      "correctIndex": 1,
+      "explanation": "ASP.NET Core middleware is Chain of Responsibility — each link consumes what earlier links produced.",
+      "relatedLessonTitle": "Chain of Responsibility: The Middleware Pattern"
+    },
+    {
+      "level": 2,
+      "question": "C# event subscriptions cause memory leaks when:",
+      "options": ["EventArgs are large", "A long-lived publisher holds strong references to short-lived subscribers that never unsubscribe", "Events fire too often", "Handlers are async"],
+      "correctIndex": 1,
+      "explanation": "The publisher's delegate list keeps subscribers reachable — they can't be garbage collected until -= or publisher death.",
+      "relatedLessonTitle": "Observer: Publish/Subscribe in Process"
+    },
+    {
+      "level": 2,
+      "question": "A BackgroundService must react to appsettings.json changes at runtime. Inject:",
+      "options": ["IOptions<T>", "IOptionsSnapshot<T>", "IOptionsMonitor<T>", "IConfiguration directly"],
+      "correctIndex": 2,
+      "explanation": "IOptions is frozen at first use; IOptionsSnapshot is scoped (throws in a singleton); IOptionsMonitor gives live values + OnChange.",
+      "relatedLessonTitle": "Options Pattern: Configuration Done Right"
+    },
+    {
+      "level": 2,
+      "question": "A subclass overrides an interface method to throw NotSupportedException. The cleanest fix is usually:",
+      "options": ["Document the exception", "Catch it in all callers", "Split the interface so the type only implements what it truly supports", "Make the method virtual"],
+      "correctIndex": 2,
+      "explanation": "The hierarchy claims a capability the type lacks (LSP violation); narrowing the contract (ISP) fixes the lie.",
+      "relatedLessonTitle": "SOLID III: Liskov Substitution Principle"
+    },
+    {
+      "level": 3,
+      "question": "A generic Repository<T> exposing IQueryable<T> Query() fails as an abstraction because:",
+      "options": ["IQueryable is slow", "Callers still compose provider-specific queries — the persistence details it claimed to hide leak through", "It can't be registered in DI", "EF Core forbids wrapping DbSet"],
+      "correctIndex": 1,
+      "explanation": "Swap EF for Dapper and every IQueryable call site breaks — the boundary is fictional. Domain-specific repositories with named methods are the real pattern.",
+      "relatedLessonTitle": "Repository & Unit of Work: Use, Misuse, and EF Core"
+    },
+    {
+      "level": 3,
+      "question": "The cheapest genuinely valuable form of CQRS in a typical ASP.NET Core app is:",
+      "options": ["Event sourcing with separate databases", "Separate command/query handlers over one database — queries use AsNoTracking projections to DTOs", "Two DbContexts on two servers", "Replacing EF with Dapper everywhere"],
+      "correctIndex": 1,
+      "explanation": "Level-1 CQRS: cleaner code and measurably faster reads with zero consistency or infrastructure cost.",
+      "relatedLessonTitle": "CQRS: Separate Read and Write Models"
+    },
+    {
+      "level": 3,
+      "question": "The circuit breaker's Open state exists to:",
+      "options": ["Retry faster with backoff", "Fail fast without calling the dependency — protecting it from load and you from thread/socket exhaustion", "Log more detail", "Switch to a backup endpoint"],
+      "correctIndex": 1,
+      "explanation": "Continuing to call a dying dependency wastes your resources and delays its recovery; instant failure contains the cascade.",
+      "relatedLessonTitle": "Resilience Patterns: Retry, Circuit Breaker, Timeout"
+    },
+    {
+      "level": 3,
+      "question": "Hangfire's BackgroundJob.Enqueue(() => Send(id)) embodies the Command pattern because:",
+      "options": ["It runs on a thread pool", "The invocation is captured as serializable data — storable, delayable, retryable, executable elsewhere", "It uses lambda expressions", "It guarantees exactly-once execution"],
+      "correctIndex": 1,
+      "explanation": "Turning a method call into inspectable, persistable data is Command's essence — enabling queues, retries, and audit.",
+      "relatedLessonTitle": "Command: Requests as Objects"
+    },
+    {
+      "level": 3,
+      "question": "You have an Order entity where every method starts with if/switch on Status, and statuses keep growing. Full State pattern beats a transition table when:",
+      "options": ["There are more than 3 statuses", "States have rich, differing behavior — not just allowed/forbidden transitions", "Performance is critical", "The entity is serialized"],
+      "correctIndex": 1,
+      "explanation": "A Dictionary<(Status,Trigger),Status> handles pure transition rules; state classes earn their weight when each state's logic is substantial.",
+      "relatedLessonTitle": "State: Behavior That Changes with Status"
+    },
+    {
+      "level": 3,
+      "question": "Visitor is the right choice when:",
+      "options": ["Types change often but operations are fixed", "The type hierarchy is stable and you keep adding new operations over it (e.g., EF's ExpressionVisitor)", "You need runtime type creation", "Pattern matching is unavailable"],
+      "correctIndex": 1,
+      "explanation": "Visitor trades easy-to-add-operations for hard-to-add-types. EF Core translating your lambdas to SQL walks a fixed Expression node set — the canonical fit.",
+      "relatedLessonTitle": "Memento & Visitor: Snapshots and Double Dispatch"
+    },
+    {
+      "level": 3,
+      "question": "A colleague proposes interfaces + factories for a stable class with one implementation, 'just in case'. The senior response is:",
+      "options": ["Approve — abstractions are best practice", "Rule of three: add the abstraction when change pressure is demonstrated, not speculatively", "Suggest a Visitor instead", "Add a mediator too"],
+      "correctIndex": 1,
+      "explanation": "Patterns pay for indirection with flexibility; flexibility for changes that never come is pure cost.",
+      "relatedLessonTitle": "Pattern Selection: Smells → Patterns Cheat Sheet"
+    }
+  ]
+}

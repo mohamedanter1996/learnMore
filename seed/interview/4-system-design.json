@@ -1,0 +1,165 @@
+{
+  "topic": "System Design",
+  "items": [
+    {
+      "level": 1,
+      "question": "A service is 'stateless' when:",
+      "options": ["It has no database", "It keeps nothing request-to-request in process memory — any instance can serve any request", "It uses JWT", "It has no configuration"],
+      "correctIndex": 1,
+      "explanation": "Statelessness is what makes load balancing trivial and instances disposable — the price of admission to scale-out.",
+      "relatedLessonTitle": "Stateless Services and Session Management"
+    },
+    {
+      "level": 1,
+      "question": "In the cache-aside pattern, a cache miss results in:",
+      "options": ["An error to the caller", "Reading from the source of truth, storing in cache with a TTL, then returning", "Waiting for the cache to fill", "A retry"],
+      "correctIndex": 1,
+      "explanation": "Lazy loading: only requested data gets cached, and cache failure degrades to the database instead of breaking.",
+      "relatedLessonTitle": "Caching I: Layers and Cache-Aside"
+    },
+    {
+      "level": 1,
+      "question": "The recommended order of attack for a capacity problem is:",
+      "options": ["Microservices first", "Optimize → scale up → scale out", "Scale out → optimize → scale up", "Buy a CDN"],
+      "correctIndex": 1,
+      "explanation": "Optimization is free capacity; vertical scaling is complexity-free; horizontal buys unbounded capacity with permanent complexity.",
+      "relatedLessonTitle": "Scaling Basics: Vertical vs Horizontal"
+    },
+    {
+      "level": 1,
+      "question": "Liveness and readiness probes differ in that readiness means:",
+      "options": ["The process should be restarted", "Don't send me traffic yet (warming up, dependency down) — but don't kill me either", "The disk is healthy", "TLS is configured"],
+      "correctIndex": 1,
+      "explanation": "Liveness = 'restart me if failing'; readiness = 'route around me'. Putting shared dependencies in liveness turns partial failure into mass restarts.",
+      "relatedLessonTitle": "Load Balancing: Algorithms and Health"
+    },
+    {
+      "level": 1,
+      "question": "Hashed asset filenames (main.3f8a2b.js) with 'max-age=1 year, immutable' are safe because:",
+      "options": ["CDNs revalidate hourly anyway", "Content changes produce new filenames — old cache entries are simply never referenced again", "Browsers ignore max-age", "The hash encrypts the file"],
+      "correctIndex": 1,
+      "explanation": "Content-addressed URLs make cached entries permanently valid; only index.html needs revalidation.",
+      "relatedLessonTitle": "CDNs and Static Content Strategy"
+    },
+    {
+      "level": 1,
+      "question": "Moving email sending behind a message queue primarily buys you:",
+      "options": ["Cheaper emails", "Fast responses, spike absorption, and failure isolation (mail provider down ≠ checkout down)", "Guaranteed exactly-once delivery", "Simpler code"],
+      "correctIndex": 1,
+      "explanation": "Async work off the request path: latency, load leveling, and fault isolation in one move.",
+      "relatedLessonTitle": "Message Queues: Decoupling with Async Work"
+    },
+    {
+      "level": 1,
+      "question": "A service expecting 5 million requests/day needs average capacity of roughly:",
+      "options": ["~5,000 RPS", "~600 RPS", "~60 RPS — with peaks maybe 3-5×", "~6 RPS"],
+      "correctIndex": 2,
+      "explanation": "5M / 86,400s ≈ 58 RPS. The day-to-seconds division regularly deflates over-engineering.",
+      "relatedLessonTitle": "Back-of-Envelope Estimation"
+    },
+    {
+      "level": 2,
+      "question": "A user saves their profile, then immediately sees the old version. In a replicated setup this is classically:",
+      "options": ["A rolled-back transaction", "Read-your-own-writes violation — the read hit an async replica still seconds behind", "Cache poisoning", "A deadlock"],
+      "correctIndex": 1,
+      "explanation": "Route post-write reads to the primary (sticky-after-write) or wait for replica catch-up.",
+      "relatedLessonTitle": "Database Replication: Read Replicas and Failover"
+    },
+    {
+      "level": 2,
+      "question": "A client that times out on POST /payments should retry with the same Idempotency-Key because:",
+      "options": ["Keys are expensive to generate", "Timeout can't distinguish 'never processed' from 'processed, response lost' — the key lets the server dedupe either way", "HTTP requires it", "It skips authentication"],
+      "correctIndex": 1,
+      "explanation": "Same logical operation = same key; the server executes once and replays the stored response for duplicates.",
+      "relatedLessonTitle": "Idempotency: Surviving Retries Everywhere"
+    },
+    {
+      "level": 2,
+      "question": "A cache stampede is:",
+      "options": ["Cache memory overflow", "Many concurrent misses on one expired hot key all hitting the backend simultaneously", "Redis cluster failover", "Too many cache keys"],
+      "correctIndex": 1,
+      "explanation": "The expiry cliff turns one hot key into N identical backend queries — per-key locking or early refresh flattens it.",
+      "relatedLessonTitle": "Caching II: Invalidation, Stampedes, Hot Keys"
+    },
+    {
+      "level": 2,
+      "question": "The OCP-style payoff of pub/sub events over direct service calls is:",
+      "options": ["Lower latency", "New subscribers add behavior with zero changes to the publisher", "Guaranteed ordering", "Easier debugging"],
+      "correctIndex": 1,
+      "explanation": "The publisher emits facts; who reacts is configuration. (Debugging gets harder — that's the trade.)",
+      "relatedLessonTitle": "Pub/Sub and Event-Driven Architecture"
+    },
+    {
+      "level": 2,
+      "question": "Token bucket rate limiting is generally preferred over fixed windows because:",
+      "options": ["It uses less memory", "It allows controlled bursts while enforcing a steady average, without window-boundary spikes", "It's the only distributed option", "It never rejects requests"],
+      "correctIndex": 1,
+      "explanation": "Refill rate = average; bucket capacity absorbs legitimate bursts; no reset-boundary double-spend.",
+      "relatedLessonTitle": "Rate Limiting and Backpressure"
+    },
+    {
+      "level": 2,
+      "question": "Which API change is safe to ship without a version bump?",
+      "options": ["Renaming 'total' to 'totalAmount'", "Adding a new optional field to the response", "Making an optional parameter required", "Changing date format"],
+      "correctIndex": 1,
+      "explanation": "Additive changes don't break tolerant readers; renames, type changes, and new requirements do.",
+      "relatedLessonTitle": "API Design: Contracts, Versioning, Pagination"
+    },
+    {
+      "level": 2,
+      "question": "Short-lived access tokens + revocable refresh tokens exist because:",
+      "options": ["Short tokens are smaller", "Stateless JWTs can't be revoked — short life bounds the damage window while refresh tokens provide the revocation point", "OAuth requires two tokens", "Refresh tokens validate faster"],
+      "correctIndex": 1,
+      "explanation": "The pattern reconciles stateless validation (scale) with the ability to cut off a compromised session (security).",
+      "relatedLessonTitle": "Authentication at Scale: JWT, Sessions, OAuth"
+    },
+    {
+      "level": 3,
+      "question": "The outbox pattern solves the dual-write problem by:",
+      "options": ["Two-phase commit with the broker", "Persisting the event in the same DB transaction as the business change; a background relay publishes it afterwards", "Retrying the publish forever", "Making the broker transactional"],
+      "correctIndex": 1,
+      "explanation": "Atomicity exists inside one database — the outbox exploits it, converting 'publish' into crash-safe data.",
+      "relatedLessonTitle": "The Outbox Pattern: Reliable Events with Your Database"
+    },
+    {
+      "level": 3,
+      "question": "In a saga, hard-to-compensate steps (send email, capture payment) should be:",
+      "options": ["First, to fail fast", "Ordered last, after reversible/reservable steps have succeeded", "Wrapped in DTC", "Skipped"],
+      "correctIndex": 1,
+      "explanation": "Sequencing by reversibility minimizes the window where an irreversible action needs undoing; prefer reservations early.",
+      "relatedLessonTitle": "Distributed Transactions and Sagas"
+    },
+    {
+      "level": 3,
+      "question": "Consistent hashing beats hash(key) % N for sharding because:",
+      "options": ["It computes faster", "Adding/removing a node remaps only ~1/N of keys instead of nearly all", "It prevents hot keys entirely", "It enables cross-shard joins"],
+      "correctIndex": 1,
+      "explanation": "Modulo reassigns almost every key when N changes; the hash ring localizes disruption — how Redis Cluster and DynamoDB partition.",
+      "relatedLessonTitle": "Sharding: Splitting Data Across Databases"
+    },
+    {
+      "level": 3,
+      "question": "During a network partition, a CP system responds by:",
+      "options": ["Serving possibly-stale data to stay available", "Refusing requests it cannot answer consistently", "Buffering writes locally", "Switching to eventual consistency"],
+      "correctIndex": 1,
+      "explanation": "CP sacrifices availability: no answer beats a wrong one. AP makes the opposite call. P itself is not optional.",
+      "relatedLessonTitle": "CAP Theorem and Consistency Models"
+    },
+    {
+      "level": 3,
+      "question": "Renaming a DB column in the same release as the code that uses the new name breaks rolling deploys because:",
+      "options": ["EF can't rename columns", "Old-version instances still run during the rollout against the changed schema — expand/contract avoids this", "Renames require downtime by design", "The LB can't route during migrations"],
+      "correctIndex": 1,
+      "explanation": "Non-atomic rollouts mean two code versions share one schema for a while; every change must be backward-compatible for one cycle.",
+      "relatedLessonTitle": "Deployments: Zero Downtime and Rollback"
+    },
+    {
+      "level": 3,
+      "question": "News feeds use push (fan-out on write) for normal users but pull for celebrities because:",
+      "options": ["Celebrities post more often", "One celebrity post would mean millions of feed writes — merging at read time caps the write amplification", "Redis lists have size limits", "Pull is more accurate"],
+      "correctIndex": 1,
+      "explanation": "The hybrid inverts strategy exactly where write amplification crosses over read amplification.",
+      "relatedLessonTitle": "Case Study: Design a News Feed"
+    }
+  ]
+}
