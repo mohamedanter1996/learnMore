@@ -119,7 +119,7 @@ story.append(Spacer(1, 10 * mm))
 story.append(Paragraph("LearnMore", styles["CoverTitle"]))
 story.append(Paragraph("Daily Tech-Skill Trainer for Windows", styles["CoverSub"]))
 story.append(Spacer(1, 6 * mm))
-story.append(Paragraph("User Manual · Version 1.0", styles["CoverSub"]))
+story.append(Paragraph("User Manual · Version 1.2", styles["CoverSub"]))
 story.append(Spacer(1, 40 * mm))
 story.append(Paragraph(
     "One new lesson, every single day.<br/>"
@@ -144,8 +144,9 @@ for n, t in [
     (11, "How the Daily Engine Picks Lessons"),
     (12, "Adding Your Own Lessons"),
     (13, "Automatic Updates"),
-    (14, "Troubleshooting"),
-    (15, "FAQ"),
+    (14, "Study Plans, Mind Map &amp; Tech News"),
+    (15, "Troubleshooting"),
+    (16, "FAQ"),
 ]:
     story.append(Paragraph(f"<b>{n}.</b> {t}", styles["TocRow"]))
 story.append(PageBreak())
@@ -372,8 +373,38 @@ story.append(B("Or right-click the tray icon → <b>⬆️ Restart to update</b>
 story.append(B("Your progress is always preserved: database migrations and new lessons apply "
                "automatically on the updated version's first launch."))
 
-# ---------------- 14. Troubleshooting ----------------
-story.append(H1("14. Troubleshooting"))
+# ---------------- 14. v1.2 features ----------------
+story.append(H1("14. Study Plans, Mind Map &amp; Tech News"))
+story.append(H2("\U0001f9ed Study Plans (with calendar tracker)"))
+story.append(P("Beyond the guided daily lessons, you can set your own learning goals over a time "
+               "period and track them — perfect for prepping a course, a certification, or a new skill."))
+story.append(B("Open <b>Study Plan</b> in the sidebar → <b>New plan</b>: give it a title and a "
+               "start/end date."))
+story.append(B("Inside the plan, add <b>goals</b> (free text — anything you want to learn) and check "
+               "them off as you achieve them."))
+story.append(B("Use the <b>calendar</b> to click each day you actually studied — the plan tracks your "
+               "goal %, days studied, study-day streak, and days remaining."))
+story.append(TIP("Combine it with the daily lessons: let the app pick your daily lesson, and use a plan "
+                 "to drive a bigger goal like 'Finish the SQL optimization track by month-end'."))
+story.append(H2("\U0001f9e0 Roadmap mind map"))
+story.append(P("On the <b>Roadmap</b> page, use the <b>List / Mind map</b> toggle (top right). The mind "
+               "map draws each track as a tree — the topic at the center, Junior/Mid/Senior tiers "
+               "branching out, and every lesson as a dot: green = completed, blue = today, grey = "
+               "upcoming, with a red ring on your assessment weak spots \U0001f3af. Click a dot to open "
+               "that lesson. Your preferred view is remembered."))
+story.append(H2("\U0001f4f0 What's New in Tech"))
+story.append(P("The <b>What's New</b> page keeps you informed of developments in the tools you use — "
+               ".NET, C#, Angular, TypeScript, SQL Server, EF Core, and the web platform. Each "
+               "technology lists recent highlights and a 'learn next' pointer. The feed is refreshed "
+               "with every app update."))
+story.append(H2("\U0001f514 Notification settings"))
+story.append(P("The <b>Settings</b> page (⚙️) lets you set your reminder time, how often reminders "
+               "repeat (every 1–4 hours), and toggle notifications. You'll also get a morning kickoff "
+               "and an evening streak-saver, with rotating bilingual (\U0001f1ea\U0001f1ec / English) "
+               "encouragement so it never feels repetitive."))
+
+# ---------------- 15. Troubleshooting ----------------
+story.append(H1("15. Troubleshooting"))
 story.append(tbl(
     [[cell("<b>Problem</b>"), cell("<b>Fix</b>")],
      [cell("“API failed to start. Check that SQL Server LocalDB is installed” on launch"),
@@ -397,8 +428,8 @@ story.append(tbl(
            "Windows user. Nothing is uploaded anywhere.")]],
     [55 * mm, 115 * mm]))
 
-# ---------------- 15. FAQ ----------------
-story.append(H1("15. FAQ"))
+# ---------------- 16. FAQ ----------------
+story.append(H1("16. FAQ"))
 story.append(H2("Can I do more than one lesson per day?"))
 story.append(P("No — by design. One focused lesson daily beats binge-reading. You can, however, "
                "re-read any completed lesson from Topics."))

@@ -49,6 +49,14 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.
 
+## Study planner, mind map, tech news (v1.2)
+
+- **🧭 Study Plan** — create plans with a title + date range, add free-text goals (checklist), and mark each day you studied on a calendar. Tracks goal %, studied-day count, study-day streak, and days remaining. (`/plans`)
+- **🗺️ Roadmap mind map** — toggle the roadmap between the list ladder and an SVG mind map per topic (center = topic, branches = tiers, leaf dots colored by status with 🎯 weak-spot rings). Preference remembered.
+- **📰 What's New** — curated per-technology feed (.NET, C#, Angular, TypeScript, SQL Server, EF Core, Web/CSS) with latest highlights + "learn next" pointers. Content: `seed/whatsnew.json`, refreshed each release.
+- **⚙️ Settings** — reminder time, frequency (every 1–4h), notifications on/off.
+- **Richer notifications** — ~30 rotating bilingual (🇪🇬/EN) reminder lines + a morning kickoff and evening streak-saver toast.
+
 ## Assessments, roadmap & courses (v1.1)
 
 - **🎓 Assessment** — per-track interview MCQs (~20 each, junior→senior tiers). Scoring: junior tier ≥70% = Junior; + mid ≥60% = Mid; + senior ≥60% = Senior. Wrong answers show explanations and link to the lessons that teach them. Retake any time.

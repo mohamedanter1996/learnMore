@@ -108,3 +108,34 @@ public class AssessmentAnswer
     public int SelectedIndex { get; set; }
     public bool IsCorrect { get; set; }
 }
+
+public class StudyPlan
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = "";
+    public DateOnly StartDate { get; set; }
+    public DateOnly EndDate { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<StudyPlanGoal> Goals { get; set; } = [];
+    public List<StudyDayLog> DayLogs { get; set; } = [];
+}
+
+public class StudyPlanGoal
+{
+    public int Id { get; set; }
+    public int PlanId { get; set; }
+    public StudyPlan Plan { get; set; } = null!;
+    public string Text { get; set; } = "";
+    public bool IsDone { get; set; }
+    public DateTime? DoneAt { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public class StudyDayLog
+{
+    public int Id { get; set; }
+    public int PlanId { get; set; }
+    public StudyPlan Plan { get; set; } = null!;
+    public DateOnly Date { get; set; }
+    public bool Studied { get; set; }
+}

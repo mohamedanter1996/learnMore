@@ -1,0 +1,228 @@
+{
+  "technologies": [
+    {
+      "technology": ".NET",
+      "icon": "🟣",
+      "color": "#8b5cf6",
+      "entries": [
+        {
+          "version": ".NET 9",
+          "date": "2024-11",
+          "title": "Built-in hybrid caching, faster runtime, better AOT",
+          "bodyMarkdown": "**HybridCache** finally lands as a first-class API — L1 (in-memory) + L2 (Redis) with **stampede protection built in** (the per-key locking you'd otherwise hand-roll). Register with `AddHybridCache()`.\n\nOther highlights:\n- **Server GC** dynamic adaptation — lower memory under variable load\n- **`System.Text.Json`** gains nullable-annotation respect + faster serialization\n- **LINQ** adds `CountBy` and `AggregateBy` (group-and-count in one pass)\n- Better **Native AOT** coverage for ASP.NET Core minimal APIs\n\n**Learn next:** replace any hand-rolled `IMemoryCache` + Redis two-level cache with HybridCache.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9/overview"
+        },
+        {
+          "version": ".NET 8 (LTS)",
+          "date": "2023-11",
+          "title": "The LTS baseline you should be on",
+          "bodyMarkdown": "If you're still on .NET 6/7, **.NET 8 is the LTS** to target (supported into 2026). Key wins:\n- **Keyed DI services** — `AddKeyedSingleton` + `[FromKeyedServices]` (the named-registration many of us faked before)\n- **`TimeProvider`** abstraction — testable time, finally\n- **`IExceptionHandler`** for clean centralized error handling\n- Native AOT for APIs; **Blazor** unified render modes",
+          "url": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-8/overview"
+        },
+        {
+          "version": "ASP.NET Core",
+          "date": "2024",
+          "title": "Built-in resilience + rate limiting are now standard",
+          "bodyMarkdown": "Two things that used to need extra packages are now first-party:\n- **`AddStandardResilienceHandler()`** on HttpClient (Microsoft.Extensions.Resilience over Polly) — retry + circuit breaker + timeout preconfigured\n- **Rate limiting middleware** (`AddRateLimiter`) with token-bucket/sliding-window partitions\n\nIf your services still call HttpClient with no timeout or breaker, this is the upgrade.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience"
+        },
+        {
+          "version": "Aspire",
+          "date": "2024",
+          "title": ".NET Aspire — orchestration for cloud-native apps",
+          "bodyMarkdown": "**.NET Aspire** is Microsoft's opinionated stack for wiring multi-service apps (API + Redis + Postgres + workers) with a dashboard, service discovery, and OpenTelemetry baked in. Worth a look if you're moving from a monolith toward multiple services and want the plumbing handled.\n\n**Learn next:** spin up the Aspire starter template and watch the dashboard trace a request across services.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/aspire/"
+        }
+      ]
+    },
+    {
+      "technology": "C#",
+      "icon": "💜",
+      "color": "#a855f7",
+      "entries": [
+        {
+          "version": "C# 13",
+          "date": "2024-11",
+          "title": "params collections, new lock type, cleaner code",
+          "bodyMarkdown": "- **`params` collections** — `params ReadOnlySpan<T>` and any collection type, not just arrays (fewer allocations on hot paths)\n- **`System.Threading.Lock`** — a dedicated lock type faster than `lock(object)` and analyzer-guarded\n- **`\\e`** escape for ESC, partial properties, implicit index in initializers (`^1`)\n\n**Learn next:** switch hot-path `params object[]` methods to `params ReadOnlySpan<T>`.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-13"
+        },
+        {
+          "version": "C# 12",
+          "date": "2023-11",
+          "title": "Primary constructors everywhere + collection expressions",
+          "bodyMarkdown": "The two features you'll use daily (this app is written with them):\n- **Primary constructors on any class** — `class OrderService(IRepo repo)` — no more boilerplate field assignment. Great with DI.\n- **Collection expressions** — `int[] x = [1, 2, 3];` and the spread `[..a, ..b]` — one syntax for arrays, lists, spans.\n- **Alias any type** with `using`, default lambda parameters.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-12"
+        },
+        {
+          "version": "Pattern matching",
+          "date": "ongoing",
+          "title": "Modern C# leans on patterns — master them",
+          "bodyMarkdown": "Across recent versions, **pattern matching** has become the idiomatic way to branch: list patterns (`[1, .., 9]`), property patterns (`{ Status: Open, Total: > 1000 }`), relational + logical patterns (`is > 0 and < 100`), and `switch` expressions with exhaustiveness. They often replace Visitor and long if/else chains.\n\n**Learn next:** rewrite one status-switch method as a `switch` expression with a `_ => throw` arm for exhaustiveness.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/functional/pattern-matching"
+        },
+        {
+          "version": "Nullable reference types",
+          "date": "since C# 8",
+          "title": "Turn on <Nullable>enable</Nullable> if you haven't",
+          "bodyMarkdown": "Nullable reference types (`?` / `!`, flow analysis) catch the billion-dollar mistake at compile time. New projects have it on by default; legacy ones should migrate file-by-file with `#nullable enable`. Combined with `required` members, the compiler enforces initialization.\n\n**Learn next:** enable nullable on one legacy project and fix the first 10 warnings — each is a latent NullReferenceException.",
+          "url": "https://learn.microsoft.com/en-us/dotnet/csharp/nullable-references"
+        }
+      ]
+    },
+    {
+      "technology": "Angular",
+      "icon": "🅰️",
+      "color": "#ef4444",
+      "entries": [
+        {
+          "version": "Angular 19",
+          "date": "2024-11",
+          "title": "Signals stabilize, incremental hydration, standalone by default",
+          "bodyMarkdown": "- **`linkedSignal`** and **`resource()`** — writable-derived signals and async-data-as-signal (loading/error/value states built in)\n- **Incremental hydration** — `@defer (hydrate on viewport)` ships SSR HTML and hydrates islands lazily\n- **Standalone components are the default** — the CLI stops generating NgModules\n- Route-level render mode config for SSR/SSG per route\n\n**Learn next:** replace a manual HTTP-loading component with `resource()` or `httpResource()`.",
+          "url": "https://blog.angular.dev/meet-angular-v19-7b29dfd05b84"
+        },
+        {
+          "version": "Angular 18",
+          "date": "2024-05",
+          "title": "Zoneless preview + Material 3",
+          "bodyMarkdown": "- **Experimental zoneless change detection** (`provideZonelessChangeDetection()`) — drop zone.js and rely on signals for fine-grained updates\n- **Angular Material 3** design tokens\n- **`@let`** in templates — local template variables at last\n- Unified control flow (`@if/@for/@switch`) now stable and the recommended default over `*ngIf/*ngFor`",
+          "url": "https://blog.angular.dev/angular-v18-is-now-available-e79d5ac0affe"
+        },
+        {
+          "version": "Signals",
+          "date": "since v16",
+          "title": "The reactivity model to learn now",
+          "bodyMarkdown": "Signals are the direction of the framework: `signal()`, `computed()`, `effect()`, plus signal-based `input()`, `output()`, `model()` for components, and `toSignal`/`toObservable` for RxJS interop.\n\nDivision of labor: **signals for state, RxJS for events over time** (debounce, switchMap, retry). Stop using `BehaviorSubject` as 'state with .value' — that's exactly what a signal is.\n\n**Learn next:** convert one BehaviorSubject-based service to a signals store (private writable + public readonly + computed).",
+          "url": "https://angular.dev/guide/signals"
+        },
+        {
+          "version": "New control flow",
+          "date": "since v17",
+          "title": "@for now requires track — for good reason",
+          "bodyMarkdown": "The built-in `@for` makes **`track` mandatory**, learning from a decade of `*ngFor` without `trackBy` being the #1 perf review comment. `track item.id` reuses DOM rows across immutable array replacements (which OnPush and signals require), instead of destroying and recreating everything.\n\n**Learn next:** migrate templates with `ng generate @angular/core:control-flow`.",
+          "url": "https://angular.dev/guide/templates/control-flow"
+        }
+      ]
+    },
+    {
+      "technology": "TypeScript",
+      "icon": "🔷",
+      "color": "#3b82f6",
+      "entries": [
+        {
+          "version": "TypeScript 5.x",
+          "date": "2023-2024",
+          "title": "Decorators, const type params, using declarations",
+          "bodyMarkdown": "- **Stage-3 decorators** (5.0) — the standardized version, no more `experimentalDecorators` for new code\n- **`const` type parameters** (5.0) — `function f<const T>(x: T)` infers literal types without `as const`\n- **`using` / `await using`** (5.2) — deterministic disposal (`Symbol.dispose`), like C#'s `using`\n- **`satisfies`** operator — validate a value against a type without widening it",
+          "url": "https://devblogs.microsoft.com/typescript/"
+        },
+        {
+          "version": "Discriminated unions",
+          "date": "core skill",
+          "title": "Make illegal states unrepresentable",
+          "bodyMarkdown": "The single highest-leverage TS pattern: model async UI state as `{ status: 'loading' } | { status: 'error', message } | { status: 'loaded', data }` instead of a bag of optional booleans. The compiler narrows by the discriminant — no `!`, no `?.`, and an exhaustive `switch` with a `never` check catches unhandled cases.\n\n**Learn next:** refactor one component's loading/error/data booleans into a discriminated union.",
+          "url": "https://www.typescriptlang.org/docs/handbook/2/narrowing.html"
+        },
+        {
+          "version": "Strictness",
+          "date": "core skill",
+          "title": "unknown over any; strict: true always",
+          "bodyMarkdown": "`any` disables checking and infects everything it touches; **`unknown`** forces narrowing before use — the right type for external/HTTP data. Keep `strict: true` (Angular's default) — `strictNullChecks` alone deletes a whole bug class. Every `as` is a promise the compiler can't verify; prefer narrowing.\n\n**Learn next:** grep your code for `: any` and replace the external-data ones with `unknown` + validation (zod or manual guards).",
+          "url": "https://www.typescriptlang.org/tsconfig#strict"
+        }
+      ]
+    },
+    {
+      "technology": "SQL Server",
+      "icon": "🗄️",
+      "color": "#dc2626",
+      "entries": [
+        {
+          "version": "SQL Server 2022",
+          "date": "2022-11",
+          "title": "Parameter-sensitive plans, ledger, and cloud links",
+          "bodyMarkdown": "- **Parameter Sensitive Plan (PSP) optimization** — multiple cached plans per query bucketed by cardinality. This is the built-in cure for the parameter-sniffing bomb (needs dbcompat 160).\n- **Intelligent Query Processing** upgrades: memory-grant feedback persistence, cardinality estimation feedback, degree-of-parallelism feedback\n- **Ledger tables** — cryptographically verifiable, tamper-evident data\n- **Azure Synapse Link** and managed-instance link for near-real-time replication\n\n**Learn next:** enable dbcompat 160 on a dev DB and watch PSP create multiple plans for a skewed-parameter query.",
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2022"
+        },
+        {
+          "version": "SQL Server 2025 (preview)",
+          "date": "2025",
+          "title": "Native vector search + AI integration",
+          "bodyMarkdown": "The big theme is **AI in the database**: a native **`vector` data type** with approximate nearest-neighbor search, built-in embedding generation, and hybrid keyword+vector search — so semantic search lives next to your relational data instead of a separate vector store.\n\n**Learn next:** read up on the `vector` type and how hybrid search (BM25 + cosine) is becoming the default for product/document search.",
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025"
+        },
+        {
+          "version": "Query Store",
+          "date": "on by default (2022+)",
+          "title": "Your regression flight recorder — use it",
+          "bodyMarkdown": "Query Store records queries, plans, and runtime stats over time — on by default since 2022. It answers 'what got slower and when', and **plan forcing** is the surgical tourniquet for a sniffing regression at 2 AM. Also powers automatic plan correction (`FORCE_LAST_GOOD_PLAN`).\n\n**Learn next:** open the Regressed Queries report in SSMS on any busy database and force a plan.",
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store"
+        }
+      ]
+    },
+    {
+      "technology": "Entity Framework Core",
+      "icon": "🧬",
+      "color": "#10b981",
+      "entries": [
+        {
+          "version": "EF Core 8 / 9",
+          "date": "2023-2024",
+          "title": "Complex types, primitive collections, better JSON",
+          "bodyMarkdown": "- **Complex types** (owned-but-not-entity value objects like `Address`) — no hidden key, proper value semantics\n- **Primitive collections** — map `List<string>`/`int[]` to a JSON column and even `Contains` over them translates to SQL\n- **`ExecuteUpdate`/`ExecuteDelete`** (EF7+) — set-based bulk updates without loading entities, the fix for tracked-loop mass updates\n- EF9: richer **JSON column** querying, better complex-type support, `LEFT JOIN` improvements\n\n**Learn next:** replace one load-modify-SaveChanges mass update with `ExecuteUpdateAsync`.",
+          "url": "https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-9.0/whatsnew"
+        },
+        {
+          "version": "Performance habits",
+          "date": "evergreen",
+          "title": "Projection, AsNoTracking, split queries",
+          "bodyMarkdown": "The highest-impact EF habits never change: **project to DTOs with `Select`** (only needed columns, untracked, one query — kills N+1 and over-fetching), **`AsNoTracking`** for reads, and **`AsSplitQuery`** when including two+ collections to avoid cartesian explosion. Always inspect the SQL with `ToQueryString()`.\n\n**Learn next:** turn on `LogTo` and find one endpoint doing N+1, then fix it with projection.",
+          "url": "https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying"
+        },
+        {
+          "version": "Compiled models",
+          "date": "large models",
+          "title": "Faster startup for big DbContexts",
+          "bodyMarkdown": "For applications with hundreds of entity types, **compiled models** (`dotnet ef dbcontext optimize`) cut EF startup/first-query time significantly by precompiling the model metadata. Combined with **`EnableRetryOnFailure`** for Azure SQL transient faults, these are the two config toggles most production EF apps want.\n\n**Learn next:** only relevant at scale — measure startup first, apply if your model is large.",
+          "url": "https://learn.microsoft.com/en-us/ef/core/performance/advanced-performance-topics"
+        }
+      ]
+    },
+    {
+      "technology": "Web Platform & CSS",
+      "icon": "🎨",
+      "color": "#f59e0b",
+      "entries": [
+        {
+          "version": "Container queries",
+          "date": "baseline 2023",
+          "title": "Components that respond to their own size",
+          "bodyMarkdown": "**Container queries** (`container-type: inline-size` + `@container`) solve what media queries can't: the same card component adapting to a wide main column vs a narrow sidebar — the viewport is identical, so media queries are blind. Now baseline in all modern browsers. Essential for a real component library.\n\n**Learn next:** make one card component self-responsive with a container query instead of a media query.",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_containment/Container_queries"
+        },
+        {
+          "version": "Modern CSS layout",
+          "date": "evergreen",
+          "title": ":has(), @layer, subgrid, clamp()",
+          "bodyMarkdown": "- **`:has()`** — the 'parent selector' (style a card that contains an image)\n- **`@layer`** — explicit cascade precedence, ends the specificity/`!important` arms race\n- **Subgrid** — nested grids align to parent tracks (card internals lining up across cards)\n- **`clamp()` / `min()` / `max()`** — fluid sizing that eliminates whole categories of breakpoints\n\n**Learn next:** replace a fixed heading size with `clamp(1.5rem, 1rem + 2.5vw, 2.5rem)`.",
+          "url": "https://web.dev/learn/css/"
+        },
+        {
+          "version": "Core Web Vitals — INP",
+          "date": "2024-03",
+          "title": "INP replaced FID as a Core Web Vital",
+          "bodyMarkdown": "**Interaction to Next Paint (INP)** replaced First Input Delay in March 2024 — it measures worst-case responsiveness across the whole session, not just the first input. Target < 200ms. It's the event-loop lesson graded: long tasks and oversized change-detection cycles are the offenders.\n\n**Learn next:** run Lighthouse (mobile, throttled), find your slowest interaction in the Performance panel, and chunk or defer the work behind it.",
+          "url": "https://web.dev/articles/inp"
+        },
+        {
+          "version": "View Transitions API",
+          "date": "2024",
+          "title": "Smooth animated transitions between states/pages",
+          "bodyMarkdown": "The **View Transitions API** (`document.startViewTransition`) animates between DOM states — and now works for cross-document (multi-page) navigations too. Angular has router integration. Gives native-app-feeling transitions without heavy animation libraries, and it degrades gracefully.\n\n**Learn next:** wrap a list→detail navigation in a view transition and watch it cross-fade.",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API"
+        }
+      ]
+    }
+  ]
+}

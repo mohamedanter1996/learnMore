@@ -37,7 +37,7 @@ function loadState() {
   try {
     return JSON.parse(fs.readFileSync(statePath(), 'utf8'));
   } catch {
-    return { milestones: {}, praisedDate: null, topicNudges: {} };
+    return { milestones: {}, praisedDate: null, topicNudges: {}, morningDate: null, eveningDate: null };
   }
 }
 
@@ -234,12 +234,53 @@ function updateTrayStatus(done) {
 // ---------------------------------------------------------------------------
 // Notifications: reminders + motivation
 // ---------------------------------------------------------------------------
+// ~30 rotating bilingual (Egyptian Arabic 🇪🇬 / English) motivational reminders.
 const REMINDER_MESSAGES = [
   t => `${t.item.topicIcon} ${t.item.title} — about ${t.item.estimatedMinutes} minutes. Keep the streak alive!`,
   t => `Your daily lesson is waiting: ${t.item.title}. Small step today, senior title tomorrow 💪`,
   t => `${t.item.estimatedMinutes} minutes of ${t.item.topicName} — that's all today asks. يلا بينا 🚀`,
   t => `Don't break the chain! ${t.item.topicIcon} ${t.item.title} is ready when you are.`,
-  t => `Future-you says thanks in advance: ${t.item.title} (${t.item.estimatedMinutes} min).`
+  t => `Future-you says thanks in advance: ${t.item.title} (${t.item.estimatedMinutes} min).`,
+  t => `متنساش درس النهاردة: ${t.item.title}. ${t.item.estimatedMinutes} دقيقة وتبقى أحسن من إمبارح.`,
+  t => `الطريق للسينيور بيبدأ بخطوة صغيرة — ${t.item.title} مستنياك ✨`,
+  t => `${t.item.topicName}: مذاكرة النهاردة استثمار في نفسك. يلا نكسّر! 🔥`,
+  t => `10-15 minutes now beats 3 hours of cramming later. ${t.item.title} 📖`,
+  t => `اللي بيتعلم كل يوم بيسبق اللي بيتعلم مرة كل شهر. ${t.item.estimatedMinutes} دقيقة بس.`,
+  t => `Consistency > intensity. Today's ${t.item.topicName} lesson keeps the momentum 🌱`,
+  t => `عايز تفرق عن باقي الـ developers؟ ${t.item.title} هي فرقك النهاردة.`,
+  t => `${t.item.topicIcon} One lesson. One day. One level up. ${t.item.title}`,
+  t => `مفيش حاجة اسمها 'مش فاضي' لـ ${t.item.estimatedMinutes} دقيقة. ${t.item.title} 💪`,
+  t => `Compound interest works on skills too. Invest ${t.item.estimatedMinutes} min today 📈`,
+  t => `${t.item.topicName} النهاردة — كل درس لبنة في اللي هتبنيه. 🧱`,
+  t => `Your streak is watching you 👀 Don't let it down — ${t.item.title}`,
+  t => `اقفل الـ social media وافتح ${t.item.title}. مكسبك هيبان. 🎯`,
+  t => `Small daily wins → big career leaps. ${t.item.title} awaits 🚀`,
+  t => `النهاردة ${t.item.topicName}. بكرة إنت اللي بتشرحها لغيرك. يلا! 🎓`,
+  t => `Deep work beats doomscrolling. ${t.item.estimatedMinutes} focused minutes on ${t.item.title}.`,
+  t => `كل سينيور كان يوم زيك — الفرق إنه ما وقفش. ${t.item.title} 🔥`,
+  t => `${t.item.topicIcon} Ready to get 1% better today? ${t.item.title}`,
+  t => `المذاكرة دلوقتي أسهل من الندم بعدين. ${t.item.title} في ${t.item.estimatedMinutes} دقيقة.`,
+  t => `Interviews reward the prepared. Today's ${t.item.topicName} lesson is prep 💼`,
+  t => `يلا يا بطل، ${t.item.estimatedMinutes} دقيقة وتقفل يومك صح ✅`,
+  t => `The best time to learn was yesterday. The second best is now — ${t.item.title} ⏰`,
+  t => `${t.item.topicName} مش هتذاكر نفسها 😄 يلا نخلّص ${t.item.title}.`,
+  t => `Skills you build today are the raise you negotiate next year 💰 ${t.item.title}`,
+  t => `خليك أحسن developer النهاردة عن إمبارح. ${t.item.title} 🌟`
+];
+
+// Time-anchored daily encouragers (bilingual), chosen by day of year.
+const MORNING_MESSAGES = [
+  "New day, new skill — يلا نتعلم حاجة جديدة النهاردة 🌅",
+  "Good morning! Your lesson is ready — ابدأ يومك صح ☕",
+  "صباح الكود ☀️ Today's lesson is the best start to your day.",
+  "Rise and grind, developer! خلي أول إنجاز النهاردة يكون درسك 💪",
+  "صباح الفل! 10 دقايق تعلّم دلوقتي = يوم كله طاقة 🚀"
+];
+const EVENING_MESSAGES = streak => [
+  `Don't lose your 🔥 ${streak}-day streak — بقى في اليوم ساعات قليلة!`,
+  `آخر فرصة النهاردة! درس واحد يحافظ على الـ streak بتاعك 🔥 (${streak} يوم)`,
+  `Evening check-in: today's lesson still waiting. متسيبش الـ ${streak}-day streak يضيع ⏳`,
+  `الليل بيخلص — احمي إنجازك! ${streak} يوم متتكسرش النهاردة 💪`
 ];
 
 const MILESTONES = [3, 7, 14, 30, 60, 100, 200, 365];
@@ -312,19 +353,40 @@ async function checkReminder() {
   // --- Nag reminder (pending only)
   if (done || !settings.notificationsEnabled) return;
 
-  const [h, m] = (settings.reminderTime || '09:00').split(':').map(Number);
   const now = new Date();
+  const [h, m] = (settings.reminderTime || '09:00').split(':').map(Number);
   const reminderStart = new Date(now);
   reminderStart.setHours(h, m, 0, 0);
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+
+  // --- Morning kickoff: once/day at/after reminder time
+  if (now >= reminderStart && state.morningDate !== todayKey) {
+    state.morningDate = todayKey;
+    saveState(state);
+    notify('🌅 Good morning!', MORNING_MESSAGES[dayOfYear % MORNING_MESSAGES.length], '/today');
+    lastNotifiedAt = Date.now();
+    return;
+  }
+
+  // --- Evening streak-saver: once/day after 20:00 if still pending
+  if (now.getHours() >= 20 && state.eveningDate !== todayKey) {
+    state.eveningDate = todayKey;
+    saveState(state);
+    const opts = EVENING_MESSAGES(stats.currentStreak);
+    notify('⏳ Streak in danger!', opts[dayOfYear % opts.length], '/today');
+    lastNotifiedAt = Date.now();
+    return;
+  }
+
   if (now < reminderStart) return;
 
   const repeatMs = Math.max(1, settings.reminderRepeatHours || 2) * 3600 * 1000;
   if (Date.now() - lastNotifiedAt < repeatMs) return;
 
   lastNotifiedAt = Date.now();
-  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
-  const message = REMINDER_MESSAGES[dayOfYear % REMINDER_MESSAGES.length](today);
-  notify("📖 Today's lesson is waiting", message, '/today');
+  // Rotate by day + hour so repeats within a day still feel fresh.
+  const idx = (dayOfYear + now.getHours()) % REMINDER_MESSAGES.length;
+  notify("📖 Today's lesson is waiting", REMINDER_MESSAGES[idx](today), '/today');
 }
 
 // ---------------------------------------------------------------------------

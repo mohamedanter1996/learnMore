@@ -14,6 +14,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<InterviewQuestion> InterviewQuestions => Set<InterviewQuestion>();
     public DbSet<AssessmentAttempt> AssessmentAttempts => Set<AssessmentAttempt>();
     public DbSet<AssessmentAnswer> AssessmentAnswers => Set<AssessmentAnswer>();
+    public DbSet<StudyPlan> StudyPlans => Set<StudyPlan>();
+    public DbSet<StudyPlanGoal> StudyPlanGoals => Set<StudyPlanGoal>();
+    public DbSet<StudyDayLog> StudyDayLogs => Set<StudyDayLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +61,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(a => a.Attempt).WithMany(t => t.Answers).HasForeignKey(a => a.AttemptId);
             e.HasOne(a => a.Question).WithMany().HasForeignKey(a => a.QuestionId)
                 .OnDelete(DeleteBehavior.Restrict); // avoid multiple cascade paths via Topic
+        });
+
+        modelBuilder.Entity<StudyPlan>(e =>
+        {
+            e.Property(p => p.Title).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<StudyPlanGoal>(e =>
+        {
+            e.HasOne(g => g.Plan).WithMany(p => p.Goals).HasForeignKey(g => g.PlanId);
+        });
+
+        modelBuilder.Entity<StudyDayLog>(e =>
+        {
+            e.HasOne(d => d.Plan).WithMany(p => p.DayLogs).HasForeignKey(d => d.PlanId);
+            e.HasIndex(d => new { d.PlanId, d.Date }).IsUnique();
         });
     }
 }

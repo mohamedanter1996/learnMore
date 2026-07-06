@@ -37,5 +37,21 @@ export const routes: Routes = [
     path: 'roadmap',
     loadComponent: () => import('./pages/roadmap.component').then(m => m.RoadmapComponent)
   },
+  {
+    path: 'plans',
+    loadComponent: () => import('./pages/plans.component').then(m => m.PlansComponent)
+  },
+  {
+    path: 'plans/:id',
+    loadComponent: () => import('./pages/plan-detail.component').then(m => m.PlanDetailComponent)
+  },
+  {
+    path: 'whatsnew',
+    loadComponent: () => import('./pages/whatsnew.component').then(m => m.WhatsNewComponent)
+  },
+  {
+    path: 'settings',
+    loadComponent: () => import('./pages/settings.component').then(m => m.SettingsComponent)
+  },
   { path: '**', redirectTo: '' }
 ];

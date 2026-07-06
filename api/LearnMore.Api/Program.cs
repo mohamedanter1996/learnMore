@@ -13,7 +13,9 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services.AddScoped<SeedService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<AssessmentService>();
+builder.Services.AddScoped<StudyPlanService>();
 builder.Services.AddSingleton<CourseCatalogService>();
+builder.Services.AddSingleton<WhatsNewService>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins("http://localhost:4200").AllowAnyHeader().AllowAnyMethod()));
 
@@ -162,6 +164,44 @@ app.MapGet("/api/courses", (int topicId, int? level, AppDbContext db, CourseCata
 {
     var topic = db.Topics.Find(topicId);
     return topic is null ? Results.NotFound() : Results.Ok(catalog.GetCourses(topic.Name, level));
+});
+
+// ---------------------------------------------------------------- what's new
+
+app.MapGet("/api/whatsnew", (WhatsNewService svc) => svc.GetFeed());
+
+// ---------------------------------------------------------------- study plans
+
+app.MapGet("/api/plans", async (StudyPlanService svc) => await svc.GetPlansAsync());
+
+app.MapPost("/api/plans", async (CreatePlanDto dto, StudyPlanService svc) =>
+    Results.Ok(await svc.CreatePlanAsync(dto)));
+
+app.MapGet("/api/plans/{id:int}", async (int id, StudyPlanService svc) =>
+{
+    var plan = await svc.GetPlanAsync(id);
+    return plan is null ? Results.NotFound() : Results.Ok(plan);
+});
+
+app.MapDelete("/api/plans/{id:int}", async (int id, StudyPlanService svc) =>
+    await svc.DeletePlanAsync(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapPost("/api/plans/{id:int}/goals", async (int id, AddGoalDto dto, StudyPlanService svc) =>
+{
+    var goal = await svc.AddGoalAsync(id, dto.Text);
+    return goal is null ? Results.NotFound() : Results.Ok(goal);
+});
+
+app.MapPut("/api/goals/{goalId:int}/toggle", async (int goalId, StudyPlanService svc) =>
+    await svc.ToggleGoalAsync(goalId) ? Results.NoContent() : Results.NotFound());
+
+app.MapDelete("/api/goals/{goalId:int}", async (int goalId, StudyPlanService svc) =>
+    await svc.DeleteGoalAsync(goalId) ? Results.NoContent() : Results.NotFound());
+
+app.MapPut("/api/plans/{id:int}/day/{date}/toggle", async (int id, string date, StudyPlanService svc) =>
+{
+    if (!DateOnly.TryParse(date, out var d)) return Results.BadRequest();
+    return await svc.ToggleDayAsync(id, d) ? Results.NoContent() : Results.NotFound();
 });
 
 app.MapGet("/api/settings", async (AppDbContext db) =>

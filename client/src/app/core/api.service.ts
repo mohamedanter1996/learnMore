@@ -2,7 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import {
   AppSettings, AssessmentQuestion, AssessmentResult, AssessmentTopic, AttemptSummary,
-  CompletionResult, Course, LearningItem, RoadmapTopic, Stats, Today, TopicItemRow, TopicSummary
+  CompletionResult, Course, LearningItem, RoadmapTopic, Stats, StudyGoal, StudyPlanDetail,
+  StudyPlanSummary, Today, TopicItemRow, TopicSummary, WhatsNewTech
 } from './models';
 
 const BASE = 'http://localhost:5199/api';
@@ -58,6 +59,42 @@ export class ApiService {
   getCourses(topicId: number, level?: number) {
     const params = level != null ? `?level=${level}` : '';
     return this.http.get<Course[]>(`${BASE}/courses?topicId=${topicId}${params.replace('?', '&')}`);
+  }
+
+  getWhatsNew() {
+    return this.http.get<WhatsNewTech[]>(`${BASE}/whatsnew`);
+  }
+
+  getPlans() {
+    return this.http.get<StudyPlanSummary[]>(`${BASE}/plans`);
+  }
+
+  getPlan(id: number) {
+    return this.http.get<StudyPlanDetail>(`${BASE}/plans/${id}`);
+  }
+
+  createPlan(title: string, startDate: string, endDate: string) {
+    return this.http.post<StudyPlanSummary>(`${BASE}/plans`, { title, startDate, endDate });
+  }
+
+  deletePlan(id: number) {
+    return this.http.delete(`${BASE}/plans/${id}`);
+  }
+
+  addGoal(planId: number, text: string) {
+    return this.http.post<StudyGoal>(`${BASE}/plans/${planId}/goals`, { text });
+  }
+
+  toggleGoal(goalId: number) {
+    return this.http.put(`${BASE}/goals/${goalId}/toggle`, {});
+  }
+
+  deleteGoal(goalId: number) {
+    return this.http.delete(`${BASE}/goals/${goalId}`);
+  }
+
+  toggleDay(planId: number, date: string) {
+    return this.http.put(`${BASE}/plans/${planId}/day/${date}/toggle`, {});
   }
 
   getSettings() {

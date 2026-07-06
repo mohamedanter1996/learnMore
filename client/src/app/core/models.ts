@@ -172,3 +172,52 @@ export interface RoadmapTopic {
   assessedAt: string | null;
   tiers: RoadmapTier[];
 }
+
+// ---------------------------------------------------------------- what's new
+
+export interface WhatsNewEntry {
+  version: string;
+  date: string;
+  title: string;
+  bodyMarkdown: string;
+  url: string | null;
+}
+
+export interface WhatsNewTech {
+  technology: string;
+  icon: string;
+  color: string;
+  entries: WhatsNewEntry[];
+}
+
+// ---------------------------------------------------------------- study plans
+
+export interface StudyGoal {
+  id: number;
+  text: string;
+  isDone: boolean;
+  sortOrder: number;
+}
+
+export interface StudyDay {
+  date: string;
+  studied: boolean;
+}
+
+export interface StudyPlanSummary {
+  id: number;
+  title: string;
+  startDate: string;
+  endDate: string;
+  goalsDone: number;
+  goalsTotal: number;
+  studiedDays: number;
+  totalDays: number;
+  daysRemaining: number;
+}
+
+export interface StudyPlanDetail extends StudyPlanSummary {
+  studyStreak: number;
+  goals: StudyGoal[];
+  days: StudyDay[];
+}
