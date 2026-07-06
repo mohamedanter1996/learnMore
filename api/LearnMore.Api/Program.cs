@@ -25,6 +25,24 @@ app.UseCors();
 
 // In production the Angular build is copied into wwwroot and served by the API,
 // so the Electron shell loads everything from one origin.
+// index.html must never be cached — otherwise a stale shell keeps pointing at
+// old hashed JS after an update and the UI appears "stuck" on the previous version.
+// Hashed assets (main-XXXX.js, styles-XXXX.css) are safe to cache forever.
+app.Use(async (ctx, next) =>
+{
+    // Set the header via OnStarting so it applies to static-file responses too
+    // (their body starts sending inside next(), so headers must be set beforehand).
+    ctx.Response.OnStarting(() =>
+    {
+        var path = ctx.Request.Path.Value ?? "";
+        var isShell = path == "/" || path.EndsWith("/index.html", StringComparison.OrdinalIgnoreCase)
+            || (ctx.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) ?? false);
+        if (isShell)
+            ctx.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        return Task.CompletedTask;
+    });
+    await next();
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

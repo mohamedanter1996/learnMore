@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell, session } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -394,6 +394,19 @@ async function checkReminder() {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.anter.learnmore'); // Windows toast identity
+
+  // After an update the version changes; wipe the Chromium HTTP cache so the
+  // renderer doesn't keep serving a stale index.html that points at old JS
+  // hashes (which makes new features look "missing" until the cache clears).
+  try {
+    const verFile = path.join(app.getPath('userData'), 'app-version.txt');
+    let prev = null;
+    try { prev = fs.readFileSync(verFile, 'utf8').trim(); } catch { /* first run */ }
+    if (prev !== app.getVersion()) {
+      await session.defaultSession.clearCache();
+      fs.writeFileSync(verFile, app.getVersion());
+    }
+  } catch { /* non-critical */ }
 
   startApi();
   const apiUp = await waitForApi();
