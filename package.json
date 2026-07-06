@@ -13,7 +13,8 @@
     "build:api": "dotnet publish api/LearnMore.Api -c Release -r win-x64 --self-contained true -o build/api",
     "copy:client": "node scripts/copy-client.js",
     "package": "npm run build:client && npm run build:api && npm run copy:client && electron-builder",
-    "release": "npm run build:client && npm run build:api && npm run copy:client && electron-builder --publish always"
+    "release": "npm run build:client && npm run build:api && npm run copy:client && electron-builder --publish always",
+    "publish:assets": "powershell -ExecutionPolicy Bypass -File scripts/publish-assets.ps1 -Version"
   },
   "build": {
     "appId": "com.anter.learnmore",

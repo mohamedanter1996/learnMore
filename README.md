@@ -79,6 +79,11 @@ npm run release        # builds everything and publishes the release
 
 DB migrations and new seed content apply automatically on the updated app's first launch — user progress is preserved.
 
+> **If `npm run release` fails mid-upload** (electron-builder's GitHub upload occasionally throws `socket hang up` on the ~140MB installer), the exe is still built under `build/installer/`. Recover with:
+> ```bash
+> npm run publish:assets 1.2.0    # regenerates latest.yml, uploads assets, publishes the release
+> ```
+
 ## Arabic explanations (الشرح بالمصري)
 
 Every lesson ships with a condensed Egyptian-Arabic explanation. On the lesson page, click **"🇪🇬 اشرح بالمصري"** to show it below the English lesson (RTL panel; code samples stay LTR). The preference is remembered locally.
