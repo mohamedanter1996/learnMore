@@ -13,10 +13,10 @@
           "url": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9/overview"
         },
         {
-          "version": ".NET 8 (LTS)",
-          "date": "2023-11",
-          "title": "The LTS baseline you should be on",
-          "bodyMarkdown": "If you're still on .NET 6/7, **.NET 8 is the LTS** to target (supported into 2026). Key wins:\n- **Keyed DI services** — `AddKeyedSingleton` + `[FromKeyedServices]` (the named-registration many of us faked before)\n- **`TimeProvider`** abstraction — testable time, finally\n- **`IExceptionHandler`** for clean centralized error handling\n- Native AOT for APIs; **Blazor** unified render modes",
+          "version": ".NET LTS",
+          "date": "evergreen",
+          "title": "Stay on a current LTS (see the live posts above for the newest)",
+          "bodyMarkdown": "Target the current **LTS** release — .NET 8 and .NET 9 reach end of support on **Nov 10, 2026**, so migrate to the latest LTS (**.NET 10**). Features worth knowing that landed across recent versions:\n- **Keyed DI services** — `AddKeyedSingleton` + `[FromKeyedServices]` (the named-registration many of us faked before)\n- **`TimeProvider`** abstraction — testable time, finally\n- **`IExceptionHandler`** for clean centralized error handling\n- Native AOT for APIs; **Blazor** unified render modes\n\n*The 📡 Latest posts above always show the newest official announcements.*",
           "url": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-8/overview"
         },
         {

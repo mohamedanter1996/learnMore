@@ -49,6 +49,10 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.
 
+## Live tech news (v1.3)
+
+The **What's New** page now pulls **live posts** from official blog RSS feeds (.NET/C#/EF, Angular, TypeScript, Azure SQL, web.dev) alongside the curated "learn next" guides — so it stays current with the real tech world (e.g. Angular's actual latest release, not a hardcoded version). The API (`LiveFeedService` + `LiveFeedRefreshService`) fetches feeds on startup and every 12h, strips HTML server-side, and caches to `%LocalAppData%\LearnMore\feed-cache.json` so it still works offline (shows last-fetched). Endpoint `GET /api/whatsnew` returns curated `entries` + live `livePosts` per technology.
+
 ## Study planner, mind map, tech news (v1.2)
 
 - **🧭 Study Plan** — create plans with a title + date range, add free-text goals (checklist), and mark each day you studied on a calendar. Tracks goal %, studied-day count, study-day streak, and days remaining. (`/plans`)

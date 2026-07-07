@@ -183,11 +183,20 @@ export interface WhatsNewEntry {
   url: string | null;
 }
 
+export interface LivePost {
+  title: string;
+  published: string;
+  summary: string;
+  url: string;
+  source: string;
+}
+
 export interface WhatsNewTech {
   technology: string;
   icon: string;
   color: string;
   entries: WhatsNewEntry[];
+  livePosts: LivePost[];
 }
 
 // ---------------------------------------------------------------- study plans

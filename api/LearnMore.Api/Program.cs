@@ -16,6 +16,9 @@ builder.Services.AddScoped<AssessmentService>();
 builder.Services.AddScoped<StudyPlanService>();
 builder.Services.AddSingleton<CourseCatalogService>();
 builder.Services.AddSingleton<WhatsNewService>();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<LiveFeedService>();
+builder.Services.AddHostedService<LiveFeedRefreshService>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins("http://localhost:4200").AllowAnyHeader().AllowAnyMethod()));
 
@@ -186,7 +189,9 @@ app.MapGet("/api/courses", (int topicId, int? level, AppDbContext db, CourseCata
 
 // ---------------------------------------------------------------- what's new
 
-app.MapGet("/api/whatsnew", (WhatsNewService svc) => svc.GetFeed());
+app.MapGet("/api/whatsnew", (WhatsNewService svc, LiveFeedService live) =>
+    svc.GetFeed().Select(t => new WhatsNewTechResponse(
+        t.Technology, t.Icon, t.Color, t.Entries, live.GetLivePosts(t.Technology))));
 
 // ---------------------------------------------------------------- study plans
 

@@ -23,6 +23,22 @@ import { ApiService } from '../core/api.service';
 
         @if (isOpen(tech.technology)) {
           <div class="entries">
+            @if (tech.livePosts.length > 0) {
+              <div class="live">
+                <div class="live-head">
+                  <h4>📡 Latest posts</h4>
+                  <span class="text-dim small">live from official blogs — refreshes automatically</span>
+                </div>
+                @for (p of tech.livePosts; track p.url) {
+                  <a class="live-post" [href]="p.url" target="_blank" rel="noopener">
+                    <div class="live-title">{{ p.title }}</div>
+                    @if (p.summary) { <div class="live-summary text-dim">{{ p.summary }}</div> }
+                    <div class="live-meta text-dim">{{ p.source }} · {{ ago(p.published) }}</div>
+                  </a>
+                }
+              </div>
+              <h4 class="curated-head">📚 Guides &amp; what to learn next</h4>
+            }
             @for (e of tech.entries; track e.title) {
               <div class="entry">
                 <div class="entry-head">
@@ -55,6 +71,21 @@ import { ApiService } from '../core/api.service';
     .small { font-size: 12px; }
 
     .entries { padding: 0 20px 12px; }
+    .small { font-size: 12px; }
+
+    .live { padding: 8px 0 4px; }
+    .live-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;
+      h4 { margin: 0; } }
+    .live-post {
+      display: block; padding: 10px 12px; margin-bottom: 8px;
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      &:hover { background: var(--surface-2); }
+    }
+    .live-title { font-weight: 600; }
+    .live-summary { font-size: 13px; margin-top: 3px; }
+    .live-meta { font-size: 12px; margin-top: 5px; }
+    .curated-head { margin: 18px 0 4px; }
+
     .entry { padding: 14px 0; border-top: 1px solid var(--border); }
     .entry-head { display: flex; align-items: center; gap: 10px; }
     .version { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
@@ -77,5 +108,19 @@ export class WhatsNewComponent {
       next.has(tech) ? next.delete(tech) : next.add(tech);
       return next;
     });
+  }
+
+  /** Relative age like "3 days ago" from a yyyy-MM-dd string. */
+  ago(dateStr: string): string {
+    if (!dateStr) return '';
+    const then = new Date(dateStr).getTime();
+    if (isNaN(then)) return dateStr;
+    const days = Math.floor((Date.now() - then) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 7) return `${days} days ago`;
+    if (days < 30) return `${Math.floor(days / 7)} week${days < 14 ? '' : 's'} ago`;
+    if (days < 365) return `${Math.floor(days / 30)} month${days < 60 ? '' : 's'} ago`;
+    return `${Math.floor(days / 365)} year${days < 730 ? '' : 's'} ago`;
   }
 }

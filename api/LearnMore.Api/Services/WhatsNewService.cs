@@ -6,6 +6,10 @@ namespace LearnMore.Api.Services;
 public record WhatsNewEntry(string Version, string Date, string Title, string BodyMarkdown, string? Url);
 public record WhatsNewTech(string Technology, string Icon, string Color, List<WhatsNewEntry> Entries);
 
+// Sent to the client: curated entries + live blog posts for the same technology.
+public record WhatsNewTechResponse(string Technology, string Icon, string Color,
+    List<WhatsNewEntry> Entries, List<LivePost> LivePosts);
+
 public class WhatsNewFile
 {
     public List<WhatsNewTechDto> Technologies { get; set; } = [];
