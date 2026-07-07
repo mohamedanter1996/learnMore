@@ -191,7 +191,7 @@ app.MapGet("/api/courses", (int topicId, int? level, AppDbContext db, CourseCata
 
 app.MapGet("/api/whatsnew", (WhatsNewService svc, LiveFeedService live) =>
     svc.GetFeed().Select(t => new WhatsNewTechResponse(
-        t.Technology, t.Icon, t.Color, t.Entries, live.GetLivePosts(t.Technology))));
+        t.Technology, t.Icon, t.Color, t.DocsUrl, t.Entries, live.GetLivePosts(t.Technology))));
 
 // ---------------------------------------------------------------- study plans
 

@@ -195,6 +195,7 @@ export interface WhatsNewTech {
   technology: string;
   icon: string;
   color: string;
+  docsUrl: string | null;
   entries: WhatsNewEntry[];
   livePosts: LivePost[];
 }

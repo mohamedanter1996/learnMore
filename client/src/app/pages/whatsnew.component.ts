@@ -23,6 +23,12 @@ import { ApiService } from '../core/api.service';
 
         @if (isOpen(tech.technology)) {
           <div class="entries">
+            @if (tech.docsUrl) {
+              <a class="docs-link" [href]="tech.docsUrl" target="_blank" rel="noopener"
+                 [style.border-color]="tech.color">
+                📖 Official What's New in {{ tech.technology }} — always current →
+              </a>
+            }
             @if (tech.livePosts.length > 0) {
               <div class="live">
                 <div class="live-head">
@@ -41,12 +47,11 @@ import { ApiService } from '../core/api.service';
             }
             @for (e of tech.entries; track e.title) {
               <div class="entry">
-                <div class="entry-head">
+                @if (e.version) {
                   <span class="version" [style.background]="tech.color + '22'" [style.color]="tech.color">
                     {{ e.version }}
                   </span>
-                  <span class="text-dim small">{{ e.date }}</span>
-                </div>
+                }
                 <h3>{{ e.title }}</h3>
                 <markdown [data]="e.bodyMarkdown" />
                 @if (e.url) {
@@ -73,6 +78,13 @@ import { ApiService } from '../core/api.service';
     .entries { padding: 0 20px 12px; }
     .small { font-size: 12px; }
 
+    .docs-link {
+      display: block; margin: 4px 0 14px; padding: 10px 14px;
+      border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px;
+      font-weight: 600; color: var(--text);
+      &:hover { background: var(--surface-2); }
+    }
+
     .live { padding: 8px 0 4px; }
     .live-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;
       h4 { margin: 0; } }
@@ -87,8 +99,7 @@ import { ApiService } from '../core/api.service';
     .curated-head { margin: 18px 0 4px; }
 
     .entry { padding: 14px 0; border-top: 1px solid var(--border); }
-    .entry-head { display: flex; align-items: center; gap: 10px; }
-    .version { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .version { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
     .entry h3 { margin: 8px 0; }
     .read-more { display: inline-block; margin-top: 6px; font-weight: 600; }
   `

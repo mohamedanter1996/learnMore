@@ -4,10 +4,11 @@
       "technology": ".NET",
       "icon": "🟣",
       "color": "#8b5cf6",
+      "docsUrl": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/",
       "entries": [
         {
-          "version": ".NET 9",
-          "date": "2024-11",
+          "version": "Caching & Runtime",
+          "date": "",
           "title": "Built-in hybrid caching, faster runtime, better AOT",
           "bodyMarkdown": "**HybridCache** finally lands as a first-class API — L1 (in-memory) + L2 (Redis) with **stampede protection built in** (the per-key locking you'd otherwise hand-roll). Register with `AddHybridCache()`.\n\nOther highlights:\n- **Server GC** dynamic adaptation — lower memory under variable load\n- **`System.Text.Json`** gains nullable-annotation respect + faster serialization\n- **LINQ** adds `CountBy` and `AggregateBy` (group-and-count in one pass)\n- Better **Native AOT** coverage for ASP.NET Core minimal APIs\n\n**Learn next:** replace any hand-rolled `IMemoryCache` + Redis two-level cache with HybridCache.",
           "url": "https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9/overview"
@@ -39,17 +40,18 @@
       "technology": "C#",
       "icon": "💜",
       "color": "#a855f7",
+      "docsUrl": "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/",
       "entries": [
         {
-          "version": "C# 13",
-          "date": "2024-11",
+          "version": "Language features",
+          "date": "",
           "title": "params collections, new lock type, cleaner code",
           "bodyMarkdown": "- **`params` collections** — `params ReadOnlySpan<T>` and any collection type, not just arrays (fewer allocations on hot paths)\n- **`System.Threading.Lock`** — a dedicated lock type faster than `lock(object)` and analyzer-guarded\n- **`\\e`** escape for ESC, partial properties, implicit index in initializers (`^1`)\n\n**Learn next:** switch hot-path `params object[]` methods to `params ReadOnlySpan<T>`.",
           "url": "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-13"
         },
         {
-          "version": "C# 12",
-          "date": "2023-11",
+          "version": "Language features",
+          "date": "",
           "title": "Primary constructors everywhere + collection expressions",
           "bodyMarkdown": "The two features you'll use daily (this app is written with them):\n- **Primary constructors on any class** — `class OrderService(IRepo repo)` — no more boilerplate field assignment. Great with DI.\n- **Collection expressions** — `int[] x = [1, 2, 3];` and the spread `[..a, ..b]` — one syntax for arrays, lists, spans.\n- **Alias any type** with `using`, default lambda parameters.",
           "url": "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-12"
@@ -74,17 +76,18 @@
       "technology": "Angular",
       "icon": "🅰️",
       "color": "#ef4444",
+      "docsUrl": "https://blog.angular.dev/",
       "entries": [
         {
-          "version": "Angular 19",
-          "date": "2024-11",
+          "version": "Framework",
+          "date": "",
           "title": "Signals stabilize, incremental hydration, standalone by default",
           "bodyMarkdown": "- **`linkedSignal`** and **`resource()`** — writable-derived signals and async-data-as-signal (loading/error/value states built in)\n- **Incremental hydration** — `@defer (hydrate on viewport)` ships SSR HTML and hydrates islands lazily\n- **Standalone components are the default** — the CLI stops generating NgModules\n- Route-level render mode config for SSR/SSG per route\n\n**Learn next:** replace a manual HTTP-loading component with `resource()` or `httpResource()`.",
           "url": "https://blog.angular.dev/meet-angular-v19-7b29dfd05b84"
         },
         {
-          "version": "Angular 18",
-          "date": "2024-05",
+          "version": "Reactivity & DX",
+          "date": "",
           "title": "Zoneless preview + Material 3",
           "bodyMarkdown": "- **Experimental zoneless change detection** (`provideZonelessChangeDetection()`) — drop zone.js and rely on signals for fine-grained updates\n- **Angular Material 3** design tokens\n- **`@let`** in templates — local template variables at last\n- Unified control flow (`@if/@for/@switch`) now stable and the recommended default over `*ngIf/*ngFor`",
           "url": "https://blog.angular.dev/angular-v18-is-now-available-e79d5ac0affe"
@@ -109,10 +112,11 @@
       "technology": "TypeScript",
       "icon": "🔷",
       "color": "#3b82f6",
+      "docsUrl": "https://www.typescriptlang.org/docs/handbook/release-notes/",
       "entries": [
         {
-          "version": "TypeScript 5.x",
-          "date": "2023-2024",
+          "version": "Language features",
+          "date": "",
           "title": "Decorators, const type params, using declarations",
           "bodyMarkdown": "- **Stage-3 decorators** (5.0) — the standardized version, no more `experimentalDecorators` for new code\n- **`const` type parameters** (5.0) — `function f<const T>(x: T)` infers literal types without `as const`\n- **`using` / `await using`** (5.2) — deterministic disposal (`Symbol.dispose`), like C#'s `using`\n- **`satisfies`** operator — validate a value against a type without widening it",
           "url": "https://devblogs.microsoft.com/typescript/"
@@ -137,17 +141,18 @@
       "technology": "SQL Server",
       "icon": "🗄️",
       "color": "#dc2626",
+      "docsUrl": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server",
       "entries": [
         {
-          "version": "SQL Server 2022",
-          "date": "2022-11",
+          "version": "Engine features",
+          "date": "",
           "title": "Parameter-sensitive plans, ledger, and cloud links",
           "bodyMarkdown": "- **Parameter Sensitive Plan (PSP) optimization** — multiple cached plans per query bucketed by cardinality. This is the built-in cure for the parameter-sniffing bomb (needs dbcompat 160).\n- **Intelligent Query Processing** upgrades: memory-grant feedback persistence, cardinality estimation feedback, degree-of-parallelism feedback\n- **Ledger tables** — cryptographically verifiable, tamper-evident data\n- **Azure Synapse Link** and managed-instance link for near-real-time replication\n\n**Learn next:** enable dbcompat 160 on a dev DB and watch PSP create multiple plans for a skewed-parameter query.",
           "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2022"
         },
         {
-          "version": "SQL Server 2025 (preview)",
-          "date": "2025",
+          "version": "AI & vector search",
+          "date": "",
           "title": "Native vector search + AI integration",
           "bodyMarkdown": "The big theme is **AI in the database**: a native **`vector` data type** with approximate nearest-neighbor search, built-in embedding generation, and hybrid keyword+vector search — so semantic search lives next to your relational data instead of a separate vector store.\n\n**Learn next:** read up on the `vector` type and how hybrid search (BM25 + cosine) is becoming the default for product/document search.",
           "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025"
@@ -165,10 +170,11 @@
       "technology": "Entity Framework Core",
       "icon": "🧬",
       "color": "#10b981",
+      "docsUrl": "https://learn.microsoft.com/en-us/ef/core/what-is-new/",
       "entries": [
         {
-          "version": "EF Core 8 / 9",
-          "date": "2023-2024",
+          "version": "Data access",
+          "date": "",
           "title": "Complex types, primitive collections, better JSON",
           "bodyMarkdown": "- **Complex types** (owned-but-not-entity value objects like `Address`) — no hidden key, proper value semantics\n- **Primitive collections** — map `List<string>`/`int[]` to a JSON column and even `Contains` over them translates to SQL\n- **`ExecuteUpdate`/`ExecuteDelete`** (EF7+) — set-based bulk updates without loading entities, the fix for tracked-loop mass updates\n- EF9: richer **JSON column** querying, better complex-type support, `LEFT JOIN` improvements\n\n**Learn next:** replace one load-modify-SaveChanges mass update with `ExecuteUpdateAsync`.",
           "url": "https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-9.0/whatsnew"
@@ -193,6 +199,7 @@
       "technology": "Web Platform & CSS",
       "icon": "🎨",
       "color": "#f59e0b",
+      "docsUrl": "https://web.dev/blog/",
       "entries": [
         {
           "version": "Container queries",

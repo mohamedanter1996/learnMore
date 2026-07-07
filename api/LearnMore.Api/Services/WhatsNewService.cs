@@ -4,10 +4,10 @@ using LearnMore.Api.Data;
 namespace LearnMore.Api.Services;
 
 public record WhatsNewEntry(string Version, string Date, string Title, string BodyMarkdown, string? Url);
-public record WhatsNewTech(string Technology, string Icon, string Color, List<WhatsNewEntry> Entries);
+public record WhatsNewTech(string Technology, string Icon, string Color, string? DocsUrl, List<WhatsNewEntry> Entries);
 
 // Sent to the client: curated entries + live blog posts for the same technology.
-public record WhatsNewTechResponse(string Technology, string Icon, string Color,
+public record WhatsNewTechResponse(string Technology, string Icon, string Color, string? DocsUrl,
     List<WhatsNewEntry> Entries, List<LivePost> LivePosts);
 
 public class WhatsNewFile
@@ -20,6 +20,7 @@ public class WhatsNewTechDto
     public string Technology { get; set; } = "";
     public string Icon { get; set; } = "";
     public string Color { get; set; } = "#888888";
+    public string? DocsUrl { get; set; }
     public List<WhatsNewEntryDto> Entries { get; set; } = [];
 }
 
@@ -55,7 +56,7 @@ public class WhatsNewService(IConfiguration config, ILogger<WhatsNewService> log
         {
             var parsed = JsonSerializer.Deserialize<WhatsNewFile>(File.ReadAllText(file), JsonOptions);
             return (parsed?.Technologies ?? []).Select(t => new WhatsNewTech(
-                t.Technology, t.Icon, t.Color,
+                t.Technology, t.Icon, t.Color, t.DocsUrl,
                 t.Entries.Select(e => new WhatsNewEntry(e.Version, e.Date, e.Title, e.BodyMarkdown, e.Url))
                     .ToList())).ToList();
         }
