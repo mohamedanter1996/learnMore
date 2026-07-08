@@ -26,12 +26,11 @@ import { AppSettings } from '../core/models';
 
         <label class="row">
           <span>Remind me every</span>
-          <select [value]="s.reminderRepeatHours"
-                  (change)="patch({ reminderRepeatHours: +$any($event.target).value })">
-            <option [value]="1">1 hour</option>
-            <option [value]="2">2 hours</option>
-            <option [value]="3">3 hours</option>
-            <option [value]="4">4 hours</option>
+          <select (change)="patch({ reminderRepeatHours: +$any($event.target).value })">
+            <option [value]="1" [selected]="s.reminderRepeatHours === 1">1 hour</option>
+            <option [value]="2" [selected]="s.reminderRepeatHours === 2">2 hours</option>
+            <option [value]="3" [selected]="s.reminderRepeatHours === 3">3 hours</option>
+            <option [value]="4" [selected]="s.reminderRepeatHours === 4">4 hours</option>
           </select>
         </label>
 
