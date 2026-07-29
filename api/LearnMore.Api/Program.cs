@@ -14,6 +14,7 @@ builder.Services.AddScoped<SeedService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<AssessmentService>();
 builder.Services.AddScoped<StudyPlanService>();
+builder.Services.AddScoped<CoursePlanService>();
 builder.Services.AddSingleton<CourseCatalogService>();
 builder.Services.AddSingleton<WhatsNewService>();
 builder.Services.AddHttpClient();
@@ -225,6 +226,41 @@ app.MapPut("/api/plans/{id:int}/day/{date}/toggle", async (int id, string date, 
 {
     if (!DateOnly.TryParse(date, out var d)) return Results.BadRequest();
     return await svc.ToggleDayAsync(id, d) ? Results.NoContent() : Results.NotFound();
+});
+
+// --------------------------------------------------------------- course plan
+
+app.MapGet("/api/course-plan/now", async (CoursePlanService svc) => await svc.GetNowAsync());
+
+app.MapGet("/api/course-plan", async (CoursePlanService svc) => await svc.GetPlanAsync());
+
+app.MapPost("/api/course-plan/sessions", async (LogSessionDto dto, CoursePlanService svc) =>
+{
+    var now = await svc.LogSessionAsync(dto);
+    return now is null ? Results.BadRequest(new { error = "No active course." }) : Results.Ok(now);
+});
+
+app.MapPost("/api/course-plan/artifacts", async (AddArtifactDto dto, CoursePlanService svc) =>
+{
+    var now = await svc.AddArtifactAsync(dto);
+    return now is null
+        ? Results.BadRequest(new { error = "No active course, or the artifact has no title." })
+        : Results.Ok(now);
+});
+
+app.MapDelete("/api/course-plan/artifacts/{id:int}", async (int id, CoursePlanService svc) =>
+    await svc.DeleteArtifactAsync(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapPost("/api/course-plan/complete", async (CoursePlanService svc) =>
+{
+    var (ok, error, now) = await svc.CompleteActiveAsync();
+    return ok ? Results.Ok(now) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/course-plan/continue", async (CoursePlanService svc) =>
+{
+    var now = await svc.ContinueAfterCheckpointAsync();
+    return now is null ? Results.BadRequest(new { error = "No checkpoint to continue from." }) : Results.Ok(now);
 });
 
 app.MapGet("/api/settings", async (AppDbContext db) =>

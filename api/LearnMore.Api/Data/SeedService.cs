@@ -65,6 +65,8 @@ public class SeedService(AppDbContext db, IConfiguration config, ILogger<SeedSer
 
     public async Task SeedAsync()
     {
+        await SeedCoursePlanAsync();
+
         var seedDir = ResolveSeedDirectory();
         if (seedDir is null)
         {
@@ -128,6 +130,55 @@ public class SeedService(AppDbContext db, IConfiguration config, ILogger<SeedSer
 
         await SeedArabicAsync(seedDir);
         await SeedInterviewAsync(seedDir);
+    }
+
+    /// <summary>
+    /// The fixed course ladder. It lives in code on purpose — the plan is not editable from
+    /// the UI, so changing it is a deliberate code change. Seeded once, then left alone so
+    /// progress survives updates.
+    /// </summary>
+    private async Task SeedCoursePlanAsync()
+    {
+        if (await db.PlanCourses.AnyAsync()) return;
+
+        var courses = new (string Title, string Instructor, int Hours, string Url, bool Checkpoint)[]
+        {
+            ("Algorithms and Data Structures in C#", "Engineer Spock", 10,
+                "https://www.udemy.com/course/algorithms-data-structures-csharp/", false),
+            ("Design Patterns in C# and .NET — SOLID section only", "Dmitri Nesteruk", 1,
+                "https://www.udemy.com/course/design-patterns-csharp-dotnet/", false),
+            ("T-SQL Execution Plans, Indexes, Transactions", "Vikas Munjal", 7,
+                "https://www.udemy.com/course/understanding-execution-plans-indexes-sql-server/", false),
+            (".NET 8 Microservices: DDD, CQRS, Vertical/Clean Architecture", "Mehmet Ozkaya", 15,
+                "https://www.udemy.com/course/microservices-architecture-and-implementation-on-dotnet/", true),
+            ("Software Architecture and Design of Modern Large Scale Systems", "Michael Pogrebinsky", 18,
+                "https://www.udemy.com/course/software-architecture-design-of-modern-large-scale-systems/", false),
+            ("The Complete Microservices and Event-Driven Architecture", "Michael Pogrebinsky", 15,
+                "https://www.udemy.com/course/the-complete-microservices-event-driven-architecture/", false),
+            ("The Complete Cloud Computing Software Architecture Patterns", "Michael Pogrebinsky", 12,
+                "https://www.udemy.com/course/the-complete-cloud-computing-software-architecture-patterns/", false)
+        };
+
+        var order = 1;
+        foreach (var c in courses)
+        {
+            db.PlanCourses.Add(new PlanCourse
+            {
+                Order = order,
+                Title = c.Title,
+                Instructor = c.Instructor,
+                Url = c.Url,
+                EstimatedHours = c.Hours,
+                IsCheckpoint = c.Checkpoint,
+                // Course 1 is the one you open today; the rest unlock by finishing the previous one.
+                Status = order == 1 ? CourseStatus.Active : CourseStatus.Locked,
+                StartedOn = order == 1 ? DateTime.Now : null
+            });
+            order++;
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation("Seeded course plan ({Count} courses).", courses.Length);
     }
 
     /// <summary>

@@ -17,6 +17,12 @@
           <span class="dot done" title="Done for today"></span>
         }
       </a>
+      <a routerLink="/course" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        <span>🎯</span> Course
+      </a>
+      <a routerLink="/course/plan" routerLinkActive="active">
+        <span>🪜</span> Course Plan
+      </a>
       <a routerLink="/topics" routerLinkActive="active">
         <span>🗂️</span> Topics
       </a>

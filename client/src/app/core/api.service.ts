@@ -1,9 +1,9 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import {
-  AppSettings, AssessmentQuestion, AssessmentResult, AssessmentTopic, AttemptSummary,
-  CompletionResult, Course, LearningItem, RoadmapTopic, Stats, StudyGoal, StudyPlanDetail,
-  StudyPlanSummary, Today, TopicItemRow, TopicSummary, WhatsNewTech
+  AppSettings, ArtifactType, AssessmentQuestion, AssessmentResult, AssessmentTopic, AttemptSummary,
+  CompletionResult, Course, CourseNow, CoursePlanRow, LearningItem, RoadmapTopic, Stats, StudyGoal,
+  StudyPlanDetail, StudyPlanSummary, Today, TopicItemRow, TopicSummary, WhatsNewTech
 } from './models';
 
 const BASE = 'http://localhost:5199/api';
@@ -95,6 +95,34 @@ export class ApiService {
 
   toggleDay(planId: number, date: string) {
     return this.http.put(`${BASE}/plans/${planId}/day/${date}/toggle`, {});
+  }
+
+  getCourseNow() {
+    return this.http.get<CourseNow>(`${BASE}/course-plan/now`);
+  }
+
+  getCoursePlan() {
+    return this.http.get<CoursePlanRow[]>(`${BASE}/course-plan`);
+  }
+
+  logCourseSession(minutes: number, note: string) {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/sessions`, { minutes, note });
+  }
+
+  addCourseArtifact(type: ArtifactType, title: string, url: string | null) {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/artifacts`, { type, title, url });
+  }
+
+  deleteCourseArtifact(id: number) {
+    return this.http.delete(`${BASE}/course-plan/artifacts/${id}`);
+  }
+
+  completeCourse() {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/complete`, {});
+  }
+
+  continueAfterCheckpoint() {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/continue`, {});
   }
 
   getSettings() {

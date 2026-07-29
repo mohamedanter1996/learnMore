@@ -231,3 +231,69 @@ export interface StudyPlanDetail extends StudyPlanSummary {
   goals: StudyGoal[];
   days: StudyDay[];
 }
+
+// ---------------------------------------------------------------- course plan
+
+export type ArtifactType = 'Article' | 'Post' | 'Commit' | 'Other';
+
+export interface CourseArtifact {
+  id: number;
+  type: ArtifactType;
+  title: string;
+  url: string | null;
+  createdOn: string;
+}
+
+export interface CourseSession {
+  id: number;
+  date: string;
+  minutes: number;
+  note: string;
+}
+
+export interface ActiveCourse {
+  id: number;
+  order: number;
+  title: string;
+  instructor: string;
+  url: string;
+  estimatedHours: number;
+  hoursLogged: number;
+  requiredArtifacts: number;
+  artifactCount: number;
+  streak: number;
+  canComplete: boolean;
+  blockedReason: string | null;
+  artifacts: CourseArtifact[];
+  recentSessions: CourseSession[];
+}
+
+export interface CourseCheckpoint {
+  completedOrder: number;
+  completedTitle: string;
+  nextOrder: number;
+  nextTitle: string;
+  message: string;
+}
+
+export interface CourseNow {
+  state: 'active' | 'checkpoint' | 'finished';
+  course: ActiveCourse | null;
+  checkpoint: CourseCheckpoint | null;
+}
+
+export interface CoursePlanRow {
+  id: number;
+  order: number;
+  title: string;
+  instructor: string;
+  url: string;
+  estimatedHours: number;
+  status: 'locked' | 'active' | 'done';
+  hoursLogged: number;
+  artifactCount: number;
+  requiredArtifacts: number;
+  isCheckpoint: boolean;
+  startedOn: string | null;
+  completedOn: string | null;
+}

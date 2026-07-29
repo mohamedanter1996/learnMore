@@ -38,6 +38,14 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/roadmap.component').then(m => m.RoadmapComponent)
   },
   {
+    path: 'course',
+    loadComponent: () => import('./pages/course-now.component').then(m => m.CourseNowComponent)
+  },
+  {
+    path: 'course/plan',
+    loadComponent: () => import('./pages/course-plan.component').then(m => m.CoursePlanComponent)
+  },
+  {
     path: 'plans',
     loadComponent: () => import('./pages/plans.component').then(m => m.PlansComponent)
   },

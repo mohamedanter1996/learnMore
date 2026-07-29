@@ -139,3 +139,63 @@ public class StudyDayLog
     public DateOnly Date { get; set; }
     public bool Studied { get; set; }
 }
+
+// ------------------------------------------------------------- course plan
+// A fixed, ordered ladder of courses. Exactly one is Active at a time; the plan
+// itself is seeded from code and is never edited from the UI.
+// Named PlanCourse because Services.Course (the recommendation catalog record)
+// already owns the name "Course".
+
+public enum CourseStatus
+{
+    Locked = 0,
+    Active = 1,
+    Done = 2
+}
+
+public enum ArtifactType
+{
+    Article = 0,
+    Post = 1,
+    Commit = 2,
+    Other = 3
+}
+
+public class PlanCourse
+{
+    public int Id { get; set; }
+    public int Order { get; set; }
+    public string Title { get; set; } = "";
+    public string Instructor { get; set; } = "";
+    public string Url { get; set; } = "";
+    public int EstimatedHours { get; set; }
+    public CourseStatus Status { get; set; } = CourseStatus.Locked;
+    public int RequiredArtifacts { get; set; } = 2;
+    public bool IsCheckpoint { get; set; } // pause gate after this course
+    public DateTime? StartedOn { get; set; }
+    public DateTime? CompletedOn { get; set; }
+    public List<StudySession> Sessions { get; set; } = [];
+    public List<Artifact> Artifacts { get; set; } = [];
+}
+
+public class StudySession
+{
+    public int Id { get; set; }
+    public int CourseId { get; set; }
+    public PlanCourse Course { get; set; } = null!;
+    public DateOnly Date { get; set; }
+    public int Minutes { get; set; }
+    public string Note { get; set; } = "";
+}
+
+/// <summary>Proof something was produced, not just watched.</summary>
+public class Artifact
+{
+    public int Id { get; set; }
+    public int CourseId { get; set; }
+    public PlanCourse Course { get; set; } = null!;
+    public ArtifactType Type { get; set; }
+    public string Title { get; set; } = "";
+    public string? Url { get; set; }
+    public DateTime CreatedOn { get; set; }
+}

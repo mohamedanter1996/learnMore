@@ -17,6 +17,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StudyPlan> StudyPlans => Set<StudyPlan>();
     public DbSet<StudyPlanGoal> StudyPlanGoals => Set<StudyPlanGoal>();
     public DbSet<StudyDayLog> StudyDayLogs => Set<StudyDayLog>();
+    public DbSet<PlanCourse> PlanCourses => Set<PlanCourse>();
+    public DbSet<StudySession> StudySessions => Set<StudySession>();
+    public DbSet<Artifact> Artifacts => Set<Artifact>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -77,6 +80,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasOne(d => d.Plan).WithMany(p => p.DayLogs).HasForeignKey(d => d.PlanId);
             e.HasIndex(d => new { d.PlanId, d.Date }).IsUnique();
+        });
+
+        modelBuilder.Entity<PlanCourse>(e =>
+        {
+            e.Property(c => c.Title).HasMaxLength(200);
+            e.Property(c => c.Instructor).HasMaxLength(100);
+            e.Property(c => c.Url).HasMaxLength(500);
+            e.HasIndex(c => c.Order).IsUnique();
+            // "Exactly one Active course" backed by the database, not just by service code.
+            e.HasIndex(c => c.Status).IsUnique().HasFilter("[Status] = 1");
+        });
+
+        modelBuilder.Entity<StudySession>(e =>
+        {
+            e.Property(s => s.Note).HasMaxLength(500);
+            e.HasOne(s => s.Course).WithMany(c => c.Sessions).HasForeignKey(s => s.CourseId);
+            e.HasIndex(s => new { s.CourseId, s.Date });
+        });
+
+        modelBuilder.Entity<Artifact>(e =>
+        {
+            e.Property(a => a.Title).HasMaxLength(200);
+            e.Property(a => a.Url).HasMaxLength(500);
+            e.HasOne(a => a.Course).WithMany(c => c.Artifacts).HasForeignKey(a => a.CourseId);
+            e.HasIndex(a => a.CourseId);
         });
     }
 }
