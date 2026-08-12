@@ -1,0 +1,167 @@
+﻿# قائمة انتظار صفحات الشرح المصري التفاعلي
+
+One page per run, top unchecked entry first. Tick the box in the same commit that adds the page.
+Order = the user's own backlog first (the lessons the app still owes them, oldest missed day first),
+then every remaining lesson round-robin across the five topics, easiest difficulty first —
+the same rotation `AssignmentService.PickNextItemAsync` uses, so a page is ready before the lesson lands.
+
+Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `seed/ar-html/index.json`.
+
+## Done
+
+- [x] `Data Structures & Algorithms` — Arrays: Memory Layout and Why Cache Matters → `1-dsa/arrays-memory-layout.html`
+- [x] `Design Patterns` — SOLID II: Open/Closed Principle → `2-design-patterns/solid-open-closed.html`
+- [x] `SQL Server Optimization` — Clustered Indexes: The Table IS the Index → `3-sql-optimization/clustered-indexes.html`
+- [x] `Data Structures & Algorithms` — Strings, Immutability and StringBuilder → `1-dsa/strings-immutability-stringbuilder.html`
+- [x] `Data Structures & Algorithms` — Hash Tables: How Dictionary<TKey,TValue> Works → `1-dsa/hash-tables-dictionary.html`
+
+## Queue (148)
+
+- [ ] 1. `Design Patterns` — Strategy: Swappable Algorithms → `2-design-patterns/strategy-swappable-algorithms.html`
+- [ ] 2. `SQL Server Optimization` — Reading Execution Plans: Your Debugger for SQL → `3-sql-optimization/reading-execution-plans-your-debugger-for-sql.html`
+- [ ] 3. `System Design` — Caching I: Layers and Cache-Aside → `4-system-design/caching-i-layers-and-cache-aside.html`
+- [ ] 4. `Frontend Engineering` — CSS Flexbox: One-Dimensional Layout Mastery → `5-frontend/css-flexbox-one-dimensional-layout-mastery.html`
+- [ ] 5. `Data Structures & Algorithms` — Linked Lists: Trade-offs vs Arrays → `1-dsa/linked-lists-trade-offs-vs-arrays.html`
+- [ ] 6. `Design Patterns` — Factory Method & Simple Factory → `2-design-patterns/factory-method-simple-factory.html`
+- [ ] 7. `SQL Server Optimization` — Seeks vs Scans: Selectivity Decides → `3-sql-optimization/seeks-vs-scans-selectivity-decides.html`
+- [ ] 8. `SQL Server Optimization` — SARGability: Don't Wrap Columns in Functions → `3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html`
+- [ ] 9. `System Design` — Caching II: Invalidation, Stampedes, Hot Keys → `4-system-design/caching-ii-invalidation-stampedes-hot-keys.html`
+- [ ] 10. `Frontend Engineering` — RxJS Foundations: Observables, Subscriptions, Laziness → `5-frontend/rxjs-foundations-observables-subscriptions-laz.html`
+- [ ] 11. `Frontend Engineering` — RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap → `5-frontend/rxjs-flattening-switchmap-vs-mergemap-vs-conca.html`
+- [ ] 12. `Data Structures & Algorithms` — Big-O Notation: Measuring Algorithm Efficiency → `1-dsa/big-o-notation-measuring-algorithm-efficiency.html`
+- [ ] 13. `Design Patterns` — SOLID I: Single Responsibility Principle → `2-design-patterns/solid-i-single-responsibility-principle.html`
+- [ ] 14. `SQL Server Optimization` — How SQL Server Stores Data: Pages, Extents, Heaps → `3-sql-optimization/how-sql-server-stores-data-pages-extents-heaps.html`
+- [ ] 15. `System Design` — Scaling Basics: Vertical vs Horizontal → `4-system-design/scaling-basics-vertical-vs-horizontal.html`
+- [ ] 16. `Frontend Engineering` — The JavaScript Event Loop: Tasks and Microtasks → `5-frontend/the-javascript-event-loop-tasks-and-microtasks.html`
+- [ ] 17. `Data Structures & Algorithms` — Stacks: LIFO and Its Surprising Uses → `1-dsa/stacks-lifo-and-its-surprising-uses.html`
+- [ ] 18. `Design Patterns` — SOLID IV: Interface Segregation Principle → `2-design-patterns/solid-iv-interface-segregation-principle.html`
+- [ ] 19. `SQL Server Optimization` — Nonclustered Indexes and the Key Lookup Tax → `3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html`
+- [ ] 20. `System Design` — Stateless Services and Session Management → `4-system-design/stateless-services-and-session-management.html`
+- [ ] 21. `Frontend Engineering` — Closures: The Feature Behind Everything → `5-frontend/closures-the-feature-behind-everything.html`
+- [ ] 22. `Data Structures & Algorithms` — Queues: FIFO, Deques, and PriorityQueue → `1-dsa/queues-fifo-deques-and-priorityqueue.html`
+- [ ] 23. `Design Patterns` — Builder: Constructing Complex Objects Step by Step → `2-design-patterns/builder-constructing-complex-objects-step-by-s.html`
+- [ ] 24. `SQL Server Optimization` — Implicit Conversions: The Silent Scan Generator → `3-sql-optimization/implicit-conversions-the-silent-scan-generator.html`
+- [ ] 25. `System Design` — Load Balancing: Algorithms and Health → `4-system-design/load-balancing-algorithms-and-health.html`
+- [ ] 26. `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`
+- [ ] 27. `Data Structures & Algorithms` — Two Pointers: O(n²) → O(n) → `1-dsa/two-pointers-o-n-o-n.html`
+- [ ] 28. `Design Patterns` — Singleton: The Pattern You Should Rarely Hand-Roll → `2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html`
+- [ ] 29. `SQL Server Optimization` — Statistics: What the Optimizer Actually Knows → `3-sql-optimization/statistics-what-the-optimizer-actually-knows.html`
+- [ ] 30. `System Design` — CDNs and Static Content Strategy → `4-system-design/cdns-and-static-content-strategy.html`
+- [ ] 31. `Frontend Engineering` — Angular Change Detection: Zone.js and OnPush → `5-frontend/angular-change-detection-zone-js-and-onpush.html`
+- [ ] 32. `Data Structures & Algorithms` — Binary Search: Beyond Finding an Element → `1-dsa/binary-search-beyond-finding-an-element.html`
+- [ ] 33. `Design Patterns` — Adapter: Making Incompatible Interfaces Fit → `2-design-patterns/adapter-making-incompatible-interfaces-fit.html`
+- [ ] 34. `SQL Server Optimization` — Join Operators: Nested Loops, Hash, Merge → `3-sql-optimization/join-operators-nested-loops-hash-merge.html`
+- [ ] 35. `System Design` — Database Replication: Read Replicas and Failover → `4-system-design/database-replication-read-replicas-and-failove.html`
+- [ ] 36. `Frontend Engineering` — Angular Signals: Fine-Grained Reactivity → `5-frontend/angular-signals-fine-grained-reactivity.html`
+- [ ] 37. `Data Structures & Algorithms` — Recursion: Base Case, Progress, Trust → `1-dsa/recursion-base-case-progress-trust.html`
+- [ ] 38. `Design Patterns` — Facade: One Simple Door to a Complex Subsystem → `2-design-patterns/facade-one-simple-door-to-a-complex-subsystem.html`
+- [ ] 39. `SQL Server Optimization` — Key Lookups at Scale & the Tipping Point → `3-sql-optimization/key-lookups-at-scale-the-tipping-point.html`
+- [ ] 40. `System Design` — CAP Theorem and Consistency Models → `4-system-design/cap-theorem-and-consistency-models.html`
+- [ ] 41. `Frontend Engineering` — Subjects and Multicasting: Sharing One Execution → `5-frontend/subjects-and-multicasting-sharing-one-executio.html`
+- [ ] 42. `Data Structures & Algorithms` — HashSet and Set Operations → `1-dsa/hashset-and-set-operations.html`
+- [ ] 43. `Design Patterns` — Options Pattern: Configuration Done Right → `2-design-patterns/options-pattern-configuration-done-right.html`
+- [ ] 44. `SQL Server Optimization` — Paging Done Right: OFFSET, Keyset, and COUNT → `3-sql-optimization/paging-done-right-offset-keyset-and-count.html`
+- [ ] 45. `System Design` — Message Queues: Decoupling with Async Work → `4-system-design/message-queues-decoupling-with-async-work.html`
+- [ ] 46. `Frontend Engineering` — Subscription Leaks and Lifecycle: takeUntilDestroyed → `5-frontend/subscription-leaks-and-lifecycle-takeuntildest.html`
+- [ ] 47. `Data Structures & Algorithms` — Trees: Terminology and Recursive Thinking → `1-dsa/trees-terminology-and-recursive-thinking.html`
+- [ ] 48. `Design Patterns` — SOLID III: Liskov Substitution Principle → `2-design-patterns/solid-iii-liskov-substitution-principle.html`
+- [ ] 49. `SQL Server Optimization` — Isolation Levels: What Locks Are Held When → `3-sql-optimization/isolation-levels-what-locks-are-held-when.html`
+- [ ] 50. `System Design` — Pub/Sub and Event-Driven Architecture → `4-system-design/pub-sub-and-event-driven-architecture.html`
+- [ ] 51. `Frontend Engineering` — Angular Dependency Injection: Providers and Hierarchy → `5-frontend/angular-dependency-injection-providers-and-hie.html`
+- [ ] 52. `Data Structures & Algorithms` — Sliding Window: Substrings and Subarrays in O(n) → `1-dsa/sliding-window-substrings-and-subarrays-in-o-n.html`
+- [ ] 53. `Design Patterns` — SOLID V: Dependency Inversion Principle → `2-design-patterns/solid-v-dependency-inversion-principle.html`
+- [ ] 54. `SQL Server Optimization` — Blocking and Locking: Diagnosis First Aid → `3-sql-optimization/blocking-and-locking-diagnosis-first-aid.html`
+- [ ] 55. `System Design` — Idempotency: Surviving Retries Everywhere → `4-system-design/idempotency-surviving-retries-everywhere.html`
+- [ ] 56. `Frontend Engineering` — Lazy Loading and Route-Level Code Splitting → `5-frontend/lazy-loading-and-route-level-code-splitting.html`
+- [ ] 57. `Data Structures & Algorithms` — Sorting I: What O(n log n) Buys You → `1-dsa/sorting-i-what-o-n-log-n-buys-you.html`
+- [ ] 58. `Design Patterns` — Abstract Factory: Families of Related Objects → `2-design-patterns/abstract-factory-families-of-related-objects.html`
+- [ ] 59. `SQL Server Optimization` — Query Store: Your Performance Flight Recorder → `3-sql-optimization/query-store-your-performance-flight-recorder.html`
+- [ ] 60. `System Design` — Rate Limiting and Backpressure → `4-system-design/rate-limiting-and-backpressure.html`
+- [ ] 61. `Frontend Engineering` — Reactive Forms: Typed, Validated, Composable → `5-frontend/reactive-forms-typed-validated-composable.html`
+- [ ] 62. `Data Structures & Algorithms` — Sorting II: QuickSort and Partitioning → `1-dsa/sorting-ii-quicksort-and-partitioning.html`
+- [ ] 63. `Design Patterns` — Prototype: Cloning Objects → `2-design-patterns/prototype-cloning-objects.html`
+- [ ] 64. `SQL Server Optimization` — Missing Index DMVs: Free Advice, Read Critically → `3-sql-optimization/missing-index-dmvs-free-advice-read-critically.html`
+- [ ] 65. `System Design` — API Design: Contracts, Versioning, Pagination → `4-system-design/api-design-contracts-versioning-pagination.html`
+- [ ] 66. `Frontend Engineering` — Component Architecture: Smart/Dumb and Communication → `5-frontend/component-architecture-smart-dumb-and-communic.html`
+- [ ] 67. `Data Structures & Algorithms` — Sorting III: MergeSort and the Merge Pattern → `1-dsa/sorting-iii-mergesort-and-the-merge-pattern.html`
+- [ ] 68. `Design Patterns` — Decorator: Layering Behavior Transparently → `2-design-patterns/decorator-layering-behavior-transparently.html`
+- [ ] 69. `SQL Server Optimization` — EF Core Performance I: Killing N+1 and Over-Fetching → `3-sql-optimization/ef-core-performance-i-killing-n-1-and-over-fet.html`
+- [ ] 70. `System Design` — Monolith vs Microservices: The Real Trade → `4-system-design/monolith-vs-microservices-the-real-trade.html`
+- [ ] 71. `Frontend Engineering` — HTTP Interceptors and API Layer Patterns → `5-frontend/http-interceptors-and-api-layer-patterns.html`
+- [ ] 72. `Data Structures & Algorithms` — Binary Search Trees: Ordered Data, O(log n) Ops → `1-dsa/binary-search-trees-ordered-data-o-log-n-ops.html`
+- [ ] 73. `Design Patterns` — Proxy: A Stand-In That Controls Access → `2-design-patterns/proxy-a-stand-in-that-controls-access.html`
+- [ ] 74. `SQL Server Optimization` — Index Maintenance and Fill Factor: What Still Matters → `3-sql-optimization/index-maintenance-and-fill-factor-what-still-m.html`
+- [ ] 75. `System Design` — API Gateways and BFF → `4-system-design/api-gateways-and-bff.html`
+- [ ] 76. `Frontend Engineering` — Rendering Lists: @for, trackBy, and Virtual Scrolling → `5-frontend/rendering-lists-for-trackby-and-virtual-scroll.html`
+- [ ] 77. `Data Structures & Algorithms` — Tree Traversals: Pre-, In-, Post-Order DFS → `1-dsa/tree-traversals-pre-in-post-order-dfs.html`
+- [ ] 78. `Design Patterns` — Composite: Treating Trees Uniformly → `2-design-patterns/composite-treating-trees-uniformly.html`
+- [ ] 79. `SQL Server Optimization` — Memory & the Buffer Pool: Why Cold Queries Are Slow → `3-sql-optimization/memory-the-buffer-pool-why-cold-queries-are-sl.html`
+- [ ] 80. `System Design` — Observability: Logs, Metrics, Traces → `4-system-design/observability-logs-metrics-traces.html`
+- [ ] 81. `Frontend Engineering` — CSS Grid: Two-Dimensional Layout → `5-frontend/css-grid-two-dimensional-layout.html`
+- [ ] 82. `Data Structures & Algorithms` — BFS and Level-Order Traversal → `1-dsa/bfs-and-level-order-traversal.html`
+- [ ] 83. `Design Patterns` — Observer: Publish/Subscribe in Process → `2-design-patterns/observer-publish-subscribe-in-process.html`
+- [ ] 84. `SQL Server Optimization` — TVPs and Set-Based Thinking: Stop Calling SQL in Loops → `3-sql-optimization/tvps-and-set-based-thinking-stop-calling-sql-i.html`
+- [ ] 85. `System Design` — Deployments: Zero Downtime and Rollback → `4-system-design/deployments-zero-downtime-and-rollback.html`
+- [ ] 86. `Frontend Engineering` — The Cascade: Specificity, Custom Properties, Layers → `5-frontend/the-cascade-specificity-custom-properties-laye.html`
+- [ ] 87. `Data Structures & Algorithms` — Heaps: PriorityQueue Internals and Top-K → `1-dsa/heaps-priorityqueue-internals-and-top-k.html`
+- [ ] 88. `Design Patterns` — Mediator & MediatR: Hub-and-Spoke Communication → `2-design-patterns/mediator-mediatr-hub-and-spoke-communication.html`
+- [ ] 89. `SQL Server Optimization` — A Query Tuning Methodology: The Checklist → `3-sql-optimization/a-query-tuning-methodology-the-checklist.html`
+- [ ] 90. `System Design` — Real-Time: WebSockets, SignalR, and Alternatives → `4-system-design/real-time-websockets-signalr-and-alternatives.html`
+- [ ] 91. `Frontend Engineering` — Responsive Design: Container Queries and Fluid Sizing → `5-frontend/responsive-design-container-queries-and-fluid.html`
+- [ ] 92. `Data Structures & Algorithms` — Graphs: Modeling and Representations → `1-dsa/graphs-modeling-and-representations.html`
+- [ ] 93. `Design Patterns` — Command: Requests as Objects → `2-design-patterns/command-requests-as-objects.html`
+- [ ] 94. `SQL Server Optimization` — Parameter Sniffing: One Plan, Many Parameter Values → `3-sql-optimization/parameter-sniffing-one-plan-many-parameter-val.html`
+- [ ] 95. `System Design` — Full-Text Search and Search Architecture → `4-system-design/full-text-search-and-search-architecture.html`
+- [ ] 96. `Frontend Engineering` — Browser Rendering: Reflow, Repaint, Compositing → `5-frontend/browser-rendering-reflow-repaint-compositing.html`
+- [ ] 97. `Data Structures & Algorithms` — Graph DFS: Reachability, Cycles, Components → `1-dsa/graph-dfs-reachability-cycles-components.html`
+- [ ] 98. `Design Patterns` — Template Method: Fixed Skeleton, Variable Steps → `2-design-patterns/template-method-fixed-skeleton-variable-steps.html`
+- [ ] 99. `SQL Server Optimization` — RCSI and Snapshot: Readers Stop Blocking Writers → `3-sql-optimization/rcsi-and-snapshot-readers-stop-blocking-writer.html`
+- [ ] 100. `System Design` — File Storage: Object Stores, Uploads, and Signed URLs → `4-system-design/file-storage-object-stores-uploads-and-signed.html`
+- [ ] 101. `Frontend Engineering` — Core Web Vitals: Measuring What Users Feel → `5-frontend/core-web-vitals-measuring-what-users-feel.html`
+- [ ] 102. `Data Structures & Algorithms` — Graph BFS: Shortest Paths and Degrees of Separation → `1-dsa/graph-bfs-shortest-paths-and-degrees-of-separa.html`
+- [ ] 103. `Design Patterns` — Chain of Responsibility: The Middleware Pattern → `2-design-patterns/chain-of-responsibility-the-middleware-pattern.html`
+- [ ] 104. `SQL Server Optimization` — Deadlocks: Reading the Graph, Breaking the Cycle → `3-sql-optimization/deadlocks-reading-the-graph-breaking-the-cycle.html`
+- [ ] 105. `System Design` — Back-of-Envelope Estimation → `4-system-design/back-of-envelope-estimation.html`
+- [ ] 106. `Frontend Engineering` — Frontend Security: XSS, Sanitization, CSP → `5-frontend/frontend-security-xss-sanitization-csp.html`
+- [ ] 107. `Data Structures & Algorithms` — Prefix Sums: Precompute Once, Answer Instantly → `1-dsa/prefix-sums-precompute-once-answer-instantly.html`
+- [ ] 108. `Design Patterns` — Iterator & IEnumerable: Lazy Sequences → `2-design-patterns/iterator-ienumerable-lazy-sequences.html`
+- [ ] 109. `SQL Server Optimization` — tempdb, Sorts, and Spills: The Hidden Workhorse → `3-sql-optimization/tempdb-sorts-and-spills-the-hidden-workhorse.html`
+- [ ] 110. `System Design` — Authentication at Scale: JWT, Sessions, OAuth → `4-system-design/authentication-at-scale-jwt-sessions-oauth.html`
+- [ ] 111. `Frontend Engineering` — Angular Testing: Components, Harnesses, and What to Test → `5-frontend/angular-testing-components-harnesses-and-what.html`
+- [ ] 112. `Data Structures & Algorithms` — Choosing the Right Data Structure: A Decision Framework → `1-dsa/choosing-the-right-data-structure-a-decision-f.html`
+- [ ] 113. `Design Patterns` — Repository & Unit of Work: Use, Misuse, and EF Core → `2-design-patterns/repository-unit-of-work-use-misuse-and-ef-core.html`
+- [ ] 114. `SQL Server Optimization` — Wait Statistics: What Is SQL Server Waiting For? → `3-sql-optimization/wait-statistics-what-is-sql-server-waiting-for.html`
+- [ ] 115. `System Design` — The System Design Interview Method → `4-system-design/the-system-design-interview-method.html`
+- [ ] 116. `Frontend Engineering` — Bundle Anatomy: Tree Shaking, Budgets, Dependency Diet → `5-frontend/bundle-anatomy-tree-shaking-budgets-dependency.html`
+- [ ] 117. `Data Structures & Algorithms` — Topological Sort: Dependency Ordering → `1-dsa/topological-sort-dependency-ordering.html`
+- [ ] 118. `Design Patterns` — Null Object & Result Patterns: Taming Absence and Failure → `2-design-patterns/null-object-result-patterns-taming-absence-and.html`
+- [ ] 119. `SQL Server Optimization` — Columnstore Indexes: Analytics at 10-100x → `3-sql-optimization/columnstore-indexes-analytics-at-10-100x.html`
+- [ ] 120. `System Design` — Sharding: Splitting Data Across Databases → `4-system-design/sharding-splitting-data-across-databases.html`
+- [ ] 121. `Frontend Engineering` — Accessibility: The Engineering Basics → `5-frontend/accessibility-the-engineering-basics.html`
+- [ ] 122. `Data Structures & Algorithms` — Dijkstra: Shortest Paths with Weights → `1-dsa/dijkstra-shortest-paths-with-weights.html`
+- [ ] 123. `Design Patterns` — Pattern Selection: Smells → Patterns Cheat Sheet → `2-design-patterns/pattern-selection-smells-patterns-cheat-sheet.html`
+- [ ] 124. `SQL Server Optimization` — EF Core Performance II: SaveChanges, Bulk Ops, Compiled Queries → `3-sql-optimization/ef-core-performance-ii-savechanges-bulk-ops-co.html`
+- [ ] 125. `System Design` — The Outbox Pattern: Reliable Events with Your Database → `4-system-design/the-outbox-pattern-reliable-events-with-your-d.html`
+- [ ] 126. `Frontend Engineering` — State Management: Signals Stores vs NgRx → `5-frontend/state-management-signals-stores-vs-ngrx.html`
+- [ ] 127. `Data Structures & Algorithms` — Backtracking: Systematic Trial and Error → `1-dsa/backtracking-systematic-trial-and-error.html`
+- [ ] 128. `Design Patterns` — Bridge & Flyweight: Two Structural Specialists → `2-design-patterns/bridge-flyweight-two-structural-specialists.html`
+- [ ] 129. `SQL Server Optimization` — Transaction Log and Batching Large Modifications → `3-sql-optimization/transaction-log-and-batching-large-modificatio.html`
+- [ ] 130. `System Design` — Distributed Transactions and Sagas → `4-system-design/distributed-transactions-and-sagas.html`
+- [ ] 131. `Frontend Engineering` — PWA and Offline: Service Workers in Practice → `5-frontend/pwa-and-offline-service-workers-in-practice.html`
+- [ ] 132. `Data Structures & Algorithms` — Dynamic Programming I: Memoization → `1-dsa/dynamic-programming-i-memoization.html`
+- [ ] 133. `Design Patterns` — State: Behavior That Changes with Status → `2-design-patterns/state-behavior-that-changes-with-status.html`
+- [ ] 134. `SQL Server Optimization` — Computed Columns and Indexed Views → `3-sql-optimization/computed-columns-and-indexed-views.html`
+- [ ] 135. `System Design` — Case Study: Design a URL Shortener → `4-system-design/case-study-design-a-url-shortener.html`
+- [ ] 136. `Frontend Engineering` — SSR and Hydration: When the Server Renders Angular → `5-frontend/ssr-and-hydration-when-the-server-renders-angu.html`
+- [ ] 137. `Data Structures & Algorithms` — Dynamic Programming II: Tabulation and Classic Problems → `1-dsa/dynamic-programming-ii-tabulation-and-classic.html`
+- [ ] 138. `Design Patterns` — Memento & Visitor: Snapshots and Double Dispatch → `2-design-patterns/memento-visitor-snapshots-and-double-dispatch.html`
+- [ ] 139. `SQL Server Optimization` — Table Partitioning: Managing Big Tables by Slices → `3-sql-optimization/table-partitioning-managing-big-tables-by-slic.html`
+- [ ] 140. `System Design` — Case Study: Design a Chat System → `4-system-design/case-study-design-a-chat-system.html`
+- [ ] 141. `Frontend Engineering` — Frontend Architecture: Feature Folders, Boundaries, Scale → `5-frontend/frontend-architecture-feature-folders-boundari.html`
+- [ ] 142. `Data Structures & Algorithms` — Union-Find: Dynamic Connectivity → `1-dsa/union-find-dynamic-connectivity.html`
+- [ ] 143. `Design Patterns` — CQRS: Separate Read and Write Models → `2-design-patterns/cqrs-separate-read-and-write-models.html`
+- [ ] 144. `SQL Server Optimization` — Filtered Indexes and Index Strategy Review → `3-sql-optimization/filtered-indexes-and-index-strategy-review.html`
+- [ ] 145. `System Design` — Case Study: Design a News Feed → `4-system-design/case-study-design-a-news-feed.html`
+- [ ] 146. `Design Patterns` — Resilience Patterns: Retry, Circuit Breaker, Timeout → `2-design-patterns/resilience-patterns-retry-circuit-breaker-time.html`
+- [ ] 147. `SQL Server Optimization` — Concurrency Control in Apps: Optimistic vs Pessimistic → `3-sql-optimization/concurrency-control-in-apps-optimistic-vs-pess.html`
+- [ ] 148. `System Design` — Designing for Failure: Timeouts, Bulkheads, Chaos → `4-system-design/designing-for-failure-timeouts-bulkheads-chaos.html`
