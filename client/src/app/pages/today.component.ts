@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MarkdownComponent } from 'ngx-markdown';
 import { ApiService } from '../core/api.service';
@@ -6,10 +7,17 @@ import { CompletionResult, Today } from '../core/models';
 
 @Component({
   selector: 'app-today',
-  imports: [MarkdownComponent],
+  imports: [MarkdownComponent, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (today(); as t) {
+      @if (t.carriedFromDate) {
+        <div class="card carried">
+          🔁 <strong>Carried over from {{ t.carriedFromDate | date: 'EEE, MMM d' }}</strong> —
+          you paused here, nothing was skipped.
+        </div>
+      }
+
       <div class="lesson-header">
         <span class="badge" [style.background]="t.item.topicColor + '33'" [style.color]="t.item.topicColor">
           {{ t.item.topicIcon }} {{ t.item.topicName }}
@@ -97,6 +105,11 @@ import { CompletionResult, Today } from '../core/models';
     }
   `,
   styles: `
+    .carried {
+      margin-bottom: 16px;
+      border-left: 4px solid var(--warning);
+    }
+
     .lesson-header {
       display: flex;
       align-items: center;

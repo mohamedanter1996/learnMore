@@ -37,6 +37,8 @@ export interface Today {
   status: 'pending' | 'completed';
   completedAt: string | null;
   item: LearningItem;
+  /** Set when this lesson was carried over from a day that was missed. */
+  carriedFromDate: string | null;
 }
 
 export interface TopicItemRow {

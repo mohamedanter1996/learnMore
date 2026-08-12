@@ -45,6 +45,7 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 ## How the daily engine works
 
 - `GET /api/today` creates today's assignment if missing: topics rotate round-robin (least recently assigned first), items unlock easiest-difficulty-first within the topic.
+- Miss a day and the ladder pauses instead of skipping: the oldest unfinished lesson is carried forward and becomes today's lesson (`CarriedFromDate` on the new row, old row flipped to `Missed`). One lesson per day, so a backlog drains oldest-first. A missed day still breaks the streak and still shows as `missed` on the calendar — the lesson is protected, the metric isn't.
 - Completing = answering the lesson's quiz correctly (`POST /api/today/complete`). Wrong answers show the correct one + explanation — resubmit to complete.
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.

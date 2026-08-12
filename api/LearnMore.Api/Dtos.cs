@@ -13,7 +13,9 @@ public record ItemDto(
     int TopicId, string TopicName, string TopicColor, string TopicIcon,
     List<QuizDto> Quiz);
 
-public record TodayDto(int AssignmentId, DateOnly Date, string Status, DateTime? CompletedAt, ItemDto Item);
+public record TodayDto(
+    int AssignmentId, DateOnly Date, string Status, DateTime? CompletedAt, ItemDto Item,
+    DateOnly? CarriedFromDate);
 
 public record TopicItemRowDto(int Id, string Title, int Difficulty, int EstimatedMinutes, string Status);
 
@@ -45,6 +47,6 @@ public static class Mapping
     {
         var completed = a.Status == AssignmentStatus.Completed;
         return new TodayDto(a.Id, a.Date, completed ? "completed" : "pending", a.CompletedAt,
-            a.LearningItem.ToItemDto(revealAnswers: completed));
+            a.LearningItem.ToItemDto(revealAnswers: completed), a.CarriedFromDate);
     }
 }

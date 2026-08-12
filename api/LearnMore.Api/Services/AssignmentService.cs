@@ -10,7 +10,9 @@ public class AssignmentService(AppDbContext db)
 
     /// <summary>
     /// Returns today's assignment, creating one if it doesn't exist yet.
-    /// Topic selection is round-robin (least recently assigned topic first);
+    /// A lesson left unfinished on an earlier day is carried forward instead of being skipped:
+    /// the ladder pauses there until it is completed (oldest unfinished day first).
+    /// Otherwise topic selection is round-robin (least recently assigned topic first);
     /// item selection is the lowest unseen difficulty tier within that topic.
     /// </summary>
     public async Task<DailyAssignment> GetOrCreateTodayAsync()
@@ -22,8 +24,31 @@ public class AssignmentService(AppDbContext db)
             .FirstOrDefaultAsync(a => a.Date == today);
         if (existing is not null) return existing;
 
-        var item = await PickNextItemAsync();
-        var assignment = new DailyAssignment { Date = today, LearningItemId = item.Id };
+        // A missed day keeps its row (as Missed, so history stays honest) and hands its lesson to today.
+        var stale = await db.DailyAssignments
+            .Where(a => a.Date < today && a.Status == AssignmentStatus.Pending)
+            .OrderBy(a => a.Date)
+            .FirstOrDefaultAsync();
+
+        int itemId;
+        DateOnly? carriedFrom = null;
+        if (stale is not null)
+        {
+            itemId = stale.LearningItemId;
+            carriedFrom = stale.CarriedFromDate ?? stale.Date; // survives repeated roll-forwards
+            stale.Status = AssignmentStatus.Missed;
+        }
+        else
+        {
+            itemId = (await PickNextItemAsync()).Id;
+        }
+
+        var assignment = new DailyAssignment
+        {
+            Date = today,
+            LearningItemId = itemId,
+            CarriedFromDate = carriedFrom
+        };
         db.DailyAssignments.Add(assignment);
         await db.SaveChangesAsync();
 

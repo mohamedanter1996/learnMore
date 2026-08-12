@@ -15,7 +15,11 @@ import { ApiService } from '../core/api.service';
       <div class="card today-card" [style.border-left]="'4px solid ' + t.item.topicColor">
         <div class="today-info">
           <div class="text-dim">
-            Today's lesson · {{ t.date | date: 'EEEE, MMM d' }}
+            @if (t.carriedFromDate) {
+              🔁 Picking up where you stopped · from {{ t.carriedFromDate | date: 'EEE, MMM d' }}
+            } @else {
+              Today's lesson · {{ t.date | date: 'EEEE, MMM d' }}
+            }
           </div>
           <h2>{{ t.item.topicIcon }} {{ t.item.title }}</h2>
           <div class="meta">

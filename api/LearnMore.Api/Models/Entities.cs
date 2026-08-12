@@ -39,7 +39,9 @@ public class QuizQuestion
 public enum AssignmentStatus
 {
     Pending = 0,
-    Completed = 1
+    Completed = 1,
+    /// <summary>Day went by unfinished; the lesson was carried forward to a later day.</summary>
+    Missed = 2
 }
 
 public class DailyAssignment
@@ -50,6 +52,8 @@ public class DailyAssignment
     public LearningItem LearningItem { get; set; } = null!;
     public AssignmentStatus Status { get; set; } = AssignmentStatus.Pending;
     public DateTime? CompletedAt { get; set; }
+    /// <summary>Date this lesson was first served, when it was carried over from a missed day.</summary>
+    public DateOnly? CarriedFromDate { get; set; }
 }
 
 public class UserStats
