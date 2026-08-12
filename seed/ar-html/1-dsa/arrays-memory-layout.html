@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arrays: Memory Layout and Why Cache Matters — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .mem { display: flex; flex-direction: row-reverse; gap: 14px; min-width: 620px; }
+  .line { border: 1px dashed var(--border); border-radius: 8px; padding: 8px; }
+  .line-label { color: var(--text-dim); font-size: 12px; margin-bottom: 6px; text-align: center; }
+  .cells { display: grid; grid-template-columns: repeat(8, 30px); gap: 4px; direction: ltr; }
+  .cell {
+    height: 30px; border-radius: 5px; background: var(--surface-2); color: var(--text-dim);
+    font-size: 11px; display: flex; align-items: center; justify-content: center;
+    font-family: Consolas, monospace; transition: background .25s, color .25s, transform .18s;
+  }
+  .line.loaded { border-color: var(--primary); border-style: solid; }
+  .line.loaded .cell { background: #14384d; color: #bae6fd; }
+  .cell.hit { background: var(--success); color: #06281c; transform: scale(1.12); }
+  .cell.miss { background: var(--danger); color: #2b0a0a; transform: scale(1.12); }
+  .counters { display: flex; gap: 18px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .ram-flash { animation: pulse .5s ease; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(56,189,248,.6); } 100% { box-shadow: 0 0 0 16px rgba(56,189,248,0); } }
+
+  .bus { width: 100%; height: 150px; }
+  .packet { animation: travel 2.6s ease-in-out infinite; }
+  @keyframes travel {
+    0%   { transform: translateX(0); opacity: 0; }
+    10%  { opacity: 1; }
+    45%  { transform: translateX(150px); opacity: 1; }
+    55%  { transform: translateX(150px); opacity: 1; }
+    90%  { transform: translateX(300px); opacity: 1; }
+    100% { transform: translateX(300px); opacity: 0; }
+  }
+  .paused .packet { animation-play-state: paused; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures & Algorithms · درس مصري مفصّل</div>
+  <h1>الـ Array مش مجرد قايمة — دي حتة ذاكرة ورا بعضها</h1>
+  <div class="en">Arrays: Memory Layout and Why Cache Matters</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    تخيل عندك تقرير بيلف على مليون <code>Order</code> ويجمع المبيعات. كتبته بـ <code>List&lt;T&gt;</code>
+    فخلص في ٨ ملي ثانية. زميلك كتب نفس الكود بالظبط بـ <code>LinkedList&lt;T&gt;</code> فخلص في ١٢٠ ملي ثانية.
+    نفس عدد العمليات، نفس الـ Big-O يعني O(n)، والفرق <b>١٥ ضعف</b>.
+  </p>
+  <div class="callout info">
+    الفرق مش في عدد الخطوات — الفرق في <strong>مكان الداتا في الذاكرة</strong>. الـ CPU بيقرا الرام
+    على دفعات، مش بايت بايت. لو داتاك ورا بعضها بتاخد الدفعة كلها شغل مفيد، ولو مبعترة بترمي ٩٠٪ من كل دفعة.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تحسّن الـ Big-O وتستغرب ليه الكود لسه بطيء، وهتختار
+    <code>LinkedList</code> أو <code>List&lt;object&gt;</code> في مكان غلط، وهتقع في مصيدة الـ
+    <span class="mono">O(n²)</span> المخفية من غير ما تعرف السبب الحقيقي.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الـ CPU مش بيكلّم الرام مباشرة</h2></div>
+  <div class="stage" id="busStage">
+    <svg class="bus" viewBox="0 0 460 150" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="45" width="90" height="60" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="55" y="72" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Segoe UI">CPU</text>
+      <text x="55" y="92" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~1 ns</text>
+
+      <rect x="160" y="45" width="90" height="60" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="205" y="72" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Segoe UI">Cache</text>
+      <text x="205" y="92" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~4 ns</text>
+
+      <rect x="310" y="45" width="130" height="60" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="375" y="72" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Segoe UI">RAM</text>
+      <text x="375" y="92" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~80 ns</text>
+
+      <line x1="100" y1="75" x2="160" y2="75" stroke="#334155" stroke-width="2"/>
+      <line x1="250" y1="75" x2="310" y2="75" stroke="#334155" stroke-width="2"/>
+
+      <g class="packet">
+        <rect x="104" y="62" width="52" height="26" rx="6" fill="#38bdf8"/>
+        <text x="130" y="80" fill="#0c2431" font-size="11" text-anchor="middle" font-family="Segoe UI">64 بايت</text>
+      </g>
+
+      <text x="230" y="132" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        أي طلب من الرام بيرجع سطر كامل (cache line) = 64 بايت = 16 int
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="busToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    يعني لما تطلب <code>arr[0]</code> الجهاز مبيجبش ٤ بايت، بيجيب <b>٦٤ بايت</b> ورا بعضها ويحطهم في الكاش.
+    لو الـ ٦٠ بايت اللي جم معاهم هما اللي هتحتاجهم بعد كده — إنت كسبان مجاناً. ده اسمه
+    <b>locality of reference</b>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة على الذاكرة نفسها</h2></div>
+
+  <div class="stage">
+    <div class="mem" id="mem"></div>
+    <div class="counters">
+      <span>❌ Misses (رحلة للرام): <b id="misses">0</b></span>
+      <span>✅ Hits (من الكاش): <b id="hits">0</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> لسه في الرام</span>
+      <span><i class="swatch" style="background:#14384d"></i> اتحمّل في الكاش</span>
+      <span><i class="swatch" style="background:#34d399"></i> hit</span>
+      <span><i class="swatch" style="background:#f87171"></i> miss</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn ghost" id="runSeq">▶ شغّل مرور متتابع (0,1,2,…)</button>
+    <button class="btn ghost" id="runRand">▶ شغّل مرور مبعتر</button>
+    <button class="btn ghost" id="reset">↺ إعادة</button>
+  </div>
+  <p class="note">
+    جرّب الاتنين وبصّ على عداد الـ Misses. نفس عدد القراءات بالظبط — والفرق في عدد الرحلات للرام.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. لفّة على مصفوفة ثنائية: صف بصف مقابل عمود بعمود</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ صف بصف</strong> — بيمشي مع اتجاه الذاكرة</div>
+<pre><code><span class="k">for</span> (<span class="k">int</span> r = 0; r &lt; 4096; r++)
+  <span class="k">for</span> (<span class="k">int</span> c = 0; c &lt; 4096; c++)
+      sum += m[r, c];   <span class="c">// ~45 ms</span></code></pre>
+    </div>
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ عمود بعمود</strong> — كل قفزة سطر كاش جديد</div>
+<pre><code><span class="k">for</span> (<span class="k">int</span> c = 0; c &lt; 4096; c++)
+  <span class="k">for</span> (<span class="k">int</span> r = 0; r &lt; 4096; r++)
+      sum += m[r, c];   <span class="c">// ~430 ms</span></code></pre>
+    </div>
+  </div>
+  <p class="note">نفس الـ 16 مليون عملية جمع. الفرق كله إن التاني بيرمي 15 من كل 16 int بيجيبهم.</p>
+
+  <h3>ب. <code>List&lt;T&gt;</code> مقابل <code>LinkedList&lt;T&gt;</code></h3>
+<pre><code><span class="c">// List&lt;int&gt;: العناصر ورا بعضها في array واحد جوّه</span>
+<span class="k">long</span> sum = 0;
+<span class="k">foreach</span> (<span class="k">var</span> x <span class="k">in</span> list) sum += x;        <span class="c">// 10M عنصر ≈ 8 ms</span>
+
+<span class="c">// LinkedList&lt;int&gt;: كل node في مكان لوحده + pointer للي بعده</span>
+<span class="k">foreach</span> (<span class="k">var</span> x <span class="k">in</span> linked) sum += x;      <span class="c">// نفس العدد ≈ 120 ms</span></code></pre>
+  <div class="callout">
+    <strong>القاعدة العملية:</strong> <code>LinkedList</code> بتكسب بس لو بتضيف/تحذف من النص
+    <b>وإنت ماسك الـ node بالفعل</b>. غير كده <code>List&lt;T&gt;</code> بتكسب حتى في الإدخال، لأن نسخ
+    بلوك متصل في الذاكرة أرخص من ملاحقة pointers مبعترة.
+  </div>
+
+  <h3>ج. حتة مهمة جداً في .NET: class مقابل struct</h3>
+<pre><code><span class="c">// Point class → الـ array بيخزن مراجع، والأجسام نفسها مبعترة في الـ heap</span>
+<span class="k">class</span> PointC { <span class="k">public</span> <span class="k">double</span> X, Y; }
+PointC[] a = ...;   <span class="c">// كل a[i].X = قفزة لمكان تاني في الذاكرة</span>
+
+<span class="c">// Point struct → القيم نفسها متخزنة جوّه الـ array ورا بعضها</span>
+<span class="k">struct</span> PointS { <span class="k">public</span> <span class="k">double</span> X, Y; }
+PointS[] b = ...;   <span class="c">// مرور متتابع حقيقي، أسرع بمراحل في اللفّات الكبيرة</span></code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«الـ LinkedList أسرع في الإضافة»</b> — الإضافة نفسها O(1) بس الوصول للمكان O(n)، وكل node
+      قفزة في الذاكرة. في ٩٠٪ من الحالات <code>List&lt;T&gt;</code> أسرع فعلياً.</li>
+    <li><b>لفّ على الأعمدة بدل الصفوف</b> في المصفوفات والصور والمصفوفات الرياضية — أبطأ ١٠ أضعاف من غير سبب.</li>
+    <li><b>array من classes صغيرة</b> (زي نقطة أو لون) بدل struct — بتحوّل مرور متتابع لمرور مبعتر.</li>
+    <li><b>الحكم بالـ Big-O بس.</b> O(n) على داتا متصلة ممكن تكسب O(log n) على شجرة مبعترة لما n صغيرة أو متوسطة.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. عندك <code>int[1000]</code> وقريت <code>arr[0]</code> بس. كام عنصر بقى في الكاش تقريباً؟</div>
+    <button class="opt">عنصر واحد</button>
+    <button class="opt">١٦ عنصر (سطر كاش كامل ٦٤ بايت)</button>
+    <button class="opt">الألف عنصر كلهم</button>
+    <div class="feedback">سطر الكاش ٦٤ بايت، والـ int ٤ بايت → 64 ÷ 4 = ١٦ عنصر بيجوا في رحلة واحدة.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إمتى فعلاً تختار <code>LinkedList&lt;T&gt;</code>؟</div>
+    <button class="opt">لما أعمل إضافات كتير في آخر القايمة</button>
+    <button class="opt">لما أعمل بحث كتير</button>
+    <button class="opt">لما أشيل/أضيف في النص وأنا ماسك الـ node نفسه</button>
+    <div class="feedback">ده الموقف الوحيد اللي بتكسب فيه: عندك مرجع للـ node، فالحذف/الإضافة O(1) من غير أي إزاحة.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ array = بلوك ذاكرة متصل، فـ <code>arr[i]</code> حساب عنوان بسيط = O(1) حقيقي.</li>
+    <li>الجهاز بيقرا <b>٦٤ بايت</b> في المرة. امشي مع اتجاه الذاكرة تاخد الدفعة كلها شغل مفيد.</li>
+    <li>Big-O بيقولك شكل النمو، والـ memory layout بيقولك الثابت المخفي — والاتنين بيفرقوا في الإنتاج.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- bus animation toggle
+  var busStage = document.getElementById('busStage');
+  var busToggle = document.getElementById('busToggle');
+  busToggle.addEventListener('click', function () {
+    var paused = busStage.classList.toggle('paused');
+    busToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- memory grid
+  var LINES = 2, PER_LINE = 16;
+  var mem = document.getElementById('mem');
+  var cells = [];
+  for (var l = 0; l < LINES; l++) {
+    var line = document.createElement('div');
+    line.className = 'line';
+    line.id = 'line' + l;
+    var label = document.createElement('div');
+    label.className = 'line-label';
+    label.textContent = 'cache line ' + l + ' — بايت ' + (l * 64) + '..' + (l * 64 + 63);
+    var cs = document.createElement('div');
+    cs.className = 'cells';
+    for (var i = 0; i < PER_LINE; i++) {
+      var idx = l * PER_LINE + i;
+      var cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.textContent = idx;
+      cs.appendChild(cell);
+      cells[idx] = cell;
+    }
+    line.appendChild(label);
+    line.appendChild(cs);
+    mem.appendChild(line);
+  }
+
+  var loaded = {}, hits = 0, misses = 0, timer = null;
+  var hitsEl = document.getElementById('hits'), missesEl = document.getElementById('misses');
+
+  function clearMarks() {
+    cells.forEach(function (c) { c.classList.remove('hit', 'miss'); });
+  }
+  function reset() {
+    if (timer) { clearInterval(timer); timer = null; }
+    loaded = {}; hits = 0; misses = 0;
+    hitsEl.textContent = '0'; missesEl.textContent = '0';
+    clearMarks();
+    for (var l = 0; l < LINES; l++) document.getElementById('line' + l).classList.remove('loaded');
+  }
+  function access(idx) {
+    clearMarks();
+    var lineNo = Math.floor(idx / PER_LINE);
+    if (loaded[lineNo]) {
+      hits++; cells[idx].classList.add('hit');
+    } else {
+      loaded[lineNo] = true;
+      misses++;
+      cells[idx].classList.add('miss');
+      var el = document.getElementById('line' + lineNo);
+      el.classList.add('loaded', 'ram-flash');
+      setTimeout(function () { el.classList.remove('ram-flash'); }, 500);
+    }
+    hitsEl.textContent = hits; missesEl.textContent = misses;
+  }
+  function run(order) {
+    reset();
+    var i = 0;
+    timer = setInterval(function () {
+      if (i >= order.length) { clearInterval(timer); timer = null; return; }
+      access(order[i++]);
+    }, 220);
+  }
+
+  var seq = [], rnd = [];
+  for (var i = 0; i < LINES * PER_LINE; i++) seq.push(i);
+  rnd = seq.slice();
+  // ترتيب مبعتر ثابت: كل قراءة في سطر تاني عن اللي قبلها
+  rnd.sort(function (a, b) { return (a % 2) - (b % 2) || b - a; });
+
+  document.getElementById('runSeq').addEventListener('click', function () { run(seq); });
+  document.getElementById('runRand').addEventListener('click', function () {
+    var jumpy = [];
+    for (var k = 0; k < PER_LINE; k++) { jumpy.push(k); jumpy.push(k + PER_LINE); }
+    run(jumpy);
+  });
+  document.getElementById('reset').addEventListener('click', reset);
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    { text: 'البداية: الـ array في الرام، والكاش فاضي. أي قراءة دلوقتي = رحلة كاملة للرام (~80 ns).', run: function () { reset(); } },
+    { text: 'الكود طلب arr[0]. مفيش حاجة في الكاش → miss، والجهاز بيجيب السطر كله (16 int) مرة واحدة.', run: function () { reset(); access(0); } },
+    { text: 'arr[1] موجود أصلاً في نفس السطر → hit، أسرع ٢٠ مرة، من غير أي رحلة للرام.', run: function () { access(1); } },
+    { text: 'arr[2] .. arr[15] كلهم hits. رحلة واحدة للرام خدمت ١٦ قراءة.', run: function () { for (var i = 2; i < 16; i++) access(i); } },
+    { text: 'arr[16] بيبدأ سطر جديد → miss واحدة كمان، وبعدها ١٥ hit تاني. ده شكل المرور المتتابع.', run: function () { access(16); } },
+    { text: 'لو كنت بتقفز (0 ثم 16 ثم 1 ثم 17…) كل قفزة ممكن تبقى سطر جديد → misses على طول. نفس عدد القراءات، وقت أطول بكتير.', run: function () { reset(); access(0); access(16); } }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    if (timer) { clearInterval(timer); timer = null; }
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح
+    reset();
+    for (var i = 0; i <= step; i++) steps[i].run();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

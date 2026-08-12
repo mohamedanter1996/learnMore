@@ -16,6 +16,11 @@ export class ApiService {
     return this.http.get<Today>(`${BASE}/today`);
   }
 
+  /** Rich Arabic explanation page (standalone HTML, loaded straight into an iframe). */
+  explanationHtmlUrl(itemId: number) {
+    return `${BASE}/items/${itemId}/ar-html`;
+  }
+
   completeToday(answers: { questionId: number; selectedIndex: number }[]) {
     return this.http.post<CompletionResult>(`${BASE}/today/complete`, { answers });
   }

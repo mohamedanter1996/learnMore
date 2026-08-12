@@ -4,10 +4,11 @@ import { MarkdownComponent } from 'ngx-markdown';
 import { ApiService } from '../core/api.service';
 import { PrefsService } from '../core/prefs.service';
 import { CompletionResult, Today } from '../core/models';
+import { ArabicExplanationComponent } from '../shared/arabic-explanation.component';
 
 @Component({
   selector: 'app-today',
-  imports: [MarkdownComponent, DatePipe],
+  imports: [MarkdownComponent, DatePipe, ArabicExplanationComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (today(); as t) {
@@ -26,9 +27,9 @@ import { CompletionResult, Today } from '../core/models';
         @if (t.status === 'completed') {
           <span class="badge done-badge">✅ Completed</span>
         }
-        @if (t.item.explanationArabic) {
+        @if (t.item.explanationArabic || t.item.hasArabicHtml) {
           <button class="btn btn-ghost arabic-toggle" (click)="prefs.toggleArabic()">
-            {{ prefs.showArabic() ? 'إخفاء الشرح' : '🇪🇬 اشرح بالمصري' }}
+            {{ prefs.showArabic() ? 'إخفاء الشرح' : (t.item.hasArabicHtml ? '🇪🇬 اشرح بالمصري 🎬' : '🇪🇬 اشرح بالمصري') }}
           </button>
         }
       </div>
@@ -37,11 +38,10 @@ import { CompletionResult, Today } from '../core/models';
         <markdown [data]="t.item.bodyMarkdown" />
       </div>
 
-      @if (t.item.explanationArabic && prefs.showArabic()) {
-        <div class="card arabic-panel" dir="rtl" lang="ar">
-          <h3>🇪🇬 الشرح بالمصري</h3>
-          <markdown [data]="t.item.explanationArabic" />
-        </div>
+      @if (prefs.showArabic() && (t.item.hasArabicHtml || t.item.explanationArabic)) {
+        <app-arabic-explanation
+          [itemId]="t.item.id" [rich]="t.item.hasArabicHtml"
+          [fallbackMarkdown]="t.item.explanationArabic" />
       }
 
       @if (t.item.practiceTask) {

@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Arrays: Memory Layout and Why Cache Matters",
+      "file": "1-dsa/arrays-memory-layout.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "SOLID II: Open/Closed Principle",
+      "file": "2-design-patterns/solid-open-closed.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Clustered Indexes: The Table IS the Index",
+      "file": "3-sql-optimization/clustered-indexes.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Strings, Immutability and StringBuilder",
+      "file": "1-dsa/strings-immutability-stringbuilder.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Hash Tables: How Dictionary<TKey,TValue> Works",
+      "file": "1-dsa/hash-tables-dictionary.html"
+    }
+  ]
+}

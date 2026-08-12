@@ -50,6 +50,15 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.
 
+## Rich Egyptian-Arabic explanations (v1.6)
+
+The 🇪🇬 button shows one of two things per lesson:
+
+- **A rich animated page** — a standalone HTML file under `seed/ar-html/`, listed in `seed/ar-html/index.json` by `topic` + `title`, served by `GET /api/items/{id}/ar-html` and rendered in a sandboxed `<iframe>` (`allow-scripts`). Angular's sanitizer would strip the page's `<style>`/`<script>`, hence the iframe. The page reports its own height over `postMessage({type:'lm-ar-height'})` so the frame never scrolls internally, and a "افتح في نافذة" button opens it as its own Electron window.
+- **The markdown fallback** — `ExplanationArabic` from `seed/ar/*.json`, for every lesson that doesn't have a page yet.
+
+`RichExplanationService` loads the index once at startup (no DB table, same pattern as `CourseCatalogService`) and `ItemDto.HasArabicHtml` tells the UI which of the two to render. Pages share `seed/ar-html/_shared/lesson.css`, served at `GET /api/ar-html/shared.css`; each page also links it by relative path so it renders when opened straight from disk. To add a lesson: drop an HTML file in the topic folder and add one entry to `index.json` — no code change, no migration.
+
 ## Live tech news (v1.3 / v1.3.1)
 
 **v1.3.1:** the curated "Guides" section is now evergreen (topic labels, no version/date chips that go stale), and each technology has an always-current **"📖 Official What's New →"** link to the official docs hub (learn.microsoft.com/dotnet/core/whats-new, blog.angular.dev, etc.).

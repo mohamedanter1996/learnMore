@@ -16,6 +16,7 @@ builder.Services.AddScoped<AssessmentService>();
 builder.Services.AddScoped<StudyPlanService>();
 builder.Services.AddScoped<CoursePlanService>();
 builder.Services.AddSingleton<CourseCatalogService>();
+builder.Services.AddSingleton<RichExplanationService>();
 builder.Services.AddSingleton<WhatsNewService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<LiveFeedService>();
@@ -60,8 +61,12 @@ using (var scope = app.Services.CreateScope())
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
-app.MapGet("/api/today", async (AssignmentService svc) =>
-    (await svc.GetOrCreateTodayAsync()).ToTodayDto());
+app.MapGet("/api/today", async (AssignmentService svc, RichExplanationService rich) =>
+{
+    var assignment = await svc.GetOrCreateTodayAsync();
+    var item = assignment.LearningItem;
+    return assignment.ToTodayDto(rich.Has(item.Topic.Name, item.Title));
+});
 
 app.MapPost("/api/today/complete", async (CompleteRequestDto req, AssignmentService svc) =>
 {
@@ -97,7 +102,7 @@ app.MapGet("/api/topics/{id:int}/items", async (int id, AppDbContext db) =>
     return Results.Ok(rows);
 });
 
-app.MapGet("/api/items/{id:int}", async (int id, AppDbContext db) =>
+app.MapGet("/api/items/{id:int}", async (int id, AppDbContext db, RichExplanationService rich) =>
 {
     var item = await db.LearningItems
         .Include(i => i.Topic).Include(i => i.Quiz)
@@ -113,7 +118,32 @@ app.MapGet("/api/items/{id:int}", async (int id, AppDbContext db) =>
     if (!completed && !isToday)
         return Results.StatusCode(StatusCodes.Status403Forbidden); // locked until assigned
 
-    return Results.Ok(item.ToItemDto(revealAnswers: completed));
+    return Results.Ok(item.ToItemDto(
+        revealAnswers: completed,
+        hasArabicHtml: rich.Has(item.Topic.Name, item.Title)));
+});
+
+// The rich Arabic explanation is a standalone animated page loaded into an iframe;
+// Angular's sanitizer would strip its <style>/<script>, so it never goes through the DTO.
+app.MapGet("/api/items/{id:int}/ar-html", async (int id, AppDbContext db, RichExplanationService rich) =>
+{
+    var item = await db.LearningItems.Include(i => i.Topic).FirstOrDefaultAsync(i => i.Id == id);
+    if (item is null) return Results.NotFound();
+
+    var today = AssignmentService.Today;
+    var allowed = await db.DailyAssignments.AnyAsync(a => a.LearningItemId == id
+        && (a.Status == AssignmentStatus.Completed || a.Date == today));
+    if (!allowed) return Results.StatusCode(StatusCodes.Status403Forbidden); // same lock as the lesson
+
+    var path = rich.ResolvePath(item.Topic.Name, item.Title);
+    return path is null ? Results.NotFound() : Results.File(path, "text/html; charset=utf-8");
+});
+
+// Shared stylesheet for those pages, so each one stays small and they all look the same.
+app.MapGet("/api/ar-html/shared.css", (RichExplanationService rich) =>
+{
+    var css = rich.SharedCssPath();
+    return css is null ? Results.NotFound() : Results.File(css, "text/css; charset=utf-8");
 });
 
 app.MapGet("/api/stats", async (AppDbContext db) =>

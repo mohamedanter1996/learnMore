@@ -5,11 +5,12 @@ import { map, switchMap } from 'rxjs';
 import { MarkdownComponent } from 'ngx-markdown';
 import { ApiService } from '../core/api.service';
 import { PrefsService } from '../core/prefs.service';
+import { ArabicExplanationComponent } from '../shared/arabic-explanation.component';
 
 /** Read-only view of a previously completed lesson (answers revealed). */
 @Component({
   selector: 'app-item',
-  imports: [RouterLink, MarkdownComponent],
+  imports: [RouterLink, MarkdownComponent, ArabicExplanationComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (item(); as it) {
@@ -20,9 +21,9 @@ import { PrefsService } from '../core/prefs.service';
           {{ it.topicIcon }} {{ it.topicName }}
         </span>
         <span class="text-dim">⏱ ~{{ it.estimatedMinutes }} min · {{ '★'.repeat(it.difficulty) }}</span>
-        @if (it.explanationArabic) {
+        @if (it.explanationArabic || it.hasArabicHtml) {
           <button class="btn btn-ghost arabic-toggle" (click)="prefs.toggleArabic()">
-            {{ prefs.showArabic() ? 'إخفاء الشرح' : '🇪🇬 اشرح بالمصري' }}
+            {{ prefs.showArabic() ? 'إخفاء الشرح' : (it.hasArabicHtml ? '🇪🇬 اشرح بالمصري 🎬' : '🇪🇬 اشرح بالمصري') }}
           </button>
         }
       </div>
@@ -31,11 +32,10 @@ import { PrefsService } from '../core/prefs.service';
         <markdown [data]="it.bodyMarkdown" />
       </div>
 
-      @if (it.explanationArabic && prefs.showArabic()) {
-        <div class="card arabic-panel" dir="rtl" lang="ar">
-          <h3>🇪🇬 الشرح بالمصري</h3>
-          <markdown [data]="it.explanationArabic" />
-        </div>
+      @if (prefs.showArabic() && (it.hasArabicHtml || it.explanationArabic)) {
+        <app-arabic-explanation
+          [itemId]="it.id" [rich]="it.hasArabicHtml"
+          [fallbackMarkdown]="it.explanationArabic" />
       }
 
       @if (it.practiceTask) {

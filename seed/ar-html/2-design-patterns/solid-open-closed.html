@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLID II: Open/Closed Principle — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+  .panel { background: #0b1220; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .panel h3 { margin-bottom: 8px; }
+  .panel.bad { border-top: 3px solid var(--danger); }
+  .panel.good { border-top: 3px solid var(--success); }
+
+  .switch-box { font-family: Consolas, monospace; direction: ltr; text-align: left; font-size: 13px; line-height: 1.75; }
+  .case-line {
+    background: rgba(248,113,113,.10); border-right: 3px solid var(--danger);
+    padding: 2px 8px; margin: 3px 0; border-radius: 4px;
+    animation: slide-in .45s ease;
+  }
+  @keyframes slide-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+  .plug-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .plug {
+    background: rgba(52,211,153,.12); border: 1px solid var(--success); color: #d1fae5;
+    border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: Consolas, monospace;
+    direction: ltr; animation: pop .45s ease;
+  }
+  @keyframes pop { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
+
+  .core {
+    border: 1px dashed var(--border); border-radius: 8px; padding: 10px;
+    font-family: Consolas, monospace; direction: ltr; text-align: left; font-size: 13px;
+  }
+  .core.locked { border-color: var(--success); }
+  .meter { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; margin-top: 10px; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--danger); transition: width .5s ease; }
+  .meter.ok > i { background: var(--success); }
+  .stat { display: flex; justify-content: space-between; font-size: 14px; margin-top: 8px; color: var(--text-dim); }
+  .stat b { font-family: Consolas, monospace; color: var(--text); }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🏗️ Design Patterns · درس مصري مفصّل</div>
+  <h1>مفتوح للإضافة، مقفول للتعديل — يعني إيه بالظبط؟</h1>
+  <div class="en">SOLID II: Open/Closed Principle</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>PaymentService</code> فيه <code>switch</code> على نوع الدفع: فيزا، فودافون كاش، أمازون باي.
+    جه المنتج قال «ضيف انستاباي». إنت هتفتح نفس الملف اللي شغال في الإنتاج من سنتين، تزوّد
+    <code>case</code>، وتعمل ديبلوي. يعني عشان تضيف حاجة <b>جديدة</b>، لمست كود <b>قديم</b> شغال وسليم.
+  </p>
+  <div class="callout info">
+    مبدأ الـ OCP بيقول: الكود لازم يبقى <strong>مفتوح للإضافة</strong> (أقدر أضيف سلوك جديد)
+    و<strong>مقفول للتعديل</strong> (من غير ما أفتح الكود القديم المتستيست). الوسيلة:
+    abstraction + polymorphism بدل <code>switch</code> بيكبر للأبد.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> كل feature جديدة = رجوع لنفس الملف، ريجرشن في حاجات مالهاش علاقة،
+    merge conflicts دايمة، وملف واحد بيبقى ٨٠٠ سطر ومحدش عايز يقربله.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>شوف الفرق بعينك</h2></div>
+  <p class="note">دوس «أضف طريقة دفع» كذا مرة، وبصّ على العداد بتاع «تعديلات في كود قديم» في الناحيتين.</p>
+
+  <div class="controls">
+    <button class="btn" id="addBtn">➕ أضف طريقة دفع جديدة</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+
+  <div class="compare">
+    <div class="panel bad">
+      <h3>❌ من غير OCP — <code>switch</code></h3>
+      <div class="switch-box" id="switchBox">
+        <div>switch (type) {</div>
+        <div id="cases"></div>
+        <div>}</div>
+      </div>
+      <div class="meter"><i id="riskBar"></i></div>
+      <div class="stat"><span>تعديلات في كود قديم</span><b id="editsBad">0</b></div>
+      <div class="stat"><span>ملفات محتاجة إعادة اختبار</span><b id="testBad">1</b></div>
+    </div>
+
+    <div class="panel good">
+      <h3>✅ مع OCP — استراتيجيات</h3>
+      <div class="core locked" id="core">
+        IPaymentHandler h = resolve(type);<br>h.Pay(amount);
+        <div style="color:#34d399;font-size:12px">— الملف ده مبيتفتحش تاني</div>
+      </div>
+      <div class="plug-row" id="plugs"></div>
+      <div class="meter ok"><i id="okBar" style="width:100%"></i></div>
+      <div class="stat"><span>تعديلات في كود قديم</span><b id="editsGood">0</b></div>
+      <div class="stat"><span>ملفات جديدة (بس)</span><b id="filesGood">0</b></div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إزاي تحوّل الـ switch</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 5</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <pre id="stepCode"></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي بـ ASP.NET Core</h2></div>
+<pre><code><span class="c">// 1) العقد</span>
+<span class="k">public interface</span> IPaymentHandler {
+    <span class="k">string</span> Method { <span class="k">get</span>; }               <span class="c">// "visa" | "vodafone-cash" | ...</span>
+    Task&lt;PaymentResult&gt; PayAsync(Order o);
+}
+
+<span class="c">// 2) كل طريقة في ملف لوحدها — إضافة، مش تعديل</span>
+<span class="k">public class</span> VisaHandler : IPaymentHandler {
+    <span class="k">public string</span> Method =&gt; <span class="s">"visa"</span>;
+    <span class="k">public</span> Task&lt;PaymentResult&gt; PayAsync(Order o) =&gt; ...;
+}
+
+<span class="c">// 3) التسجيل مرة واحدة في Program.cs</span>
+builder.Services.AddScoped&lt;IPaymentHandler, VisaHandler&gt;();
+builder.Services.AddScoped&lt;IPaymentHandler, VodafoneCashHandler&gt;();
+
+<span class="c">// 4) الاختيار من غير أي switch</span>
+<span class="k">public class</span> PaymentService(IEnumerable&lt;IPaymentHandler&gt; handlers) {
+    <span class="k">public</span> Task&lt;PaymentResult&gt; PayAsync(Order o) {
+        <span class="k">var</span> h = handlers.FirstOrDefault(x =&gt; x.Method == o.Method)
+                ?? <span class="k">throw new</span> NotSupportedException(o.Method);
+        <span class="k">return</span> h.PayAsync(o);
+    }
+}</code></pre>
+  <div class="callout good">
+    <strong>انستاباي جديد؟</strong> ملف جديد <code>InstapayHandler.cs</code> + سطر تسجيل واحد.
+    <code>PaymentService</code> متفتحش، والتستات القديمة كلها فضلت خضرا.
+  </div>
+  <div class="callout info">
+    نفس الفكرة بتتكرر عندك في حتت كتير: قواعد الخصم، مصدّرات التقارير (PDF/Excel/CSV)،
+    قنوات الإشعارات (Email/SMS/Push)، وقواعد التحقق. أي <code>switch</code> بيكبر مع كل feature = مرشّح للتحويل.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>فهم المبدأ إنه «ممنوع تعديل أي كود»</b> — لأ. إصلاح باج تعديل طبيعي. المقصود: إضافة
+      <u>سلوك جديد</u> ماتحتاجش تفتح الكود القديم.</li>
+    <li><b>Interface لكل كلاس في المشروع</b> — تجريد من غير سبب بيزوّد التعقيد. طبّق OCP على المحاور
+      اللي فعلاً بتتغير كل شوية (طرق الدفع، قواعد التسعير).</li>
+    <li><b>نسيان التسجيل في الـ DI</b> — الكلاس الجديد متعرّفش لوحده. سطر <code>AddScoped</code> جزء من الحل
+      (أو <code>Scrutor</code> يسجّل كل اللي بيطبّق الواجهة أوتوماتيك).</li>
+    <li><b>switch واحد باقي في الـ factory</b> — ده مقبول ومتمركز في مكان واحد، لكن الأنضف
+      إن الـ DI هو اللي يجمّع كل الـ handlers.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. أضفت <code>InstapayHandler</code> جديد وسجلته في DI من غير ما تفتح <code>PaymentService</code>. ده إيه؟</div>
+    <button class="opt">كسر لمبدأ OCP</button>
+    <button class="opt">تطبيق صح لـ OCP: مفتوح للإضافة، مقفول للتعديل</button>
+    <button class="opt">مالوش علاقة بـ OCP</button>
+    <div class="feedback">سلوك جديد اتضاف من غير ما الكود القديم المتستيست يتفتح — ده جوهر المبدأ.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إمتى الـ <code>switch</code> يفضل مقبول؟</div>
+    <button class="opt">دايماً، الـ switch أسرع</button>
+    <button class="opt">أبداً، ممنوع نهائي</button>
+    <button class="opt">لما الحالات ثابتة ومش بتزيد، أو متمركزة في factory واحدة</button>
+    <div class="feedback">المبدأ مش حرب على الكلمة المفتاحية. لو الحالات مش بتكبر، الـ switch أبسط وأوضح.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>لو كل feature جديدة بتخليك تفتح نفس الملف — إنت بتكسر OCP.</li>
+    <li>الحل: واجهة + كلاس لكل حالة + الـ DI يجمّعهم، بدل <code>switch</code> بيكبر.</li>
+    <li>طبّقه على المحاور اللي بتتغير فعلاً، مش على كل كلاس — التجريد الزيادة تعقيد مش تصميم.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- switch vs strategy demo
+  var methods = ['visa', 'vodafone-cash', 'amazon-pay', 'instapay', 'meeza', 'paypal', 'fawry'];
+  var added = 0;
+  var cases = document.getElementById('cases');
+  var plugs = document.getElementById('plugs');
+  var editsBad = document.getElementById('editsBad');
+  var testBad = document.getElementById('testBad');
+  var editsGood = document.getElementById('editsGood');
+  var filesGood = document.getElementById('filesGood');
+  var riskBar = document.getElementById('riskBar');
+
+  function seed() {
+    cases.innerHTML = '';
+    plugs.innerHTML = '';
+    added = 0;
+    for (var i = 0; i < 3; i++) addOne(true);
+    editsBad.textContent = '0';
+    testBad.textContent = '1';
+    editsGood.textContent = '0';
+    filesGood.textContent = '3';
+    riskBar.style.width = '15%';
+  }
+  function addOne(initial) {
+    var name = methods[added % methods.length];
+    added++;
+    var line = document.createElement('div');
+    line.className = 'case-line';
+    line.textContent = 'case "' + name + '": PayWith' + name.replace(/-/g, '') + '(amount); break;';
+    cases.appendChild(line);
+
+    var plug = document.createElement('div');
+    plug.className = 'plug';
+    plug.textContent = name + 'Handler.cs';
+    plugs.appendChild(plug);
+
+    if (!initial) {
+      var edits = added - 3;
+      editsBad.textContent = edits;
+      testBad.textContent = 1 + edits;      // نفس الملف الكبير بيتعاد اختباره كل مرة
+      editsGood.textContent = '0';
+      filesGood.textContent = added;
+      riskBar.style.width = Math.min(15 + edits * 18, 100) + '%';
+    }
+  }
+  document.getElementById('addBtn').addEventListener('click', function () { addOne(false); postHeight(); });
+  document.getElementById('resetBtn').addEventListener('click', function () { seed(); postHeight(); });
+  seed();
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      t: 'البداية: كل المنطق جوّه switch واحد. كل نوع دفع جديد = تعديل في نفس الميثود.',
+      c: 'if (type == "visa") PayVisa(a);\nelse if (type == "vodafone-cash") PayVodafone(a);\nelse if (type == "amazon-pay") PayAmazon(a);'
+    },
+    {
+      t: 'الخطوة ١: حدّد المحور اللي بيتغيّر. هنا هو «طريقة الدفع» — استخرج منه عقد (واجهة).',
+      c: 'public interface IPaymentHandler {\n    string Method { get; }\n    Task<PaymentResult> PayAsync(Order o);\n}'
+    },
+    {
+      t: 'الخطوة ٢: انقل كل فرع لكلاس مستقل. الكود اتنقل زي ما هو، مفيش منطق جديد.',
+      c: 'public class VisaHandler : IPaymentHandler {\n    public string Method => "visa";\n    public Task<PaymentResult> PayAsync(Order o) => ...;\n}'
+    },
+    {
+      t: 'الخطوة ٣: سجّل الكل في الـ DI. ده المكان الوحيد اللي بيعرف مين موجود.',
+      c: 'builder.Services.AddScoped<IPaymentHandler, VisaHandler>();\nbuilder.Services.AddScoped<IPaymentHandler, VodafoneCashHandler>();'
+    },
+    {
+      t: 'الخطوة ٤: الخدمة بقت تختار بالـ polymorphism. من دلوقتي أي طريقة جديدة = ملف + سطر تسجيل، والملف ده مقفول.',
+      c: 'public PaymentService(IEnumerable<IPaymentHandler> handlers) { ... }\n\nvar h = handlers.First(x => x.Method == o.Method);\nreturn h.PayAsync(o);'
+    }
+  ];
+  var step = 0;
+  var box = document.getElementById('stepBox'), code = document.getElementById('stepCode');
+  var label = document.getElementById('stepLabel');
+  var prev = document.getElementById('prev'), next = document.getElementById('next');
+  function render() {
+    box.textContent = steps[step].t;
+    code.textContent = steps[step].c;
+    label.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prev.disabled = step === 0;
+    next.disabled = step === steps.length - 1;
+  }
+  prev.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  next.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

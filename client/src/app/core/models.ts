@@ -29,6 +29,8 @@ export interface LearningItem {
   topicColor: string;
   topicIcon: string;
   quiz: QuizQuestion[];
+  /** True when the lesson ships a rich animated Arabic page (seed/ar-html). */
+  hasArabicHtml: boolean;
 }
 
 export interface Today {

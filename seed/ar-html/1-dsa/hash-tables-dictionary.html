@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hash Tables: How Dictionary&lt;TKey,TValue&gt; Works — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .buckets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; direction: ltr; }
+  .bucket {
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px; min-height: 66px;
+    background: var(--surface-2); transition: border-color .25s, background .25s;
+  }
+  .bucket .bi { font-family: Consolas, monospace; font-size: 11px; color: #64748b; }
+  .bucket.hit { border-color: var(--primary); background: #14384d; }
+  .bucket.collide { border-color: var(--warning); }
+  .entry {
+    font-family: Consolas, monospace; font-size: 11px; border-radius: 5px; padding: 3px 6px;
+    margin-top: 4px; background: rgba(52,211,153,.14); border: 1px solid var(--success); color: #d1fae5;
+    animation: pop .3s ease;
+  }
+  .entry.chained { background: rgba(251,191,36,.14); border-color: var(--warning); color: #fde68a; }
+  .entry.found { animation: flash .8s ease; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes flash { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.35); } }
+
+  .pipeline { display: flex; flex-direction: row-reverse; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pbox {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: #0b1220;
+    font-family: Consolas, monospace; font-size: 13px; direction: ltr; color: var(--text-dim);
+    transition: all .3s ease;
+  }
+  .pbox.on { border-color: var(--primary); color: #bae6fd; background: #14384d; }
+  .arrow { color: var(--text-dim); }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures & Algorithms · درس مصري مفصّل</div>
+  <h1>الـ Dictionary بيلاقي المفتاح في خطوة واحدة — إزاي؟</h1>
+  <div class="en">Hash Tables: How Dictionary&lt;TKey,TValue&gt; Works</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك ٥٠ ألف <code>Order</code> و٥٠ ألف <code>Payment</code>، وعايز تطابقهم. لو كتبتها كده:
+    <code>payments.FirstOrDefault(p =&gt; p.OrderId == o.Id)</code> جوّه لوپ على الأوردرات — إنت عملت
+    <b>٢.٥ مليار</b> مقارنة. نفس الشغل بـ <code>Dictionary</code> بيخلص في أقل من ثانية.
+  </p>
+  <div class="callout info">
+    الفكرة: بدل ما ندوّر عنصر عنصر، بنحسب من المفتاح نفسه <strong>رقم</strong> (hash) بيقولنا
+    <strong>مكانه على طول</strong>. الوصول بقى O(1) في المتوسط بدل O(n).
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتكتب O(n²) وإنت فاكرها لوپ عادية، وهتستخدم كلاس كمفتاح من غير
+    <code>Equals/GetHashCode</code> فالبحث يرجع فاضي «من غير سبب».
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>المسار كامل: من المفتاح للمكان</h2></div>
+
+  <div class="stage">
+    <div class="pipeline">
+      <div class="pbox" id="p1">key: <span id="pKey">—</span></div>
+      <span class="arrow">←</span>
+      <div class="pbox" id="p2">GetHashCode() = <span id="pHash">—</span></div>
+      <span class="arrow">←</span>
+      <div class="pbox" id="p3">hash % <span id="pSize">7</span> = <span id="pIdx">—</span></div>
+      <span class="arrow">←</span>
+      <div class="pbox" id="p4">bucket[<span id="pIdx2">—</span>]</div>
+    </div>
+
+    <div class="buckets" id="buckets"></div>
+
+    <div class="counters">
+      <span>🔑 عدد العناصر: <b id="count">0</b></span>
+      <span>🪣 عدد الـ buckets: <b id="size">7</b></span>
+      <span>💥 تصادمات: <b id="collisions">0</b></span>
+      <span>🔁 عمليات resize: <b id="resizes">0</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:rgba(52,211,153,.5)"></i> عنصر</span>
+      <span><i class="swatch" style="background:rgba(251,191,36,.5)"></i> عنصر في سلسلة تصادم</span>
+      <span><i class="swatch" style="background:#14384d"></i> الـ bucket المستهدف</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="addBtn">➕ ضيف مفتاح</button>
+    <button class="btn ghost" id="findBtn">🔎 دوّر على مفتاح موجود</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+  <p class="note">
+    ضيف كذا مفتاح لحد ما الـ buckets تمتلي — هتشوف الـ resize بيحصل لوحده وكل العناصر بتتوزّع من جديد.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+<pre><code><span class="c">// ❌ O(n²) مخفي — 50k × 50k = 2.5 مليار مقارنة</span>
+<span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders) {
+    <span class="k">var</span> p = payments.FirstOrDefault(x =&gt; x.OrderId == o.Id);
+    ...
+}
+
+<span class="c">// ✅ فهرسة مرة واحدة → بحث O(1)</span>
+<span class="k">var</span> byOrder = payments.ToDictionary(x =&gt; x.OrderId);   <span class="c">// مرة واحدة O(n)</span>
+<span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders) {
+    <span class="k">if</span> (byOrder.TryGetValue(o.Id, <span class="k">out var</span> p)) ...      <span class="c">// بحث واحد بس</span>
+}</code></pre>
+
+  <h3>المفتاح المخصص: العقد اللي لازم تحترمه</h3>
+<pre><code><span class="c">// ✅ record: Equals + GetHashCode بيتولدوا صح أوتوماتيك</span>
+<span class="k">public record</span> ProductKey(<span class="k">int</span> WarehouseId, <span class="k">string</span> Sku);
+
+<span class="c">// ❌ class عادي: المقارنة بالمرجع → مش هتلاقي المفتاح أبداً</span>
+<span class="k">public class</span> BadKey { <span class="k">public int</span> Id; }
+dict[<span class="k">new</span> BadKey { Id = 5 }] = ...;
+dict[<span class="k">new</span> BadKey { Id = 5 }];   <span class="c">// KeyNotFoundException — مرجع مختلف</span></code></pre>
+
+  <div class="callout good">
+    <strong>القاعدة:</strong> مفتاحين متساويين لازم يدّوا <u>نفس</u> الـ hash. والمفتاح لازم يبقى
+    <b>ثابت</b> بعد ما تحطه — لو غيّرت قيمة داخلة في الـ hash، العنصر بيضيع جوّه الـ dictionary.
+  </div>
+
+<pre><code><span class="c">// مقارنة نصوص من غير حساسية لحالة الحروف — من غير أي تخصيص زيادة</span>
+<span class="k">var</span> byName = <span class="k">new</span> Dictionary&lt;<span class="k">string</span>, User&gt;(StringComparer.OrdinalIgnoreCase);
+
+<span class="c">// ❌ بحثين على نفس المفتاح</span>
+<span class="k">if</span> (dict.ContainsKey(k)) { <span class="k">var</span> v = dict[k]; ... }
+<span class="c">// ✅ بحث واحد</span>
+<span class="k">if</span> (dict.TryGetValue(k, <span class="k">out var</span> v)) { ... }</code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>تعديل المفتاح بعد الإضافة</b> — الـ hash بيتغير فالعنصر يبقى في bucket غلط ومبيتلاقاش.</li>
+    <li><b>كلاس كمفتاح من غير <code>Equals</code>/<code>GetHashCode</code></b> — المقارنة بالمرجع. استخدم
+      <code>record</code> أو نفّذهم بنفسك.</li>
+    <li><b>hash ضعيف</b> (مثلاً بيرجع رقم ثابت) — كل العناصر في bucket واحد، والبحث يرجع O(n).</li>
+    <li><b><code>ContainsKey</code> وبعدها الـ indexer</b> — بحثين بدل واحد. <code>TryGetValue</code> أنضف وأسرع.</li>
+    <li><b>الاعتماد على ترتيب العناصر</b> — الـ Dictionary مالوش ترتيب مضمون؛ لو محتاج ترتيب استخدم
+      <code>SortedDictionary</code> أو رتّب وقت العرض.</li>
+    <li><b>نسيان السعة الابتدائية</b> — <code>new Dictionary&lt;K,V&gt;(expectedCount)</code> بيمنع عمليات resize متكررة.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. مفتاحين مختلفين طلعوا نفس رقم الـ bucket. إيه اللي بيحصل؟</div>
+    <button class="opt">واحد فيهم بيتشال</button>
+    <button class="opt">الاتنين بيتخزنوا في نفس الـ bucket كسلسلة، والمقارنة بـ Equals بتفرّق بينهم</button>
+    <button class="opt">الـ Dictionary بيرمي استثناء</button>
+    <div class="feedback">ده اسمه collision — طبيعي جداً. الـ hash بيحدد الـ bucket، والـ Equals هو اللي بيحسم المفتاح الصح.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. متى يتحوّل بحث الـ Dictionary لـ O(n)؟</div>
+    <button class="opt">لما عدد العناصر يزيد عن ١٠٠٠</button>
+    <button class="opt">لما تستخدم string كمفتاح</button>
+    <button class="opt">لما دالة الـ hash تبقى سيئة وكل المفاتيح تقع في نفس الـ bucket</button>
+    <div class="feedback">O(1) متوسط بيعتمد على توزيع كويس. hash ثابت أو ضعيف = سلسلة واحدة طويلة = بحث خطي.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ hash بيحوّل المفتاح لمكان مباشر: <code>hash % size</code> → bucket، فالوصول O(1) في المتوسط.</li>
+    <li>التصادم طبيعي: الـ bucket بيشيل سلسلة، والـ <code>Equals</code> بيحدد المفتاح الصح.</li>
+    <li>أي <code>Contains/FirstOrDefault</code> جوّه لوپ = فهرسه مرة واحدة في <code>Dictionary/HashSet</code> وخلاص.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- hash table model
+  var KEYS = ['"cairo"', '"giza"', '"alex"', '"luxor"', '"tanta"', '"aswan"', '"suez"', '"minya"',
+              '"faiyum"', '"qena"', '"sohag"', '"damietta"'];
+  var size = 7, entries = [], collisions = 0, resizes = 0, added = 0;
+  var bucketsEl = document.getElementById('buckets');
+  var countEl = document.getElementById('count'), sizeEl = document.getElementById('size');
+  var collEl = document.getElementById('collisions'), resEl = document.getElementById('resizes');
+  var pKey = document.getElementById('pKey'), pHash = document.getElementById('pHash');
+  var pIdx = document.getElementById('pIdx'), pIdx2 = document.getElementById('pIdx2'), pSize = document.getElementById('pSize');
+  var boxes = ['p1', 'p2', 'p3', 'p4'].map(function (id) { return document.getElementById(id); });
+
+  function hash(str) {                       // نسخة مبسطة من FNV — المهم إنها ثابتة وموزّعة
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return h % 1000;                         // نخليه رقم قصير عشان يتقرا
+  }
+  function draw(targetIdx, foundKey) {
+    bucketsEl.innerHTML = '';
+    for (var b = 0; b < size; b++) {
+      var inBucket = entries.filter(function (e) { return e.idx === b; });
+      var el = document.createElement('div');
+      el.className = 'bucket' + (b === targetIdx ? ' hit' : '') + (inBucket.length > 1 ? ' collide' : '');
+      var bi = document.createElement('div');
+      bi.className = 'bi';
+      bi.textContent = 'bucket[' + b + ']';
+      el.appendChild(bi);
+      inBucket.forEach(function (e, i) {
+        var en = document.createElement('div');
+        en.className = 'entry' + (i > 0 ? ' chained' : '') + (foundKey === e.key ? ' found' : '');
+        en.textContent = e.key + ' → ' + e.val;
+        el.appendChild(en);
+      });
+      bucketsEl.appendChild(el);
+    }
+    countEl.textContent = entries.length;
+    sizeEl.textContent = size;
+    pSize.textContent = size;
+    collEl.textContent = collisions;
+    resEl.textContent = resizes;
+  }
+  function lightPipeline(key, h, idx) {
+    pKey.textContent = key; pHash.textContent = h;
+    pIdx.textContent = idx; pIdx2.textContent = idx;
+    boxes.forEach(function (b) { b.classList.remove('on'); });
+    boxes.forEach(function (b, i) { setTimeout(function () { b.classList.add('on'); }, i * 260); });
+  }
+  function resize() {
+    resizes++;
+    size = size * 2 + 1;                     // .NET بيستخدم أعداد أولية؛ المهم إن الحجم بيكبر والكل بيتوزّع تاني
+    entries.forEach(function (e) { e.idx = hash(e.key) % size; });
+    recountCollisions();
+  }
+  function recountCollisions() {
+    collisions = 0;
+    var seen = {};
+    entries.forEach(function (e) {
+      if (seen[e.idx]) collisions++;
+      seen[e.idx] = true;
+    });
+  }
+  function add() {
+    if (added >= KEYS.length) return;
+    var key = KEYS[added++];
+    var h = hash(key), idx = h % size;
+    var collided = entries.some(function (e) { return e.idx === idx; });
+    if (collided) collisions++;
+    entries.push({ key: key, val: added, idx: idx });
+    if (entries.length >= size) resize();     // امتلأت → توسيع وإعادة توزيع
+    lightPipeline(key, h, hash(key) % size);
+    draw(hash(key) % size);
+    postHeight();
+  }
+  function find() {
+    if (!entries.length) return;
+    var e = entries[Math.floor(Math.random() * entries.length)];
+    var h = hash(e.key);
+    lightPipeline(e.key, h, e.idx);
+    draw(e.idx, e.key);
+  }
+  function reset() {
+    size = 7; entries = []; collisions = 0; resizes = 0; added = 0;
+    pKey.textContent = '—'; pHash.textContent = '—'; pIdx.textContent = '—'; pIdx2.textContent = '—';
+    boxes.forEach(function (b) { b.classList.remove('on'); });
+    draw(-1);
+  }
+  document.getElementById('addBtn').addEventListener('click', add);
+  document.getElementById('findBtn').addEventListener('click', find);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+  reset();
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    'عايزين نخزّن dict["cairo"] = 1. أول خطوة: الـ Dictionary بينادي GetHashCode() على المفتاح.',
+    'الـ hash رقم كبير ثابت للمفتاح ده. نفس المفتاح = نفس الرقم دايماً — ده شرط أساسي.',
+    'بنحوّل الرقم لمكان جوّه المصفوفة: hash % عدد الـ buckets. النتيجة = رقم الـ bucket.',
+    'الـ bucket فاضي؟ نحط العنصر على طول. عملية واحدة = O(1).',
+    'الـ bucket مشغول (تصادم)؟ العنصر بينضاف للسلسلة، والبحث بيقارن بـ Equals لحد ما يلاقي المفتاح الصح.',
+    'العناصر قربت تملى المصفوفة؟ الـ Dictionary بيكبّر الحجم وبيعيد توزيع الكل (rehash) — عملية غالية بتحصل نادراً، عشان كده بنحدد السعة الابتدائية لو عارفينها.'
+  ];
+  var step = 0;
+  var box = document.getElementById('stepBox'), label = document.getElementById('stepLabel');
+  var prev = document.getElementById('prev'), next = document.getElementById('next');
+  function render() {
+    box.textContent = steps[step];
+    label.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prev.disabled = step === 0;
+    next.disabled = step === steps.length - 1;
+  }
+  prev.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  next.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clustered Indexes: The Table IS the Index — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .tree { min-width: 640px; }
+  .level { display: flex; justify-content: center; gap: 10px; margin-bottom: 26px; position: relative; }
+  .node {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-family: Consolas, monospace; direction: ltr; font-size: 13px;
+    color: var(--text-dim); transition: all .3s ease; text-align: center; min-width: 92px;
+  }
+  .node .tag { display: block; font-size: 10px; color: #64748b; }
+  .node.active { background: #14384d; border-color: var(--primary); color: #bae6fd; transform: translateY(-3px); }
+  .node.found { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .node.scanned { background: rgba(248,113,113,.16); border-color: var(--danger); color: #fecaca; }
+  .level::after {
+    content: ''; position: absolute; left: 50%; bottom: -18px; width: 78%;
+    transform: translateX(-50%); border-top: 1px dashed var(--border);
+  }
+  .level:last-child::after { display: none; }
+  .lvl-name { color: var(--text-dim); font-size: 12px; text-align: center; margin-bottom: 6px; }
+  .counters { display: flex; gap: 22px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .split { display: flex; gap: 6px; flex-wrap: wrap; direction: ltr; }
+  .page {
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+    font-family: Consolas, monospace; font-size: 12px; background: var(--surface-2);
+  }
+  .page.full { border-color: var(--warning); color: #fde68a; }
+  .page.new { border-color: var(--success); color: #d1fae5; animation: pop .4s ease; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>الجدول <b>هو</b> الفهرس — يعني إيه clustered index؟</h1>
+  <div class="en">Clustered Indexes: The Table IS the Index</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك جدول <code>Orders</code> فيه ٥ مليون صف. استعلام بسيط
+    <code>WHERE OrderId = 4821993</code> بيرجع في ١ ملي ثانية، واستعلام تاني
+    <code>WHERE CustomerEmail = '...'</code> بياخد ٤ ثواني. نفس الجدول ونفس السيرفر.
+  </p>
+  <div class="callout info">
+    السبب: الـ <strong>clustered index</strong> مش نسخة جنب الجدول — <strong>هو الجدول نفسه</strong>
+    مترتّب على شكل شجرة (B-tree) بعمود المفتاح. الأوراق (leaf pages) بتاعة الشجرة دي هي صفحات
+    البيانات الحقيقية. عشان كده الجدول ميقدرش يكون ليه غير clustered index واحد بس.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتختار GUID عشوائي كمفتاح clustered فتموّت الإدخال بالـ page splits،
+    وهتستغرب ليه استعلام على عمود من غير فهرس بيقرا عشرات الآلاف من الصفحات.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الشجرة على الطبيعة — جرّب بنفسك</h2></div>
+  <p class="note">
+    دوس على أي ID عشان تشوف الـ seek (٣ قراءات بس)، وبعدين دوس «scan» عشان تشوف الفرق لما مفيش فهرس مناسب.
+  </p>
+
+  <div class="stage">
+    <div class="tree">
+      <div class="lvl-name">Root page — أعلى الشجرة</div>
+      <div class="level" id="lvl0"></div>
+      <div class="lvl-name">Intermediate pages — بتقول تروح فين</div>
+      <div class="level" id="lvl1"></div>
+      <div class="lvl-name">Leaf pages = صفحات البيانات نفسها (الصفوف كاملة)</div>
+      <div class="level" id="lvl2"></div>
+    </div>
+    <div class="counters">
+      <span>📄 Logical reads: <b id="reads">0</b></span>
+      <span>🎯 الوضع: <b id="mode">—</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" data-seek="120">🔎 دوّر على Id = 120</button>
+    <button class="btn" data-seek="640">🔎 دوّر على Id = 640</button>
+    <button class="btn ghost" id="scanBtn">🐌 Scan (من غير فهرس مناسب)</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة داخل الـ seek</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 5</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: اقرا الأرقام بنفسك</h2></div>
+<pre><code>SET STATISTICS IO ON;
+
+<span class="c">-- 1) على المفتاح الـ clustered → seek</span>
+SELECT * FROM Orders WHERE OrderId = 4821993;
+<span class="c">-- Table 'Orders'. logical reads 3        ← ارتفاع الشجرة بس</span>
+
+<span class="c">-- 2) على عمود من غير فهرس → scan للجدول كله</span>
+SELECT * FROM Orders WHERE CustomerEmail = <span class="s">'a@b.com'</span>;
+<span class="c">-- Table 'Orders'. logical reads 41,882   ← كل صفحات الجدول</span></code></pre>
+
+  <h3>اختيار المفتاح الـ clustered — الفرق في الإدخال</h3>
+  <div class="stage">
+    <div class="controls">
+      <button class="btn ghost" id="insertSeq">➕ إدخال بـ INT IDENTITY (متزايد)</button>
+      <button class="btn ghost" id="insertGuid">➕ إدخال بـ NEWID() (عشوائي)</button>
+      <button class="btn ghost" id="resetPages">↺ إعادة</button>
+    </div>
+    <div class="split" id="pages"></div>
+    <div class="counters">
+      <span>💥 Page splits: <b id="splits">0</b></span>
+      <span>📄 عدد الصفحات: <b id="pageCount">4</b></span>
+    </div>
+  </div>
+  <div class="callout good">
+    مفتاح <b>ضيق ومتزايد وثابت</b> (زي <code>INT IDENTITY</code> أو <code>BIGINT</code>) بيخلي كل صف جديد
+    يروح لآخر صفحة = مفيش splits، والشجرة تفضل مرصوصة.
+  </div>
+  <div class="callout bad">
+    مفتاح <b>عشوائي</b> (زي <code>NEWID()</code>) بيرمي كل صف في نص صفحة عشوائية → الصفحة تتقسم،
+    fragmentation يعلى، والإدخال يبطأ. لو محتاج GUID استخدمه كـ <code>UNIQUE</code> nonclustered
+    وخلي الـ clustered على عمود متزايد.
+  </div>
+  <div class="callout info">
+    <strong>حتة كتير حد بينساها:</strong> مفتاح الـ clustered متكرر جوّه <u>كل</u> nonclustered index
+    (عشان يقدر يرجع للصف). فمفتاح عريض = كل الفهارس التانية تتخن على الديسك وفي الذاكرة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«الـ Primary Key لازم يكون Clustered»</b> — دي الافتراضية بس مش قاعدة.
+      <code>PRIMARY KEY NONCLUSTERED</code> موجود، والـ clustered ممكن يكون على عمود تاني أنسب للاستعلامات.</li>
+    <li><b>GUID عشوائي كمفتاح clustered</b> — page splits وتفتيت مستمر. لو لازم، فكّر في
+      <code>NEWSEQUENTIALID()</code> أو خلي الـ GUID nonclustered.</li>
+    <li><b>مفتاح clustered عريض</b> (مثلاً <code>nvarchar(200)</code> أو ٣ أعمدة) — بيتنسخ في كل فهرس تاني.</li>
+    <li><b>فهارس كتير على جدول كتابة عالية</b> — كل <code>INSERT/UPDATE</code> بيصيان كل فهرس.</li>
+    <li><b>قراءة الخطة بس من غير STATISTICS IO</b> — عدد الـ logical reads هو المقياس اللي مبيكدبش.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. جدول فيه ٥ مليون صف وشجرة الـ clustered index ارتفاعها ٣ مستويات. كام صفحة تقريباً بيقراهم seek على المفتاح؟</div>
+    <button class="opt">حسب عدد الصفوف</button>
+    <button class="opt">٣ صفحات — ارتفاع الشجرة</button>
+    <button class="opt">كل صفحات الجدول</button>
+    <div class="feedback">الـ seek بينزل من الجذر للورقة، فالتكلفة = ارتفاع الشجرة مش عدد الصفوف. ده معنى O(log n) عملياً.</div>
+  </div>
+
+  <div class="q" data-correct="0">
+    <div class="qt">2. ليه المفتاح الـ clustered العريض مشكلة؟</div>
+    <button class="opt">لأنه بيتكرر جوّه كل nonclustered index فبيكبّرهم كلهم</button>
+    <button class="opt">لأن SQL Server مبيقبلش أعمدة نصية</button>
+    <button class="opt">لأنه بيمنع الـ seek</button>
+    <div class="feedback">كل فهرس nonclustered بيخزن مفتاح الـ clustered كمؤشر للصف — فالعرض بيتضاعف على كل الفهارس.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ clustered index مش نسخة — هو الجدول مترتّب كشجرة، وأوراقها هي بياناتك.</li>
+    <li>Seek = نزول من الجذر للورقة (٣–٤ قراءات مهما كبر الجدول). Scan = كل الصفحات.</li>
+    <li>اختار مفتاح <b>ضيق، متزايد، ثابت</b> — لأنه بيتكرر في كل فهرس تاني وبيحدد سرعة الإدخال.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- B-tree
+  var leaves = [
+    { from: 1, to: 200 }, { from: 201, to: 400 }, { from: 401, to: 600 },
+    { from: 601, to: 800 }, { from: 801, to: 1000 }
+  ];
+  var mids = [{ from: 1, to: 400, kids: [0, 1] }, { from: 401, to: 1000, kids: [2, 3, 4] }];
+  var lvl0 = document.getElementById('lvl0'), lvl1 = document.getElementById('lvl1'), lvl2 = document.getElementById('lvl2');
+  var readsEl = document.getElementById('reads'), modeEl = document.getElementById('mode');
+  var rootNode, midNodes = [], leafNodes = [], timer = null;
+
+  function build() {
+    lvl0.innerHTML = ''; lvl1.innerHTML = ''; lvl2.innerHTML = '';
+    midNodes = []; leafNodes = [];
+
+    rootNode = document.createElement('div');
+    rootNode.className = 'node';
+    rootNode.innerHTML = '1 … 1000 <span class="tag">root</span>';
+    lvl0.appendChild(rootNode);
+
+    mids.forEach(function (m) {
+      var n = document.createElement('div');
+      n.className = 'node';
+      n.innerHTML = m.from + ' … ' + m.to + ' <span class="tag">index page</span>';
+      lvl1.appendChild(n);
+      midNodes.push(n);
+    });
+
+    leaves.forEach(function (l) {
+      var n = document.createElement('div');
+      n.className = 'node';
+      n.innerHTML = l.from + '–' + l.to + ' <span class="tag">data page</span>';
+      lvl2.appendChild(n);
+      leafNodes.push(n);
+    });
+  }
+  function clearMarks() {
+    [rootNode].concat(midNodes, leafNodes).forEach(function (n) {
+      n.classList.remove('active', 'found', 'scanned');
+    });
+  }
+  function reset() {
+    if (timer) { clearInterval(timer); timer = null; }
+    clearMarks();
+    readsEl.textContent = '0';
+    modeEl.textContent = '—';
+  }
+  function seek(id) {
+    reset();
+    modeEl.textContent = 'Index Seek';
+    var midIdx = id <= 400 ? 0 : 1;
+    var leafIdx = 0;
+    leaves.forEach(function (l, i) { if (id >= l.from && id <= l.to) leafIdx = i; });
+    var stages = [
+      function () { rootNode.classList.add('active'); readsEl.textContent = '1'; },
+      function () { midNodes[midIdx].classList.add('active'); readsEl.textContent = '2'; },
+      function () { leafNodes[leafIdx].classList.add('found'); readsEl.textContent = '3'; }
+    ];
+    var i = 0;
+    timer = setInterval(function () {
+      if (i >= stages.length) { clearInterval(timer); timer = null; return; }
+      stages[i++]();
+    }, 550);
+  }
+  function scan() {
+    reset();
+    modeEl.textContent = 'Table Scan';
+    var i = 0;
+    timer = setInterval(function () {
+      if (i >= leafNodes.length) { clearInterval(timer); timer = null; return; }
+      leafNodes[i].classList.add('scanned');
+      readsEl.textContent = String((i + 1) * 8376);   // مقياس تقريبي لجدول كبير
+      i++;
+    }, 400);
+  }
+  build();
+  Array.prototype.forEach.call(document.querySelectorAll('[data-seek]'), function (b) {
+    b.addEventListener('click', function () { seek(parseInt(b.getAttribute('data-seek'), 10)); });
+  });
+  document.getElementById('scanBtn').addEventListener('click', scan);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    'الاستعلام: SELECT * FROM Orders WHERE OrderId = 640. المحرّك يعرف إن OrderId هو مفتاح الـ clustered index.',
+    'قراءة ١: الجذر (root page). بيقول: 640 أكبر من 400 → انزل على الفرع اليمين.',
+    'قراءة ٢: صفحة وسيطة (401…1000). بتقول: 640 في المدى 601–800 → انزل على الورقة دي.',
+    'قراءة ٣: صفحة البيانات نفسها. الصف كامل موجود هنا — مفيش خطوة زيادة، لأن الأوراق هي الجدول.',
+    'النتيجة: ٣ قراءات منطقية مهما كان الجدول ٥ مليون أو ٥٠ مليون صف. لو المفتاح مش مناسب → scan لكل الصفحات.'
+  ];
+  var step = 0;
+  var box = document.getElementById('stepBox'), label = document.getElementById('stepLabel');
+  var prev = document.getElementById('prev'), next = document.getElementById('next');
+  function render() {
+    box.textContent = steps[step];
+    label.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prev.disabled = step === 0;
+    next.disabled = step === steps.length - 1;
+    clearMarks();
+    if (step >= 1) rootNode.classList.add('active');
+    if (step >= 2) midNodes[1].classList.add('active');
+    if (step >= 3) leafNodes[3].classList.add('found');
+    readsEl.textContent = String(Math.max(0, Math.min(step, 3)));
+    modeEl.textContent = step === 0 ? '—' : 'Index Seek';
+  }
+  prev.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  next.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- page splits demo
+  var pagesEl = document.getElementById('pages');
+  var splitsEl = document.getElementById('splits'), pageCountEl = document.getElementById('pageCount');
+  var pages, splits;
+  function resetPages() {
+    pages = [
+      { label: '1–100', fill: 92 }, { label: '101–200', fill: 88 },
+      { label: '201–300', fill: 95 }, { label: '301–400', fill: 40 }
+    ];
+    splits = 0;
+    drawPages();
+  }
+  function drawPages(newIndex) {
+    pagesEl.innerHTML = '';
+    pages.forEach(function (p, i) {
+      var d = document.createElement('div');
+      d.className = 'page' + (p.fill >= 85 ? ' full' : '') + (i === newIndex ? ' new' : '');
+      d.textContent = p.label + '  [' + p.fill + '%]';
+      pagesEl.appendChild(d);
+    });
+    splitsEl.textContent = splits;
+    pageCountEl.textContent = pages.length;
+  }
+  document.getElementById('insertSeq').addEventListener('click', function () {
+    var last = pages[pages.length - 1];
+    if (last.fill < 95) { last.fill += 15; drawPages(pages.length - 1); }
+    else {
+      var start = parseInt(last.label.split('–')[1], 10) + 1;
+      pages.push({ label: start + '–' + (start + 99), fill: 20 });   // صفحة جديدة في الآخر، مفيش split
+      drawPages(pages.length - 1);
+    }
+    postHeight();
+  });
+  document.getElementById('insertGuid').addEventListener('click', function () {
+    var i = Math.floor(Math.random() * pages.length);
+    var p = pages[i];
+    if (p.fill >= 85) {                       // الصفحة مليانة → انقسام
+      splits++;
+      p.fill = 50;
+      pages.splice(i + 1, 0, { label: p.label + 'b', fill: 50 });
+      drawPages(i + 1);
+    } else {
+      p.fill += 12;
+      drawPages(i);
+    }
+    postHeight();
+  });
+  document.getElementById('resetPages').addEventListener('click', resetPages);
+  resetPages();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

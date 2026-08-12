@@ -1,0 +1,180 @@
+/* Shared look for the rich Egyptian-Arabic lesson pages.
+   Master copy: every page inlines this in a <style> block so it stays standalone
+   (works offline, opens straight from disk, no request the sandbox could block).
+   Palette mirrors client/src/styles.scss. */
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #283548;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --primary: #38bdf8;
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 4px 2px 28px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", Tahoma, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+h1, h2, h3 { line-height: 1.5; margin: 0 0 10px; }
+h1 { font-size: 25px; }
+h2 { font-size: 20px; }
+h3 { font-size: 17px; }
+p { margin: 0 0 12px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.sec-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-right: 4px solid var(--primary);
+  padding-right: 12px;
+  margin-bottom: 14px;
+}
+.sec-title .n {
+  background: var(--surface-2);
+  color: var(--primary);
+  border-radius: 8px;
+  padding: 2px 10px;
+  font-size: 14px;
+}
+
+.hero { border-right: 4px solid var(--primary); }
+.hero .kicker { color: var(--primary); font-size: 14px; letter-spacing: .3px; }
+.hero h1 { margin-bottom: 6px; }
+.hero .en { color: var(--text-dim); font-size: 14px; direction: ltr; text-align: right; }
+
+.callout {
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin: 12px 0;
+  background: var(--surface-2);
+  border-right: 4px solid var(--warning);
+}
+.callout.bad { border-right-color: var(--danger); }
+.callout.good { border-right-color: var(--success); }
+.callout.info { border-right-color: var(--primary); }
+.callout strong { color: var(--text); }
+
+code, pre, .mono, .num {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  direction: ltr;
+  unicode-bidi: embed;
+}
+code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-size: 14px; }
+pre {
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  overflow-x: auto;
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0 0 12px;
+}
+pre .c { color: var(--text-dim); }
+pre .k { color: #c084fc; }
+pre .s { color: var(--success); }
+pre .hl { background: rgba(56, 189, 248, .14); display: inline-block; width: 100%; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- stage/controls */
+
+.stage {
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.btn {
+  background: var(--primary);
+  color: #0c2431;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn.ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.btn:disabled { opacity: .45; cursor: default; }
+.step-label { color: var(--text-dim); font-size: 14px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-dim); font-size: 13px; margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+.note { color: var(--text-dim); font-size: 14px; }
+
+/* ---------------------------------------------------------------- mistakes / quiz */
+
+.mistakes { list-style: none; padding: 0; margin: 0; }
+.mistakes li {
+  background: var(--surface-2);
+  border-right: 3px solid var(--danger);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.mistakes b { color: var(--danger); }
+
+.q { margin-bottom: 18px; }
+.q .qt { font-weight: 600; margin-bottom: 8px; }
+.opt {
+  display: block;
+  width: 100%;
+  text-align: right;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 14px;
+  margin-bottom: 7px;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.opt:hover { border-color: var(--primary); }
+.opt.correct { border-color: var(--success); background: rgba(52, 211, 153, .15); }
+.opt.wrong { border-color: var(--danger); background: rgba(248, 113, 113, .15); }
+.feedback { display: none; margin-top: 6px; font-size: 14px; color: var(--text-dim); }
+.feedback.show { display: block; }
+
+.summary { padding-right: 22px; margin: 0; }
+.summary li { margin-bottom: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

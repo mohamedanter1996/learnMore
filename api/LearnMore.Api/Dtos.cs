@@ -11,7 +11,7 @@ public record ItemDto(
     int Id, string Title, int Difficulty, int EstimatedMinutes,
     string BodyMarkdown, string? ExplanationArabic, string PracticeTask, List<string> ExternalLinks,
     int TopicId, string TopicName, string TopicColor, string TopicIcon,
-    List<QuizDto> Quiz);
+    List<QuizDto> Quiz, bool HasArabicHtml);
 
 public record TodayDto(
     int AssignmentId, DateOnly Date, string Status, DateTime? CompletedAt, ItemDto Item,
@@ -32,7 +32,7 @@ public record CompleteRequestDto(List<AnswerDto> Answers);
 
 public static class Mapping
 {
-    public static ItemDto ToItemDto(this LearningItem i, bool revealAnswers) => new(
+    public static ItemDto ToItemDto(this LearningItem i, bool revealAnswers, bool hasArabicHtml = false) => new(
         i.Id, i.Title, i.Difficulty, i.EstimatedMinutes,
         i.BodyMarkdown, i.ExplanationArabic, i.PracticeTask,
         JsonSerializer.Deserialize<List<string>>(i.ExternalLinksJson) ?? [],
@@ -41,12 +41,14 @@ public static class Mapping
             q.Id, q.Question,
             JsonSerializer.Deserialize<List<string>>(q.OptionsJson) ?? [],
             revealAnswers ? q.CorrectIndex : null,
-            revealAnswers ? q.Explanation : null)).ToList());
+            revealAnswers ? q.Explanation : null)).ToList(),
+        hasArabicHtml);
 
-    public static TodayDto ToTodayDto(this DailyAssignment a)
+    public static TodayDto ToTodayDto(this DailyAssignment a, bool hasArabicHtml = false)
     {
         var completed = a.Status == AssignmentStatus.Completed;
         return new TodayDto(a.Id, a.Date, completed ? "completed" : "pending", a.CompletedAt,
-            a.LearningItem.ToItemDto(revealAnswers: completed), a.CarriedFromDate);
+            a.LearningItem.ToItemDto(revealAnswers: completed, hasArabicHtml: hasArabicHtml),
+            a.CarriedFromDate);
     }
 }

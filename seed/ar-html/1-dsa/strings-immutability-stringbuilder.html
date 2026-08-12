@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strings, Immutability and StringBuilder — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .heap {
+    min-height: 120px; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start;
+    background: #0b1220; border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  }
+  .obj {
+    font-family: Consolas, monospace; font-size: 11px; direction: ltr;
+    border-radius: 5px; padding: 4px 7px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-dim); animation: pop .3s ease;
+  }
+  .obj.live { border-color: var(--primary); background: #14384d; color: #bae6fd; }
+  .obj.garbage { border-color: #3f2b2b; background: rgba(248,113,113,.10); color: #7f5a5a; text-decoration: line-through; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .buffer { display: flex; gap: 3px; direction: ltr; flex-wrap: wrap; }
+  .slot {
+    width: 20px; height: 24px; border-radius: 4px; background: var(--surface-2);
+    border: 1px solid var(--border); font-family: Consolas, monospace; font-size: 11px;
+    display: flex; align-items: center; justify-content: center; color: var(--text-dim);
+  }
+  .slot.used { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .slot.grown { animation: pop .35s ease; }
+
+  .bars { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; align-items: center; margin-top: 12px; }
+  .bar { height: 22px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; transition: width .6s ease; }
+  .bar.bad > i { background: var(--danger); }
+  .bar.good > i { background: var(--success); }
+  .bar-val { font-family: Consolas, monospace; font-size: 13px; color: var(--text-dim); }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures & Algorithms · درس مصري مفصّل</div>
+  <h1>الـ string مبيتغيّرش — كل <code>+=</code> بيخلق واحد جديد</h1>
+  <div class="en">Strings, Immutability and StringBuilder</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    كتبت تصدير CSV لعشرة آلاف صف بـ <code>csv += line + "\n"</code>. شغّال تمام على ١٠٠ صف في التست،
+    وعلى الإنتاج بقى بياخد ٤٠ ثانية والـ CPU طالع فوق. مغيرتش أي منطق — بس عدد الصفوف زاد.
+  </p>
+  <div class="callout info">
+    في .NET الـ <code>string</code> <strong>immutable</strong>: مفيش حاجة اسمها «عدّل النص». كل
+    <code>+=</code> بيعمل <b>نص جديد بالكامل</b> وينسخ القديم جوّاه. يعني في لوپ عدد النسخ بيبقى
+    <span class="mono">1+2+3+…+n</span> ≈ <b>O(n²)</b>، والقديم كله بيتحوّل زبالة للـ GC.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> كودك هيبقى O(n²) وإنت شايفه لوپ عادية، والـ Gen0 collections هتفضل
+    تزيد، والذاكرة تطلع وتنزل من غير سبب واضح.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>شوف الزبالة بتتكوّم — وشوف البديل</h2></div>
+  <div class="controls">
+    <button class="btn" id="stepConcat">➕ خطوة واحدة بـ <span class="mono">+=</span></button>
+    <button class="btn ghost" id="run10">▶ ١٠ خطوات</button>
+    <button class="btn ghost" id="resetA">↺ إعادة</button>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h3 style="color:var(--danger)">❌ <span class="mono">s += x</span> في لوپ</h3>
+      <div class="heap" id="heap"></div>
+      <div class="counters">
+        <span>🧱 كائنات اتعملت: <b id="allocs">0</b></span>
+        <span>🗑️ زبالة: <b id="garbage">0</b></span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--success)">✅ <span class="mono">StringBuilder</span></h3>
+      <div class="heap" style="display:block">
+        <div class="buffer" id="buffer"></div>
+        <div class="note" style="margin-top:8px">buffer واحد بيكبّر نفسه (الضعف) لما يمتلي</div>
+      </div>
+      <div class="counters">
+        <span>🧱 كائنات اتعملت: <b id="allocsSb">1</b></span>
+        <span>📈 توسيعات: <b id="grows">0</b></span>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:18px">المقارنة على أحجام حقيقية</h3>
+  <div class="controls">
+    <button class="btn ghost" data-n="100">١٠٠ سطر</button>
+    <button class="btn ghost" data-n="1000">١٠٠٠ سطر</button>
+    <button class="btn ghost" data-n="10000">١٠٠٠٠ سطر</button>
+  </div>
+  <div class="bars">
+    <span class="mono">+=</span>
+    <div class="bar bad"><i id="barBad"></i></div>
+    <span></span><span class="bar-val" id="valBad">—</span>
+    <span class="mono">StringBuilder</span>
+    <div class="bar good"><i id="barGood"></i></div>
+    <span></span><span class="bar-val" id="valGood">—</span>
+  </div>
+  <p class="note">الأرقام تقديرية لسطر ≈ 40 حرف (٨٠ بايت)، والمقصود منها شكل النمو مش القياس الدقيق.</p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إيه اللي بيحصل في الذاكرة</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 5</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+<pre><code><span class="c">// ❌ تصدير CSV بـ += — O(n²) نسخ</span>
+<span class="k">var</span> csv = <span class="s">""</span>;
+<span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders)             <span class="c">// 10,000 صف</span>
+    csv += <span class="s">$"{o.Id},{o.Total}\n"</span>;      <span class="c">// ≈ 4 GB نسخ إجمالي، ثواني</span>
+
+<span class="c">// ✅ نفس النتيجة بالظبط</span>
+<span class="k">var</span> sb = <span class="k">new</span> StringBuilder(orders.Count * 24);  <span class="c">// احجز السعة لو تعرفها</span>
+<span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders)
+    sb.Append(o.Id).Append(<span class="s">','</span>).Append(o.Total).Append(<span class="s">'\n'</span>);
+<span class="k">var</span> csv = sb.ToString();               <span class="c">// نسخة واحدة في الآخر، ملي ثانية</span></code></pre>
+
+  <div class="callout good">
+    <strong>مش كل دمج محتاج StringBuilder:</strong> <code>a + b + c</code> في سطر واحد بيتحوّل من الكومبايلر
+    لـ <code>string.Concat(a, b, c)</code> = نسخة واحدة. الـ StringBuilder بيكسب <b>في اللوپات</b> وبس.
+  </div>
+
+<pre><code><span class="c">// المقارنة: مقارنة نصوص من غير ما تعمل نسخ جديدة</span>
+<span class="k">if</span> (name.ToUpper() == <span class="s">"ADMIN"</span>)                       <span class="c">// ❌ بيخلق string جديد كل مرة</span>
+<span class="k">if</span> (name.Equals(<span class="s">"admin"</span>, StringComparison.OrdinalIgnoreCase))  <span class="c">// ✅ صفر تخصيص</span>
+
+<span class="c">// التقطيع: Substring بينسخ، AsSpan لأ</span>
+<span class="k">var</span> part = line.Substring(0, 8);                     <span class="c">// ❌ نسخة جديدة كل استدعاء</span>
+ReadOnlySpan&lt;<span class="k">char</span>&gt; part2 = line.AsSpan(0, 8);        <span class="c">// ✅ نافذة على نفس الذاكرة</span></code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b><code>+=</code> جوّه لوپ</b> — أشهر O(n²) مخفي في .NET. أي دمج جوّه <code>for/foreach</code> = StringBuilder.</li>
+    <li><b>StringBuilder لدمج تلاتة نصوص</b> — أبطأ وأتقل من <code>$"{a}{b}{c}"</code>. استخدمه في اللوپات بس.</li>
+    <li><b><code>ToUpper()/ToLower()</code> للمقارنة</b> — تخصيص زيادة وسلوك غلط مع لغات معينة.
+      الصح <code>StringComparison.OrdinalIgnoreCase</code>.</li>
+    <li><b>نسيان السعة الابتدائية</b> — <code>new StringBuilder(capacity)</code> بيوفّر توسيعات ونسخ.</li>
+    <li><b>الظن إن <code>s.Replace(...)</code> بيغيّر <code>s</code></b> — لأ، بيرجّع نص جديد. لازم تسند الناتج.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">1. لوپ فيها ١٠٠٠ تكرار بتعمل <code>s += "x"</code>. تعقيد النسخ الإجمالي؟</div>
+    <button class="opt">O(1)</button>
+    <button class="opt">O(n)</button>
+    <button class="opt">O(n²)</button>
+    <div class="feedback">كل تكرار بينسخ الطول الحالي كله: 1+2+3+…+n ≈ n²/2.</div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. <code>var full = first + " " + last;</code> — تستبدله بـ StringBuilder؟</div>
+    <button class="opt">أيوة، دايماً StringBuilder أسرع</button>
+    <button class="opt">لأ، الكومبايلر بيحوّلها string.Concat = نسخة واحدة</button>
+    <button class="opt">أيوة، عشان الـ GC</button>
+    <div class="feedback">الدمج في تعبير واحد بيتجمّع في استدعاء Concat واحد. الـ StringBuilder هنا تعقيد زيادة.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ string ثابت (immutable): كل تعديل = نص جديد + نسخ الكل.</li>
+    <li>دمج جوّه لوپ = <code>StringBuilder</code> (ويفضّل بسعة ابتدائية). دمج في سطر واحد = سيبه زي ما هو.</li>
+    <li>للمقارنة استخدم <code>StringComparison</code>، وللتقطيع الكتير استخدم <code>AsSpan</code> بدل <code>Substring</code>.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- heap vs buffer demo
+  var heap = document.getElementById('heap'), buffer = document.getElementById('buffer');
+  var allocsEl = document.getElementById('allocs'), garbageEl = document.getElementById('garbage');
+  var allocsSbEl = document.getElementById('allocsSb'), growsEl = document.getElementById('grows');
+  var n = 0, capacity = 8, grows = 0;
+
+  function drawBuffer() {
+    buffer.innerHTML = '';
+    for (var i = 0; i < capacity; i++) {
+      var s = document.createElement('div');
+      s.className = 'slot' + (i < n ? ' used' : '') + (i >= capacity / 2 && grows > 0 ? ' grown' : '');
+      s.textContent = i < n ? 'x' : '';
+      buffer.appendChild(s);
+    }
+    allocsSbEl.textContent = 1 + grows;
+    growsEl.textContent = grows;
+  }
+  function resetAll() {
+    n = 0; capacity = 8; grows = 0;
+    heap.innerHTML = '';
+    allocsEl.textContent = '0';
+    garbageEl.textContent = '0';
+    drawBuffer();
+  }
+  function stepConcat() {
+    n++;
+    // الـ += : النص القديم بقى زبالة، وواحد جديد اتخلق
+    Array.prototype.forEach.call(heap.querySelectorAll('.obj'), function (o) {
+      o.classList.remove('live'); o.classList.add('garbage');
+    });
+    var obj = document.createElement('div');
+    obj.className = 'obj live';
+    obj.textContent = '"' + 'x'.repeat(Math.min(n, 12)) + (n > 12 ? '…' : '') + '" (' + (n * 2) + 'B)';
+    heap.appendChild(obj);
+    allocsEl.textContent = n;
+    garbageEl.textContent = n - 1;
+
+    // الـ StringBuilder: نفس الإضافة، توسيع بس لما يمتلي
+    if (n > capacity) { capacity *= 2; grows++; }
+    drawBuffer();
+    postHeight();
+  }
+  document.getElementById('stepConcat').addEventListener('click', stepConcat);
+  document.getElementById('run10').addEventListener('click', function () {
+    var i = 0;
+    var t = setInterval(function () { if (i++ >= 10) { clearInterval(t); return; } stepConcat(); }, 260);
+  });
+  document.getElementById('resetA').addEventListener('click', resetAll);
+  resetAll();
+
+  // ---------------------------------------------------------------- scale bars
+  var barBad = document.getElementById('barBad'), barGood = document.getElementById('barGood');
+  var valBad = document.getElementById('valBad'), valGood = document.getElementById('valGood');
+  function fmtBytes(b) {
+    if (b > 1e9) return (b / 1e9).toFixed(1) + ' GB';
+    if (b > 1e6) return (b / 1e6).toFixed(1) + ' MB';
+    if (b > 1e3) return (b / 1e3).toFixed(1) + ' KB';
+    return b + ' B';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-n]'), function (b) {
+    b.addEventListener('click', function () {
+      var lines = parseInt(b.getAttribute('data-n'), 10);
+      var lineBytes = 80;
+      var copiedBad = lineBytes * lines * (lines + 1) / 2;   // مجموع النسخ التراكمي
+      var copiedGood = lineBytes * lines * 2;                // كتابة + نسخة نهائية
+      barBad.style.width = '100%';
+      barGood.style.width = Math.max(1, (copiedGood / copiedBad) * 100) + '%';
+      valBad.textContent = fmtBytes(copiedBad) + ' اتنسخوا · ' + lines + ' كائن';
+      valGood.textContent = fmtBytes(copiedGood) + ' اتنسخوا · ~' + (Math.ceil(Math.log2(lines)) + 1) + ' كائن';
+      postHeight();
+    });
+  });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    'الحالة: s = "ab". النص ده متخزن في الـ heap وطوله ثابت — مفيش طريقة تزوّد عليه حرف في نفس المكان.',
+    's += "c": الرنتايم بيحجز نص جديد بطول 3، بينسخ "ab" جوّاه، ويضيف "c". القديم بقى زبالة.',
+    's += "d": نص جديد بطول 4، ونسخ من أول وجديد. لاحظ إن كل خطوة بتنسخ كل اللي فات.',
+    'بعد n خطوة: عدد الحروف المنسوخة = 1+2+…+n ≈ n²/2، وعدد الكائنات الميتة = n-1. ده مصدر البطء والـ GC.',
+    'StringBuilder: buffer واحد قابل للتعديل. بيكتب في نفس المكان، ولما يمتلي بيكبّر السعة للضعف — يعني عدد توسيعات لوغاريتمي ونسخة نهائية واحدة عند ToString().'
+  ];
+  var step = 0;
+  var box = document.getElementById('stepBox'), label = document.getElementById('stepLabel');
+  var prev = document.getElementById('prev'), next = document.getElementById('next');
+  function render() {
+    box.textContent = steps[step];
+    label.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prev.disabled = step === 0;
+    next.disabled = step === steps.length - 1;
+  }
+  prev.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  next.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
