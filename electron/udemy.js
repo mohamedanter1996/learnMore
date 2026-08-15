@@ -15,7 +15,9 @@
 // The API is a sink for what we fetch here. Progress is display-only and never
 // touches the course-plan rules (artifact gate, streak, sessions).
 // ---------------------------------------------------------------------------
-const { BrowserWindow, session, net } = require('electron');
+const { app, BrowserWindow, session, net } = require('electron');
+const fs = require('fs');
+const path = require('path');
 
 const PARTITION = 'persist:udemy';
 const ORIGIN = 'https://www.udemy.com';
@@ -28,6 +30,31 @@ const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 let deps = { apiGet: null, apiPost: null, getParent: () => null };
 let loginWindow = null;
 let lastAttemptAt = 0;
+
+// courseId -> { lectureId: minutes }. Lecture durations never change, so they are worth
+// keeping across runs; same disk-cache idea as the API's feed-cache.json.
+let curriculumCache = null;
+
+function cachePath() {
+  // Same home as the shell's motivation.json.
+  return path.join(app.getPath('userData'), 'udemy-curriculum.json');
+}
+
+function loadCurriculumCache() {
+  if (curriculumCache) return curriculumCache;
+  try {
+    curriculumCache = JSON.parse(fs.readFileSync(cachePath(), 'utf8'));
+  } catch {
+    curriculumCache = {};
+  }
+  return curriculumCache;
+}
+
+function saveCurriculumCache() {
+  try {
+    fs.writeFileSync(cachePath(), JSON.stringify(curriculumCache ?? {}));
+  } catch { /* non-critical — we just refetch next time */ }
+}
 
 function init(d) {
   deps = { ...deps, ...d };
@@ -86,6 +113,98 @@ async function fetchCourses(token) {
   return courses;
 }
 
+function slugOf(url) {
+  const match = /\/course\/([^/?#]+)/i.exec(url || '');
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Slugs of the 7 ladder courses — the only ones worth the extra requests below. */
+async function planSlugs() {
+  try {
+    const rows = await deps.apiGet('/api/course-plan');
+    return new Set((rows || []).map(r => slugOf(r.url)).filter(Boolean));
+  } catch {
+    return null; // API not answering — skip the enrichment, plain percentages still sync
+  }
+}
+
+/**
+ * Lecture ids Udemy counts as complete. Undocumented like everything else here, so a failure
+ * returns null and the API falls back to estimating from the completion percentage.
+ */
+async function fetchCompletedLectureIds(courseId, token) {
+  try {
+    let url = `${ORIGIN}/api-2.0/users/me/subscribed-courses/${courseId}/completed-lectures/`
+      + '?page_size=1000&fields[lecture]=id';
+    const ids = [];
+
+    for (let page = 0; page < MAX_PAGES && url; page++) {
+      const data = await udemyFetch(url, token);
+      for (const item of data.results || []) {
+        const id = item?.lecture?.id ?? item?.lecture_id ?? item?.id;
+        if (typeof id === 'number') ids.push(id);
+      }
+      url = data.next || null;
+    }
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
+/** lectureId → minutes, from the course curriculum. Cached — durations don't change. */
+async function fetchLectureMinutes(courseId, token, neededIds) {
+  const cache = loadCurriculumCache();
+  const key = String(courseId);
+  const known = cache[key] || {};
+  if (neededIds.length > 0 && neededIds.every(id => known[id] !== undefined)) return known;
+
+  try {
+    let url = `${ORIGIN}/api-2.0/courses/${courseId}/subscriber-curriculum-items/`
+      + '?page_size=200&fields[lecture]=id,asset&fields[asset]=length';
+    const fresh = {};
+
+    for (let page = 0; page < MAX_PAGES && url; page++) {
+      const data = await udemyFetch(url, token);
+      for (const item of data.results || []) {
+        const seconds = item?.asset?.length;
+        if (typeof item?.id === 'number' && typeof seconds === 'number') fresh[item.id] = seconds / 60;
+      }
+      url = data.next || null;
+    }
+    if (Object.keys(fresh).length === 0) return null;
+
+    cache[key] = { ...known, ...fresh };
+    saveCurriculumCache();
+    return cache[key];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Adds "how many minutes of lectures are complete" to the ladder courses. Totals, not deltas —
+ * the API does the diffing, so a repeated sync can never double-count. A course that can't be
+ * enriched is simply sent without the fields.
+ */
+async function addWatchedMinutes(courses, token) {
+  const slugs = await planSlugs();
+  if (!slugs) return;
+
+  for (const course of courses) {
+    if (!slugs.has(slugOf(course.url))) continue;
+
+    const ids = await fetchCompletedLectureIds(course.id, token);
+    if (!ids) continue;
+
+    const minutesById = await fetchLectureMinutes(course.id, token, ids);
+    if (!minutesById) continue;
+
+    course.completedLectureIds = ids;
+    course.watchedMinutes = Math.round(ids.reduce((sum, id) => sum + (minutesById[id] || 0), 0));
+  }
+}
+
 /** Display name for the Settings card — nice to have, never worth failing a sync over. */
 async function fetchAccountName(token) {
   try {
@@ -111,6 +230,7 @@ async function sync() {
 
   try {
     const courses = await fetchCourses(token);
+    await addWatchedMinutes(courses, token);
     const account = await fetchAccountName(token);
     return await deps.apiPost('/api/udemy/progress', { account, courses });
   } catch (err) {

@@ -5,14 +5,15 @@ using Microsoft.EntityFrameworkCore;
 namespace LearnMore.Api.Services;
 
 public record CourseArtifactDto(int Id, string Type, string Title, string? Url, DateTime CreatedOn);
-public record CourseSessionDto(int Id, string Date, int Minutes, string Note);
+public record CourseSessionDto(int Id, string Date, int Minutes, string Note, string Source);
 
 public record ActiveCourseDto(
     int Id, int Order, string Title, string Instructor, string Url,
     int EstimatedHours, double HoursLogged, int RequiredArtifacts, int ArtifactCount,
     int Streak, bool CanComplete, string? BlockedReason,
     List<CourseArtifactDto> Artifacts, List<CourseSessionDto> RecentSessions,
-    double? UdemyPercent, DateTime? UdemySyncedAt);
+    double? UdemyPercent, DateTime? UdemySyncedAt,
+    int? UdemySuggestedMinutes, DateTime? UdemySuggestionSince, bool UdemySuggestionEstimated);
 
 /// <summary>Pause gate shown after a checkpoint course; cleared by an explicit continue.</summary>
 public record CheckpointDto(int CompletedOrder, string CompletedTitle, int NextOrder, string NextTitle, string Message);
@@ -98,7 +99,8 @@ public class CoursePlanService(AppDbContext db)
     }
 
     /// <summary>Sessions can only be logged against the currently active course.</summary>
-    public async Task<CourseNowDto?> LogSessionAsync(LogSessionDto dto)
+    public async Task<CourseNowDto?> LogSessionAsync(
+        LogSessionDto dto, SessionSource source = SessionSource.Manual)
     {
         var active = await db.PlanCourses.FirstOrDefaultAsync(c => c.Status == CourseStatus.Active);
         if (active is null) return null;
@@ -109,10 +111,54 @@ public class CoursePlanService(AppDbContext db)
             CourseId = active.Id,
             Date = Today,
             Minutes = minutes,
-            Note = (dto.Note ?? "").Trim()
+            Note = (dto.Note ?? "").Trim(),
+            Source = source
         });
         await db.SaveChangesAsync();
         return await GetNowAsync();
+    }
+
+    /// <summary>
+    /// Accepts the minutes a Udemy sync parked for the active course. This is the only path from
+    /// Udemy to a <see cref="StudySession"/>, and it exists solely because the user clicked —
+    /// a sync on its own never writes one. Streak-wise the result is an ordinary session.
+    /// </summary>
+    public async Task<(bool Ok, string? Error, CourseNowDto? Now)> LogUdemySuggestionAsync()
+    {
+        var active = await db.PlanCourses.FirstOrDefaultAsync(c => c.Status == CourseStatus.Active);
+        if (active is null) return (false, "No active course.", null);
+
+        var progress = await db.UdemyProgress.FirstOrDefaultAsync(p => p.CourseId == active.Id);
+        if (progress is null || progress.PendingMinutes <= 0)
+            return (false, "Nothing new from Udemy to log.", null);
+
+        var minutes = progress.PendingMinutes;
+        var note = progress.IsEstimated ? "From Udemy (estimated)" : "From Udemy";
+        ClearSuggestion(progress); // saved together with the session below
+
+        var now = await LogSessionAsync(new LogSessionDto(minutes, note), SessionSource.Udemy);
+        return now is null ? (false, "No active course.", null) : (true, null, now);
+    }
+
+    /// <summary>Throws the parked minutes away without writing anything.</summary>
+    public async Task<CourseNowDto?> DismissUdemySuggestionAsync()
+    {
+        var active = await db.PlanCourses.FirstOrDefaultAsync(c => c.Status == CourseStatus.Active);
+        if (active is null) return null;
+
+        var progress = await db.UdemyProgress.FirstOrDefaultAsync(p => p.CourseId == active.Id);
+        if (progress is null || progress.PendingMinutes <= 0) return null;
+
+        ClearSuggestion(progress);
+        await db.SaveChangesAsync();
+        return await GetNowAsync();
+    }
+
+    private static void ClearSuggestion(UdemyProgress progress)
+    {
+        progress.PendingMinutes = 0;
+        progress.PendingSince = null;
+        progress.IsEstimated = false;
     }
 
     public async Task<CourseNowDto?> AddArtifactAsync(AddArtifactDto dto)
@@ -228,8 +274,12 @@ public class CoursePlanService(AppDbContext db)
                 .Select(a => new CourseArtifactDto(a.Id, a.Type.ToString(), a.Title, a.Url, a.CreatedOn))
                 .ToList(),
             c.Sessions.OrderByDescending(s => s.Date).ThenByDescending(s => s.Id).Take(5)
-                .Select(s => new CourseSessionDto(s.Id, s.Date.ToString("yyyy-MM-dd"), s.Minutes, s.Note))
+                .Select(s => new CourseSessionDto(
+                    s.Id, s.Date.ToString("yyyy-MM-dd"), s.Minutes, s.Note, s.Source.ToString()))
                 .ToList(),
-            udemy?.CompletionRatio, udemy?.SyncedAt);
+            udemy?.CompletionRatio, udemy?.SyncedAt,
+            udemy is { PendingMinutes: > 0 } ? udemy.PendingMinutes : null,
+            udemy is { PendingMinutes: > 0 } ? udemy.PendingSince : null,
+            udemy is { PendingMinutes: > 0, IsEstimated: true });
     }
 }

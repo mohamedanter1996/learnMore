@@ -34,10 +34,11 @@ Separate from the daily-lesson engine — it has its own tables, endpoints, and 
 5. Streak = consecutive days with at least one session of **10 minutes or more**. Longer sessions
    count the same — the metric is consistency, not volume.
 6. Sessions can only be logged against the active course (`LogSessionAsync` rejects otherwise).
-7. Udemy progress is **read-only display**. It never unlocks a course, never completes one, and never
-   writes `StudySession` rows — the artifact gate is unaffected by any percentage.
+7. Udemy is read-only for the ladder: it never unlocks a course and never completes one. It may
+   **propose** a session for the active course, never write one — a `StudySession` exists only
+   because you clicked. The artifact gate is unaffected by any percentage.
 
-### Udemy sync (v1.7)
+### Udemy sync (v1.7, session suggestions v1.8)
 
 Optional. `⚙️ Settings → 🎓 Udemy account` connects the account; 🪜 Course Plan and 🎯 Course then show
 real per-course completion beside the hours you logged by hand.
@@ -55,6 +56,22 @@ API. No token is ever stored in the DB; the cookie jar is the source of truth fo
   `UdemyProgress` (1:1 with `PlanCourse`), connection state on `AppSettings`. Migration `AddUdemyProgress`.
 - Matching is by URL slug (`/course/<slug>/`) — plan courses with no enrollment simply report null.
 - UI: `core/desktop.service.ts` wraps the bridge; components never touch `window`.
+
+**Session suggestions (v1.8).** A sync also sends, per ladder course, the completed lecture ids and
+their total minutes (`asset.length` from the curriculum, cached in `udemy-curriculum.json`).
+`UdemySyncService.AccrueSuggestion` diffs that against `UdemyProgress.WatchedMinutesTotal` and parks
+the difference in `PendingMinutes`; the ⏱ card offers it as `[Log it] [Dismiss]`. Rules that hold it
+together:
+
+- **First sight of a course seeds the baseline silently** — connecting must never propose the whole
+  backlog as one session. Same for rows carried over from v1.7 (`WatchedMinutesTotal <= 0`).
+- Deltas floor at 0 and the baseline never walks back, so un-completing a lecture can't create credit.
+- Pending accrues for the **active** course only, and accepting goes through `LogSessionAsync`, so
+  rule 6 and the 1..1440 clamp stay in one place. Totals are sent, not deltas — a re-sync is a no-op.
+- When lecture durations aren't available the shell omits them and the API estimates from the
+  completion-ratio delta; `IsEstimated` makes the UI say so and the note becomes `From Udemy (estimated)`.
+- `StudySession.Source` (`Manual`/`Udemy`) is provenance for display. **No query filters on it** —
+  the streak counts both alike (rule 5 unchanged).
 
 ### Deliberately out of scope
 

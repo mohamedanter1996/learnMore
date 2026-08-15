@@ -1,12 +1,19 @@
+using System.Text.Json;
 using LearnMore.Api.Data;
 using LearnMore.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LearnMore.Api.Services;
 
-/// <summary>One course as the Electron shell read it from Udemy.</summary>
+/// <summary>
+/// One course as the Electron shell read it from Udemy. <paramref name="CompletedLectureIds"/> and
+/// <paramref name="WatchedMinutes"/> are totals, not deltas — the diffing lives here so a repeated
+/// sync can never double-count. Both are absent when the shell had to fall back to the
+/// completion-ratio estimate.
+/// </summary>
 public record UdemyCourseInput(
-    long Id, string? Title, string? Url, double? CompletionRatio, int? LectureCount, DateTime? LastAccessed);
+    long Id, string? Title, string? Url, double? CompletionRatio, int? LectureCount, DateTime? LastAccessed,
+    List<long>? CompletedLectureIds = null, double? WatchedMinutes = null);
 
 /// <summary>
 /// A sync push from the shell. <paramref name="Error"/> set means the fetch failed
@@ -88,8 +95,13 @@ public class UdemySyncService(AppDbContext db)
                 existing[course.Id] = row;
             }
 
+            var previousRatio = row.CompletionRatio;
+            var ratio = Math.Clamp(input.CompletionRatio ?? 0, 0, 100);
+
+            AccrueSuggestion(row, course, input, previousRatio, ratio, now);
+
             row.UdemyCourseId = input.Id;
-            row.CompletionRatio = Math.Clamp(input.CompletionRatio ?? 0, 0, 100);
+            row.CompletionRatio = ratio;
             row.LectureCount = input.LectureCount;
             row.LastAccessed = input.LastAccessed;
             row.SyncedAt = now;
@@ -103,6 +115,57 @@ public class UdemySyncService(AppDbContext db)
 
         await db.SaveChangesAsync();
         return await GetStatusAsync();
+    }
+
+    /// <summary>
+    /// Turns "what Udemy shows now" into "minutes you haven't logged yet". Nothing here writes a
+    /// session — it only parks a number for the ⏱ card to offer.
+    /// </summary>
+    private static void AccrueSuggestion(
+        UdemyProgress row, PlanCourse course, UdemyCourseInput input,
+        double previousRatio, double ratio, DateTime now)
+    {
+        double minutes;
+        bool estimated;
+
+        if (input.WatchedMinutes is { } watchedRaw)
+        {
+            var watched = Math.Max(0, watchedRaw);
+
+            // No lecture baseline yet — a brand new row, or one carried over from v1.7. Record
+            // where the course stands; proposing the whole backlog as a single 20-hour "session"
+            // the moment you connect would be nonsense.
+            minutes = row.WatchedMinutesTotal <= 0 ? 0 : Math.Max(0, watched - row.WatchedMinutesTotal);
+            estimated = false;
+
+            row.CompletedLectureIdsJson = JsonSerializer.Serialize(input.CompletedLectureIds ?? []);
+            // Never walk the baseline back: un-completing a lecture must not create credit later.
+            row.WatchedMinutesTotal = Math.Max(row.WatchedMinutesTotal, watched);
+        }
+        else
+        {
+            // No lecture durations available — estimate from how far the percentage moved.
+            // A row that has never synced has no previous ratio to diff against.
+            minutes = row.SyncedAt == default || ratio <= previousRatio
+                ? 0
+                : (ratio - previousRatio) / 100.0 * course.EstimatedHours * 60.0;
+            estimated = true;
+        }
+
+        // Rule 6: only the active course can hold a session, so only it collects a suggestion.
+        if (course.Status != CourseStatus.Active || minutes < 1) return;
+
+        if (row.PendingMinutes == 0)
+        {
+            row.PendingSince = now;
+            row.IsEstimated = estimated;
+        }
+        else if (estimated)
+        {
+            row.IsEstimated = true; // a mixed suggestion is only as trustworthy as its worst part
+        }
+
+        row.PendingMinutes = Math.Clamp(row.PendingMinutes + (int)Math.Round(minutes), 1, 24 * 60);
     }
 
     public async Task<UdemyStatusDto> DisconnectAsync()

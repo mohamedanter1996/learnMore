@@ -189,6 +189,14 @@ public class PlanCourse
     public List<Artifact> Artifacts { get; set; } = [];
 }
 
+/// <summary>Where a session's minutes came from. Provenance for display only — the streak
+/// counts both alike, because a session is a session however it got typed.</summary>
+public enum SessionSource
+{
+    Manual = 0,
+    Udemy = 1
+}
+
 public class StudySession
 {
     public int Id { get; set; }
@@ -197,6 +205,7 @@ public class StudySession
     public DateOnly Date { get; set; }
     public int Minutes { get; set; }
     public string Note { get; set; } = "";
+    public SessionSource Source { get; set; } = SessionSource.Manual;
 }
 
 /// <summary>Proof something was produced, not just watched.</summary>
@@ -226,4 +235,15 @@ public class UdemyProgress
     public int? LectureCount { get; set; }
     public DateTime? LastAccessed { get; set; }
     public DateTime SyncedAt { get; set; }
+
+    // Session suggestion. A sync parks the minutes it has seen since the last one here;
+    // only an explicit click turns them into a StudySession.
+    public string CompletedLectureIdsJson { get; set; } = "[]";
+    /// <summary>Total minutes of completed lectures as of the last sync — the diffing baseline.</summary>
+    public double WatchedMinutesTotal { get; set; }
+    /// <summary>Unclaimed minutes waiting to be logged or dismissed. Active course only.</summary>
+    public int PendingMinutes { get; set; }
+    public DateTime? PendingSince { get; set; }
+    /// <summary>The pending minutes came from the completion-ratio fallback, not lecture durations.</summary>
+    public bool IsEstimated { get; set; }
 }

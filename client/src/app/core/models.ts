@@ -253,6 +253,8 @@ export interface CourseSession {
   date: string;
   minutes: number;
   note: string;
+  /** Where the minutes came from. Both kinds count toward the streak. */
+  source: 'Manual' | 'Udemy';
 }
 
 export interface ActiveCourse {
@@ -273,6 +275,10 @@ export interface ActiveCourse {
   /** Read-only mirror of Udemy completion — never gates anything. */
   udemyPercent: number | null;
   udemySyncedAt: string | null;
+  /** Minutes a sync parked for you to accept or throw away. Never logged on its own. */
+  udemySuggestedMinutes: number | null;
+  udemySuggestionSince: string | null;
+  udemySuggestionEstimated: boolean;
 }
 
 export interface CourseCheckpoint {

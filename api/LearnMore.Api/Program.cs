@@ -271,6 +271,19 @@ app.MapPost("/api/course-plan/sessions", async (LogSessionDto dto, CoursePlanSer
     return now is null ? Results.BadRequest(new { error = "No active course." }) : Results.Ok(now);
 });
 
+// The only route from a Udemy sync to a StudySession, and it needs an explicit click.
+app.MapPost("/api/course-plan/sessions/from-udemy", async (CoursePlanService svc) =>
+{
+    var (ok, error, now) = await svc.LogUdemySuggestionAsync();
+    return ok ? Results.Ok(now) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/course-plan/sessions/from-udemy/dismiss", async (CoursePlanService svc) =>
+{
+    var now = await svc.DismissUdemySuggestionAsync();
+    return now is null ? Results.BadRequest(new { error = "Nothing to dismiss." }) : Results.Ok(now);
+});
+
 app.MapPost("/api/course-plan/artifacts", async (AddArtifactDto dto, CoursePlanService svc) =>
 {
     var now = await svc.AddArtifactAsync(dto);

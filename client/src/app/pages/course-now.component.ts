@@ -53,6 +53,24 @@ import { ArtifactType, CourseNow } from '../core/models';
 
         <div class="card">
           <h3>⏱ Log a session</h3>
+
+          <!-- A sync parks minutes here; only this click turns them into a session. -->
+          @if (c.udemySuggestedMinutes !== null) {
+            <div class="suggestion">
+              <span class="suggestion-text">
+                🎓 Udemy: {{ c.udemySuggestedMinutes }} min of new lectures
+                @if (c.udemySuggestionSince) { <span>since {{ when(c.udemySuggestionSince) }}</span> }
+                @if (c.udemySuggestionEstimated) {
+                  <span class="text-dim" title="No lecture durations available — worked out from the completion percentage">
+                    · estimated
+                  </span>
+                }
+              </span>
+              <button class="btn" [disabled]="saving()" (click)="logUdemySession()">Log it</button>
+              <button class="x" title="Dismiss" [disabled]="saving()" (click)="dismissUdemySession()">×</button>
+            </div>
+          }
+
           <div class="fields">
             <label>Minutes <input type="number" min="1" max="1440" [(ngModel)]="minutes" /></label>
             <input class="note" type="text" placeholder="What did you cover? (optional)"
@@ -65,6 +83,7 @@ import { ArtifactType, CourseNow } from '../core/models';
                 <li>
                   <span class="text-dim">{{ s.date }}</span>
                   <span>{{ s.minutes }} min</span>
+                  @if (s.source === 'Udemy') { <span title="Accepted from a Udemy sync">🎓</span> }
                   @if (s.note) { <span class="text-dim">— {{ s.note }}</span> }
                 </li>
               }
@@ -169,6 +188,15 @@ import { ArtifactType, CourseNow } from '../core/models';
     }
     .add-artifact { margin-top: 12px; }
 
+    .suggestion { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+      background: color-mix(in srgb, var(--success) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+      .suggestion-text { flex: 1; }
+      .btn { padding: 6px 14px; font-size: 13px; }
+      .x { background: transparent; border: none; color: var(--text-dim); font-size: 20px;
+        cursor: pointer; line-height: 1; &:hover { color: var(--danger); } } }
+
     .sessions { list-style: none; margin: 12px 0 0; padding: 0; font-size: 13px;
       li { display: flex; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border); } }
 
@@ -250,6 +278,18 @@ export class CourseNowComponent {
         next: n => { this.apply(n); this.artifactTitle = ''; this.artifactUrl = ''; },
         error: e => this.fail(e)
       });
+  }
+
+  logUdemySession() {
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.api.logUdemySession().subscribe({ next: n => this.apply(n), error: e => this.fail(e) });
+  }
+
+  dismissUdemySession() {
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.api.dismissUdemySession().subscribe({ next: n => this.apply(n), error: e => this.fail(e) });
   }
 
   deleteArtifact(id: number) {

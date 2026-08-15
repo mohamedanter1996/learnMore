@@ -114,6 +114,15 @@ export class ApiService {
     return this.http.post<CourseNow>(`${BASE}/course-plan/sessions`, { minutes, note });
   }
 
+  /** Accepts the minutes the last Udemy sync parked — the only way one becomes a session. */
+  logUdemySession() {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/sessions/from-udemy`, {});
+  }
+
+  dismissUdemySession() {
+    return this.http.post<CourseNow>(`${BASE}/course-plan/sessions/from-udemy/dismiss`, {});
+  }
+
   addCourseArtifact(type: ArtifactType, title: string, url: string | null) {
     return this.http.post<CourseNow>(`${BASE}/course-plan/artifacts`, { type, title, url });
   }

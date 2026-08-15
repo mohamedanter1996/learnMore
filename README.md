@@ -59,7 +59,19 @@ Udemy publishes no API for personal-account progress (the Affiliate API is publi
 - **Only the Electron shell talks to Udemy.** It owns a `persist:udemy` cookie jar of its own, fetches through Chromium's network stack, and POSTs the result to `POST /api/udemy/progress`. No token is stored in the database.
 - Courses are matched by URL slug (`/course/<slug>/`); plan courses you aren't enrolled in show `—`.
 - It re-syncs on startup and at most every 6 hours, plus **Sync now** in Settings. **Disconnect** wipes the synced rows and the cookie jar.
-- **Read-only:** the percentage never unlocks a course, never completes one, and never logs a study session. A course at 100% on Udemy with fewer than its required artifacts still cannot be marked complete.
+- **Read-only:** the percentage never unlocks a course, never completes one, and never logs a study session by itself. A course at 100% on Udemy with fewer than its required artifacts still cannot be marked complete.
+
+### ⏱ Log a session, from the sync (v1.8)
+
+A sync also notices which lectures you finished since last time and adds up their durations, so ⏱ Log a session stops being a box you fill in from memory:
+
+```
+🎓 Udemy: 47 min of new lectures since 8/15 14:22   [Log it] [×]
+```
+
+**Log it** writes the session (note `From Udemy`, marked 🎓 in the list) and it counts toward the 🔥 streak exactly like a typed one — a session is a session. **×** throws the minutes away. Nothing is ever written without that click.
+
+Two honest limits: the number is **content minutes, not wall-clock** (rewatching and pausing don't count; skipping to the end of a lecture counts in full), and if Udemy won't hand over lecture durations the app estimates from the completion percentage instead and labels the suggestion `estimated`. The first sync after connecting only records where you stand — it never proposes your whole backlog as one giant session.
 
 ## Rich Egyptian-Arabic explanations (v1.6)
 
