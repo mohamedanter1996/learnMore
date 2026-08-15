@@ -76,6 +76,11 @@ together:
 ### Deliberately out of scope
 
 No editing/reordering/adding/deleting courses from the UI (the plan is fixed — change the seed in
-code), no skipping or unlocking ahead, no charts/heatmaps/reports, no reminders or scheduling for
-this module, no gamification beyond the single streak number, no GitHub/LinkedIn integration, and no
-Udemy write-back (the sync only reads).
+code), no skipping or unlocking ahead, no charts/heatmaps/reports **beyond the read-only summary rows
+on the shared 📊 Stats screen** (no time series, no heatmaps, no exports), no reminders or scheduling
+for this module, no gamification beyond the single streak number, no GitHub/LinkedIn integration, and
+no Udemy write-back (the sync only reads).
+
+📊 Stats composes those rows client-side from the endpoints that already exist — `/api/course-plan`,
+`/api/course-plan/now` and `/api/plans` — so `StatsDto` stays about the daily-lesson engine and there
+is no second aggregation to keep in step. The screen issues GETs only.

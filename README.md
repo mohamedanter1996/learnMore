@@ -95,6 +95,7 @@ The **What's New** page now pulls **live posts** from official blog RSS feeds (.
 - **🗺️ Roadmap mind map** — toggle the roadmap between the list ladder and an SVG mind map per topic (center = topic, branches = tiers, leaf dots colored by status with 🎯 weak-spot rings). Preference remembered.
 - **📰 What's New** — curated per-technology feed (.NET, C#, Angular, TypeScript, SQL Server, EF Core, Web/CSS) with latest highlights + "learn next" pointers. Content: `seed/whatsnew.json`, refreshed each release.
 - **⚙️ Settings** — reminder time, frequency (every 1–4h), notifications on/off.
+- **📊 Stats** — lesson streaks and per-topic progress, plus read-only summaries of the 🪜 course ladder (done count, hours logged, artifacts, session streak, Udemy %) and every 🧭 study plan (goals, days studied, days left). Composed from the existing endpoints, so it never becomes a second source of truth.
 - **Richer notifications** — ~30 rotating bilingual (🇪🇬/EN) reminder lines + a morning kickoff and evening streak-saver toast.
 
 ## Assessments, roadmap & courses (v1.1)
