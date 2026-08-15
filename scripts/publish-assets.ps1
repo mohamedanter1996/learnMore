@@ -39,8 +39,19 @@ Copy-Item "$spaced.blockmap" (Join-Path $dir "$dashed.blockmap") -Force
 
 $tag = "v$Version"
 # Ensure a (draft) release exists, then upload and publish.
-gh release view $tag --repo $Repo *> $null
-if ($LASTEXITCODE -ne 0) { gh release create $tag --repo $Repo --draft --title "LearnMore $tag" --notes "Release $Version" }
+# `gh release view` writes "release not found" to stderr, which $ErrorActionPreference = Stop
+# turns into a terminating NativeCommandError — that used to abort the script right here,
+# before it could create the release. Probe with errors tolerated instead.
+$exists = $true
+try {
+    $ErrorActionPreference = "SilentlyContinue"
+    gh release view $tag --repo $Repo *> $null
+    if ($LASTEXITCODE -ne 0) { $exists = $false }
+} finally { $ErrorActionPreference = "Stop" }
+
+if (-not $exists) {
+    gh release create $tag --repo $Repo --draft --title "LearnMore $tag" --notes "Release $Version"
+}
 
 Push-Location $dir
 try {
