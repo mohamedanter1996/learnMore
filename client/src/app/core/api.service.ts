@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import {
   AppSettings, ArtifactType, AssessmentQuestion, AssessmentResult, AssessmentTopic, AttemptSummary,
   CompletionResult, Course, CourseNow, CoursePlanRow, LearningItem, RoadmapTopic, Stats, StudyGoal,
-  StudyPlanDetail, StudyPlanSummary, Today, TopicItemRow, TopicSummary, WhatsNewTech
+  StudyPlanDetail, StudyPlanSummary, Today, TopicItemRow, TopicSummary, UdemyStatus, WhatsNewTech
 } from './models';
 
 const BASE = 'http://localhost:5199/api';
@@ -128,6 +128,12 @@ export class ApiService {
 
   continueAfterCheckpoint() {
     return this.http.post<CourseNow>(`${BASE}/course-plan/continue`, {});
+  }
+
+  /** Connecting and syncing go through the Electron bridge (DesktopService) — only the
+      stored result is read over HTTP. */
+  getUdemyStatus() {
+    return this.http.get<UdemyStatus>(`${BASE}/udemy/status`);
   }
 
   getSettings() {

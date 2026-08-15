@@ -30,7 +30,13 @@ import { CoursePlanRow } from '../core/models';
             <div class="meta text-dim small">
               <span>{{ c.hoursLogged }} / {{ c.estimatedHours }}h</span>
               <span>🧱 {{ c.artifactCount }} / {{ c.requiredArtifacts }} artifacts</span>
+              <span [title]="c.udemySyncedAt ? 'Synced ' + when(c.udemySyncedAt) : 'Connect Udemy in Settings'">
+                🎓 {{ c.udemyPercent === null ? '—' : round(c.udemyPercent) + '% on Udemy' }}
+              </span>
             </div>
+            @if (c.udemyPercent !== null) {
+              <div class="bar"><div class="fill" [style.width.%]="c.udemyPercent"></div></div>
+            }
           </div>
         </div>
       }
@@ -52,6 +58,10 @@ import { CoursePlanRow } from '../core/models';
     .row-title { font-weight: 600; }
     .meta { display: flex; gap: 16px; margin-top: 4px; }
 
+    /* Udemy completion — mirrored from your account, read-only. */
+    .bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+    .fill { height: 100%; background: var(--primary); border-radius: 3px; }
+
     .badge.st-active { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--primary); }
     .badge.st-done { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
     .badge.st-locked { background: var(--surface-2); color: var(--text-dim); }
@@ -69,5 +79,13 @@ export class CoursePlanComponent {
 
   label(status: CoursePlanRow['status']) {
     return status === 'active' ? '▶ Active' : status === 'done' ? '✅ Done' : '🔒 Locked';
+  }
+
+  round(percent: number) {
+    return Math.round(percent);
+  }
+
+  when(iso: string) {
+    return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
   }
 }

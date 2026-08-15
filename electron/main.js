@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell, session, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const udemy = require('./udemy');
 
 const isDev = process.argv.includes('--dev');
 const startHidden = process.argv.includes('--hidden');
@@ -97,6 +98,34 @@ function apiGet(pathName) {
   });
 }
 
+function apiPost(pathName, body) {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(JSON.stringify(body ?? {}), 'utf8');
+    const req = http.request(
+      `${API_BASE}${pathName}`,
+      {
+        method: 'POST',
+        timeout: 15000,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': payload.length }
+      },
+      res => {
+        let responseBody = '';
+        res.on('data', chunk => (responseBody += chunk));
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try { resolve(responseBody ? JSON.parse(responseBody) : null); } catch (e) { reject(e); }
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.end(payload);
+  });
+}
+
 async function waitForApi(timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -125,7 +154,8 @@ function createWindow() {
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
@@ -154,6 +184,20 @@ function showWindow(route) {
   if (route) mainWindow.loadURL(`${UI_URL}${route}`);
   mainWindow.show();
   mainWindow.focus();
+}
+
+// ---------------------------------------------------------------------------
+// Udemy bridge (Settings → 🎓 Udemy account)
+// ---------------------------------------------------------------------------
+function setupUdemy() {
+  udemy.init({ apiGet, apiPost, getParent: () => mainWindow });
+
+  // Each handler resolves to the API's status object, so Settings renders the
+  // result without a second round trip. Failures come back as a rejection the
+  // renderer turns into an error line.
+  ipcMain.handle('udemy:connect', () => udemy.connect());
+  ipcMain.handle('udemy:sync', () => udemy.sync());
+  ipcMain.handle('udemy:disconnect', () => udemy.disconnect());
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +455,7 @@ app.whenReady().then(async () => {
   startApi();
   const apiUp = await waitForApi();
 
+  setupUdemy();
   createWindow();
   createTray();
   setupAutoUpdate();
@@ -424,7 +469,11 @@ app.whenReady().then(async () => {
   }
 
   checkReminder();
-  setInterval(checkReminder, 60 * 1000);
+  udemy.maybeAutoSync();
+  setInterval(() => {
+    checkReminder();
+    udemy.maybeAutoSync(); // no-op unless connected and the last sync is over 6h old
+  }, 60 * 1000);
 });
 
 app.on('before-quit', () => {

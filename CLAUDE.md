@@ -34,9 +34,31 @@ Separate from the daily-lesson engine — it has its own tables, endpoints, and 
 5. Streak = consecutive days with at least one session of **10 minutes or more**. Longer sessions
    count the same — the metric is consistency, not volume.
 6. Sessions can only be logged against the active course (`LogSessionAsync` rejects otherwise).
+7. Udemy progress is **read-only display**. It never unlocks a course, never completes one, and never
+   writes `StudySession` rows — the artifact gate is unaffected by any percentage.
+
+### Udemy sync (v1.7)
+
+Optional. `⚙️ Settings → 🎓 Udemy account` connects the account; 🪜 Course Plan and 🎯 Course then show
+real per-course completion beside the hours you logged by hand.
+
+Udemy publishes no API for personal-account progress, so `electron/udemy.js` reads the internal
+endpoint the Udemy web app itself calls (`api-2.0/users/me/subscribed-courses/`), authenticated by
+the session you create in Udemy's own login page inside an Electron window. **The shell is the only
+component that talks to Udemy** — it owns the `persist:udemy` cookie jar (never `defaultSession`,
+which is cleared on version change), fetches through Chromium's stack, and POSTs the result to the
+API. No token is ever stored in the DB; the cookie jar is the source of truth for "connected".
+
+- Shell: `electron/udemy.js` + `electron/preload.js` (`window.learnmore`, the only renderer bridge).
+  Auto-sync rides the existing minute tick, at most every 6h.
+- API: `Services/UdemySyncService.cs`, `/api/udemy/{status,progress,disconnect}`, entity
+  `UdemyProgress` (1:1 with `PlanCourse`), connection state on `AppSettings`. Migration `AddUdemyProgress`.
+- Matching is by URL slug (`/course/<slug>/`) — plan courses with no enrollment simply report null.
+- UI: `core/desktop.service.ts` wraps the bridge; components never touch `window`.
 
 ### Deliberately out of scope
 
 No editing/reordering/adding/deleting courses from the UI (the plan is fixed — change the seed in
 code), no skipping or unlocking ahead, no charts/heatmaps/reports, no reminders or scheduling for
-this module, no gamification beyond the single streak number, no Udemy/GitHub/LinkedIn integration.
+this module, no gamification beyond the single streak number, no GitHub/LinkedIn integration, and no
+Udemy write-back (the sync only reads).

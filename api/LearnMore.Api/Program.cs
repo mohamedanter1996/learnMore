@@ -15,6 +15,7 @@ builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<AssessmentService>();
 builder.Services.AddScoped<StudyPlanService>();
 builder.Services.AddScoped<CoursePlanService>();
+builder.Services.AddScoped<UdemySyncService>();
 builder.Services.AddSingleton<CourseCatalogService>();
 builder.Services.AddSingleton<RichExplanationService>();
 builder.Services.AddSingleton<WhatsNewService>();
@@ -292,6 +293,18 @@ app.MapPost("/api/course-plan/continue", async (CoursePlanService svc) =>
     var now = await svc.ContinueAfterCheckpointAsync();
     return now is null ? Results.BadRequest(new { error = "No checkpoint to continue from." }) : Results.Ok(now);
 });
+
+// --------------------------------------------------------------------- udemy
+// The Electron shell owns the Udemy session and does the fetching; the API only stores
+// what the shell hands it. Read-only overlay — it never touches the course-plan rules.
+
+app.MapGet("/api/udemy/status", async (UdemySyncService svc) => await svc.GetStatusAsync());
+
+app.MapPost("/api/udemy/progress", async (UdemySyncRequest req, UdemySyncService svc) =>
+    Results.Ok(await svc.ApplyAsync(req)));
+
+app.MapPost("/api/udemy/disconnect", async (UdemySyncService svc) =>
+    Results.Ok(await svc.DisconnectAsync()));
 
 app.MapGet("/api/settings", async (AppDbContext db) =>
 {

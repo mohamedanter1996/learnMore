@@ -50,6 +50,17 @@ Builds Angular (prod), publishes the API self-contained (win-x64, single file), 
 - Streak: +1 if yesterday was completed, resets otherwise. Whole bank exhausted → oldest item recycles as review.
 - Reminders: Electron polls the API every minute; from `reminderTime` (default 09:00), pending days get a toast every `reminderRepeatHours` (default 2h). Settings via `GET/PUT /api/settings`.
 
+## Udemy sync (v1.7)
+
+Optional, and off until you connect it: **⚙️ Settings → 🎓 Udemy account → Connect Udemy account**. Udemy's own login page opens in its own window — you sign in there, so the app never sees your password — and afterwards 🪜 Course Plan and 🎯 Course show how far you actually are in each course next to the hours you logged by hand.
+
+Udemy publishes no API for personal-account progress (the Affiliate API is public catalog only; the analytics API is Udemy Business), so `electron/udemy.js` calls the same internal endpoint the Udemy web app uses, `api-2.0/users/me/subscribed-courses/`, using the session that login leaves behind. It's undocumented and can break if Udemy changes it — then the card just says "sign in again" and the last synced percentages stay on screen.
+
+- **Only the Electron shell talks to Udemy.** It owns a `persist:udemy` cookie jar of its own, fetches through Chromium's network stack, and POSTs the result to `POST /api/udemy/progress`. No token is stored in the database.
+- Courses are matched by URL slug (`/course/<slug>/`); plan courses you aren't enrolled in show `—`.
+- It re-syncs on startup and at most every 6 hours, plus **Sync now** in Settings. **Disconnect** wipes the synced rows and the cookie jar.
+- **Read-only:** the percentage never unlocks a course, never completes one, and never logs a study session. A course at 100% on Udemy with fewer than its required artifacts still cannot be marked complete.
+
 ## Rich Egyptian-Arabic explanations (v1.6)
 
 The 🇪🇬 button shows one of two things per lesson:

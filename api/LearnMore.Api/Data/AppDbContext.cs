@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PlanCourse> PlanCourses => Set<PlanCourse>();
     public DbSet<StudySession> StudySessions => Set<StudySession>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
+    public DbSet<UdemyProgress> UdemyProgress => Set<UdemyProgress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -105,6 +106,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(a => a.Url).HasMaxLength(500);
             e.HasOne(a => a.Course).WithMany(c => c.Artifacts).HasForeignKey(a => a.CourseId);
             e.HasIndex(a => a.CourseId);
+        });
+
+        modelBuilder.Entity<UdemyProgress>(e =>
+        {
+            // One row per plan course at most — a sync upserts, it never appends history.
+            e.HasOne(p => p.Course).WithOne().HasForeignKey<UdemyProgress>(p => p.CourseId);
+            e.HasIndex(p => p.CourseId).IsUnique();
+        });
+
+        modelBuilder.Entity<AppSettings>(e =>
+        {
+            e.Property(s => s.UdemyAccount).HasMaxLength(200);
+            e.Property(s => s.UdemyLastError).HasMaxLength(500);
         });
     }
 }

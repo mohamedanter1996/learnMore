@@ -39,7 +39,16 @@ import { ArtifactType, CourseNow } from '../core/models';
 
         <div class="card">
           <div class="bar"><div class="fill" [style.width.%]="pct(c.hoursLogged, c.estimatedHours)"></div></div>
-          <div class="bar-label text-dim">{{ c.hoursLogged }} / {{ c.estimatedHours }}h</div>
+          <div class="bar-label text-dim">{{ c.hoursLogged }} / {{ c.estimatedHours }}h logged here</div>
+
+          <!-- Mirrored from Udemy. Display only — the artifact gate below is untouched by it. -->
+          @if (c.udemyPercent !== null) {
+            <div class="bar udemy"><div class="fill" [style.width.%]="c.udemyPercent"></div></div>
+            <div class="bar-label text-dim">
+              🎓 {{ round(c.udemyPercent) }}% watched on Udemy
+              @if (c.udemySyncedAt) { <span>· synced {{ when(c.udemySyncedAt) }}</span> }
+            </div>
+          }
         </div>
 
         <div class="card">
@@ -148,6 +157,7 @@ import { ArtifactType, CourseNow } from '../core/models';
 
     .bar { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
     .fill { height: 100%; background: var(--primary); }
+    .bar.udemy { height: 8px; margin-top: 12px; .fill { background: var(--success); } }
     .bar-label { margin-top: 6px; font-size: 13px; }
 
     .fields { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
@@ -213,6 +223,14 @@ export class CourseNowComponent {
 
   pct(logged: number, estimated: number) {
     return estimated > 0 ? Math.min(100, Math.round((logged / estimated) * 100)) : 0;
+  }
+
+  round(percent: number) {
+    return Math.round(percent);
+  }
+
+  when(iso: string) {
+    return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
   }
 
   logSession() {

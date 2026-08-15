@@ -11,7 +11,8 @@ public record ActiveCourseDto(
     int Id, int Order, string Title, string Instructor, string Url,
     int EstimatedHours, double HoursLogged, int RequiredArtifacts, int ArtifactCount,
     int Streak, bool CanComplete, string? BlockedReason,
-    List<CourseArtifactDto> Artifacts, List<CourseSessionDto> RecentSessions);
+    List<CourseArtifactDto> Artifacts, List<CourseSessionDto> RecentSessions,
+    double? UdemyPercent, DateTime? UdemySyncedAt);
 
 /// <summary>Pause gate shown after a checkpoint course; cleared by an explicit continue.</summary>
 public record CheckpointDto(int CompletedOrder, string CompletedTitle, int NextOrder, string NextTitle, string Message);
@@ -22,7 +23,8 @@ public record CourseNowDto(string State, ActiveCourseDto? Course, CheckpointDto?
 public record CoursePlanRowDto(
     int Id, int Order, string Title, string Instructor, string Url, int EstimatedHours,
     string Status, double HoursLogged, int ArtifactCount, int RequiredArtifacts,
-    bool IsCheckpoint, DateTime? StartedOn, DateTime? CompletedOn);
+    bool IsCheckpoint, DateTime? StartedOn, DateTime? CompletedOn,
+    double? UdemyPercent, DateTime? UdemySyncedAt);
 
 public record LogSessionDto(int Minutes, string? Note);
 public record AddArtifactDto(string Type, string Title, string? Url);
@@ -54,7 +56,10 @@ public class CoursePlanService(AppDbContext db)
             .FirstOrDefaultAsync(c => c.Status == CourseStatus.Active);
 
         if (active is not null)
-            return new CourseNowDto("active", ToActiveDto(active, await StreakAsync()), null);
+        {
+            var progress = await db.UdemyProgress.FirstOrDefaultAsync(p => p.CourseId == active.Id);
+            return new CourseNowDto("active", ToActiveDto(active, await StreakAsync(), progress), null);
+        }
 
         // No active course: either a checkpoint is waiting to be acknowledged, or the plan is done.
         var lastDone = await db.PlanCourses
@@ -73,17 +78,24 @@ public class CoursePlanService(AppDbContext db)
         return new CourseNowDto("finished", null, null);
     }
 
-    public async Task<List<CoursePlanRowDto>> GetPlanAsync() =>
-        (await db.PlanCourses
-            .Include(c => c.Sessions)
-            .Include(c => c.Artifacts)
-            .OrderBy(c => c.Order)
-            .ToListAsync())
-        .Select(c => new CoursePlanRowDto(
-            c.Id, c.Order, c.Title, c.Instructor, c.Url, c.EstimatedHours,
-            c.Status.ToString().ToLowerInvariant(), Hours(c.Sessions), c.Artifacts.Count,
-            c.RequiredArtifacts, c.IsCheckpoint, c.StartedOn, c.CompletedOn))
-        .ToList();
+    public async Task<List<CoursePlanRowDto>> GetPlanAsync()
+    {
+        // Udemy progress is an optional overlay: courses without a synced row simply report null.
+        var progress = await db.UdemyProgress.ToDictionaryAsync(p => p.CourseId);
+
+        return (await db.PlanCourses
+                .Include(c => c.Sessions)
+                .Include(c => c.Artifacts)
+                .OrderBy(c => c.Order)
+                .ToListAsync())
+            .Select(c => new CoursePlanRowDto(
+                c.Id, c.Order, c.Title, c.Instructor, c.Url, c.EstimatedHours,
+                c.Status.ToString().ToLowerInvariant(), Hours(c.Sessions), c.Artifacts.Count,
+                c.RequiredArtifacts, c.IsCheckpoint, c.StartedOn, c.CompletedOn,
+                progress.TryGetValue(c.Id, out var p) ? p.CompletionRatio : null,
+                p?.SyncedAt))
+            .ToList();
+    }
 
     /// <summary>Sessions can only be logged against the currently active course.</summary>
     public async Task<CourseNowDto?> LogSessionAsync(LogSessionDto dto)
@@ -205,7 +217,7 @@ public class CoursePlanService(AppDbContext db)
         return streak;
     }
 
-    private static ActiveCourseDto ToActiveDto(PlanCourse c, int streak)
+    private static ActiveCourseDto ToActiveDto(PlanCourse c, int streak, UdemyProgress? udemy)
     {
         var missing = c.RequiredArtifacts - c.Artifacts.Count;
         return new ActiveCourseDto(
@@ -217,6 +229,7 @@ public class CoursePlanService(AppDbContext db)
                 .ToList(),
             c.Sessions.OrderByDescending(s => s.Date).ThenByDescending(s => s.Id).Take(5)
                 .Select(s => new CourseSessionDto(s.Id, s.Date.ToString("yyyy-MM-dd"), s.Minutes, s.Note))
-                .ToList());
+                .ToList(),
+            udemy?.CompletionRatio, udemy?.SyncedAt);
     }
 }

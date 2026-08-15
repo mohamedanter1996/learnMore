@@ -270,6 +270,9 @@ export interface ActiveCourse {
   blockedReason: string | null;
   artifacts: CourseArtifact[];
   recentSessions: CourseSession[];
+  /** Read-only mirror of Udemy completion — never gates anything. */
+  udemyPercent: number | null;
+  udemySyncedAt: string | null;
 }
 
 export interface CourseCheckpoint {
@@ -300,4 +303,16 @@ export interface CoursePlanRow {
   isCheckpoint: boolean;
   startedOn: string | null;
   completedOn: string | null;
+  udemyPercent: number | null;
+  udemySyncedAt: string | null;
+}
+
+export interface UdemyStatus {
+  connected: boolean;
+  account: string | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  matchedCourses: number;
+  totalCourses: number;
+  unmatchedCourses: string[];
 }

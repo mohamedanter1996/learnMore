@@ -71,6 +71,13 @@ public class AppSettings
     public string ReminderTime { get; set; } = "09:00"; // HH:mm
     public int ReminderRepeatHours { get; set; } = 2;
     public bool NotificationsEnabled { get; set; } = true;
+
+    // Udemy connection state. The session itself lives in the Electron shell's cookie jar —
+    // no token is ever stored here.
+    public bool UdemyConnected { get; set; }
+    public string? UdemyAccount { get; set; }
+    public DateTime? UdemyLastSyncAt { get; set; }
+    public string? UdemyLastError { get; set; }
 }
 
 public class InterviewQuestion
@@ -202,4 +209,21 @@ public class Artifact
     public string Title { get; set; } = "";
     public string? Url { get; set; }
     public DateTime CreatedOn { get; set; }
+}
+
+/// <summary>
+/// What Udemy reports for a plan course, mirrored here by the Electron shell. Read-only
+/// display: it never unlocks a course, never completes one, and never creates sessions.
+/// Kept off <see cref="PlanCourse"/> so the ladder stays a pure domain entity.
+/// </summary>
+public class UdemyProgress
+{
+    public int Id { get; set; }
+    public int CourseId { get; set; }
+    public PlanCourse Course { get; set; } = null!;
+    public long UdemyCourseId { get; set; }
+    public double CompletionRatio { get; set; } // 0..100
+    public int? LectureCount { get; set; }
+    public DateTime? LastAccessed { get; set; }
+    public DateTime SyncedAt { get; set; }
 }

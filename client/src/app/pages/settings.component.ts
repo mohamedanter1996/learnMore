@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
-import { AppSettings } from '../core/models';
+import { DesktopService } from '../core/desktop.service';
+import { AppSettings, UdemyStatus } from '../core/models';
 
 @Component({
   selector: 'app-settings',
@@ -49,9 +50,63 @@ import { AppSettings } from '../core/models';
     } @else {
       <p class="text-dim">Loading…</p>
     }
+
+    <div class="card form udemy">
+      <h3>🎓 Udemy account</h3>
+
+      @if (!desktop.isDesktop) {
+        <p class="text-dim hint">Open the LearnMore desktop app to connect your Udemy account.</p>
+      } @else if (udemy()) {
+        @let u = udemy()!;
+        @if (u.connected) {
+          <div class="row">
+            <span>{{ u.account || 'Connected' }}</span>
+            <span class="text-dim small">last synced {{ when(u.lastSyncAt) }}</span>
+          </div>
+          <p class="text-dim hint">
+            {{ u.matchedCourses }} of {{ u.totalCourses }} plan courses matched in your enrollments —
+            see them on <b>🪜 Course plan</b>.
+          </p>
+          @if (u.unmatchedCourses.length > 0) {
+            <p class="text-dim small">Not found on your Udemy account: {{ u.unmatchedCourses.join(' · ') }}</p>
+          }
+          @if (u.lastError) {
+            <p class="warn">⚠️ {{ u.lastError }}</p>
+          }
+          <div class="actions">
+            <button class="btn" [disabled]="busy() !== null" (click)="syncUdemy()">
+              {{ busy() === 'sync' ? 'Syncing…' : '🔄 Sync now' }}
+            </button>
+            <button class="btn btn-ghost" [disabled]="busy() !== null" (click)="disconnectUdemy()">
+              {{ busy() === 'disconnect' ? 'Disconnecting…' : 'Disconnect' }}
+            </button>
+          </div>
+        } @else {
+          <p class="text-dim hint">
+            Sign in to Udemy once and 🪜 Course plan shows how far you actually are in each course.
+            You sign in on Udemy's own page — the app never sees your password, only the session it
+            leaves behind. Progress is read-only: it never unlocks or completes a course.
+          </p>
+          <div class="actions">
+            <button class="btn" [disabled]="busy() !== null" (click)="connectUdemy()">
+              {{ busy() === 'connect' ? 'Waiting for Udemy…' : 'Connect Udemy account' }}
+            </button>
+          </div>
+        }
+      } @else {
+        <p class="text-dim">Loading…</p>
+      }
+
+      @if (udemyError(); as e) {
+        <p class="warn">{{ e }}</p>
+      }
+    </div>
   `,
   styles: `
     .form { max-width: 460px; display: flex; flex-direction: column; gap: 16px; }
+    .udemy { margin-top: 18px; gap: 12px; h3 { margin: 0; } }
+    .warn { color: var(--warning); font-size: 13px; margin: 0; }
+    .small { font-size: 12px; }
     .row {
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
       span { font-weight: 500; }
@@ -68,13 +123,47 @@ import { AppSettings } from '../core/models';
 })
 export class SettingsComponent {
   private api = inject(ApiService);
+  readonly desktop = inject(DesktopService);
 
   readonly settings = signal<AppSettings | null>(null);
   readonly saving = signal(false);
   readonly saved = signal(false);
 
+  readonly udemy = signal<UdemyStatus | null>(null);
+  readonly busy = signal<'connect' | 'sync' | 'disconnect' | null>(null);
+  readonly udemyError = signal<string | null>(null);
+
   constructor() {
     this.api.getSettings().subscribe(s => this.settings.set(s));
+    this.api.getUdemyStatus().subscribe(u => this.udemy.set(u));
+  }
+
+  connectUdemy() {
+    this.run('connect', () => this.desktop.connectUdemy());
+  }
+
+  syncUdemy() {
+    this.run('sync', () => this.desktop.syncUdemy());
+  }
+
+  disconnectUdemy() {
+    this.run('disconnect', () => this.desktop.disconnectUdemy());
+  }
+
+  /** The shell answers with the API's status object, so one call refreshes the card. */
+  private run(action: 'connect' | 'sync' | 'disconnect', call: () => Promise<UdemyStatus>) {
+    this.busy.set(action);
+    this.udemyError.set(null);
+    Promise.resolve()
+      .then(call)
+      .then(status => this.udemy.set(status))
+      .catch(err => this.udemyError.set(err?.message ?? 'Udemy request failed.'))
+      .finally(() => this.busy.set(null));
+  }
+
+  when(iso: string | null) {
+    if (!iso) return 'never';
+    return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
   }
 
   patch(partial: Partial<AppSettings>) {
