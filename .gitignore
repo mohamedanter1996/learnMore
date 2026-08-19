@@ -15,3 +15,6 @@ build/
 # Misc
 *.log
 .DS_Store
+
+# Scheduled-task logs (daily Arabic page / weekly release)
+.local-logs/
