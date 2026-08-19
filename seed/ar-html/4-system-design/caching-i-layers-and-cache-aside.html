@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caching I: Layers and Cache-Aside — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .layers { width: 100%; height: 175px; min-width: 700px; }
+  .packet { animation: hop 7s ease-in-out infinite; }
+  @keyframes hop {
+    0%   { transform: translateX(0);     opacity: 0; }
+    6%   { transform: translateX(0);     opacity: 1; }
+    16%  { transform: translateX(140px); opacity: 1; }
+    28%  { transform: translateX(140px); opacity: 1; }
+    38%  { transform: translateX(280px); opacity: 1; }
+    50%  { transform: translateX(280px); opacity: 1; }
+    60%  { transform: translateX(420px); opacity: 1; }
+    72%  { transform: translateX(420px); opacity: 1; }
+    82%  { transform: translateX(560px); opacity: 1; }
+    96%  { transform: translateX(560px); opacity: 1; }
+    100% { transform: translateX(560px); opacity: 0; }
+  }
+  .paused .packet { animation-play-state: paused; }
+
+  .flow { display: flex; flex-direction: row-reverse; align-items: center; gap: 10px; min-width: 620px; }
+  .fnode {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; min-width: 150px; text-align: center; font-size: 14px;
+    transition: background .3s, border-color .3s, transform .2s;
+  }
+  .fnode .tag { display: block; font-size: 11px; color: #64748b; font-family: Consolas, monospace; direction: ltr; }
+  .fnode.active { border-color: var(--primary); background: #14384d; transform: translateY(-3px); }
+  .fnode.miss { border-color: var(--danger); background: rgba(248,113,113,.16); }
+  .fnode.hit { border-color: var(--success); background: rgba(52,211,153,.18); }
+  .fnode.stored { border-color: var(--success); }
+  .farrow { color: var(--border); font-size: 22px; transition: color .3s; }
+  .farrow.on { color: var(--primary); }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; direction: ltr; min-width: 480px; }
+  .key {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center;
+    font-family: Consolas, monospace; font-size: 12px; background: var(--surface-2);
+    color: var(--text-dim); transition: background .2s, border-color .2s;
+  }
+  .key.warm { border-color: var(--success); background: rgba(52,211,153,.14); color: #d1fae5; }
+  .key .ttl { display: block; font-size: 10px; color: #64748b; }
+  .key.ping { animation: ping .35s ease; }
+  @keyframes ping { from { transform: scale(1.14); } to { transform: none; } }
+  .slider { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-dim); }
+  .slider input { accent-color: var(--primary); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🌐 System Design · درس مصري مفصّل</div>
+  <h1>الكاش مش سحر — ده بيع طزاجة بسرعة، وإنت اللي بتحدد سعر الصفقة</h1>
+  <div class="en">Caching I: Layers and Cache-Aside</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك endpoint في ASP.NET Core: <code>GET /api/products/{id}</code>. الاستعلام في EF Core بياخد
+    ٤٥ ملي ثانية وهو مرتاح. جه الترافيك ١٢٠٠ طلب في الثانية — يعني <b>١٢٠٠ استعلام في الثانية</b> على نفس
+    الجدول، أغلبهم على نفس عشر منتجات. الـ CPU على SQL Server طلع ٩٠٪ والـ p95 بقى ٤٠٠ ملي ثانية.
+  </p>
+  <p>
+    حطيت cache-aside بـ TTL عشر دقايق. الـ hit ratio طلع ٩٤٪ → الداتابيز بقت شايفة ٧٢ طلب في الثانية بدل ١٢٠٠،
+    والـ p50 نزل من ٤٦ ملي ثانية لأقل من ملي ثانية. مغيرتش سطر في الاستعلام ولا زوّدت سيرفر.
+  </p>
+  <div class="callout info">
+    كل قرار caching هو نفس الصفقة: <strong>بتبيع شوية طزاجة وبتشتري سرعة</strong>. المهارة مش في إنك تعمل
+    كاش — المهارة في إنك تحدد <b>فين</b> تخزّن و<b>أد إيه</b> تسمح للداتا تبقى قديمة.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتحط كاش من غير TTL فيتحول لـ memory leak بنوايا حسنة،
+    أو هتحط مفتاح ناقص فتوّرِّي بيانات مستخدم لمستخدم تاني، أو هتعتمد على <code>IMemoryCache</code>
+    على ٤ instances وتقعد تدوّر ليه الـ refresh بيرجّع نتيجتين مختلفتين.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: رحلة الطلب عبر الطبقات</h2></div>
+  <div class="stage" id="layerStage">
+    <svg class="layers" viewBox="0 0 740 175">
+      <rect x="10"  y="65" width="120" height="60" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="70"  y="90"  fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">المتصفح</text>
+      <text x="70"  y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">0 ms · Cache-Control</text>
+
+      <rect x="150" y="65" width="120" height="60" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="210" y="90"  fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">CDN</text>
+      <text x="210" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~15 ms · الحافة</text>
+
+      <rect x="290" y="65" width="120" height="60" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="350" y="90"  fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Output Cache</text>
+      <text x="350" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~2 ms · رد كامل</text>
+
+      <rect x="430" y="65" width="120" height="60" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="490" y="90"  fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">App Cache</text>
+      <text x="490" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~1 ms · Memory/Redis</text>
+
+      <rect x="570" y="65" width="160" height="60" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="650" y="90"  fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">الداتابيز</text>
+      <text x="650" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">~45 ms · مصدر الحقيقة</text>
+
+      <line x1="130" y1="95" x2="150" y2="95" stroke="#334155" stroke-width="2"/>
+      <line x1="270" y1="95" x2="290" y2="95" stroke="#334155" stroke-width="2"/>
+      <line x1="410" y1="95" x2="430" y2="95" stroke="#334155" stroke-width="2"/>
+      <line x1="550" y1="95" x2="570" y2="95" stroke="#334155" stroke-width="2"/>
+
+      <g class="packet">
+        <rect x="44" y="18" width="52" height="26" rx="6" fill="#38bdf8"/>
+        <text x="70" y="36" fill="#0c2431" font-size="11" text-anchor="middle" font-family="Segoe UI">الطلب</text>
+      </g>
+
+      <text x="370" y="160" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        كل طبقة بتوقّف الطلب مبكر = رحلة أقصر وحمل أقل على اللي وراها
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="layerToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الطلب بيمشي من المستخدم لجوه لحد الداتابيز. أي طبقة تقدر ترد من عندها = الطبقات اللي بعدها مشافتش
+    الطلب أصلاً. عشان كده القاعدة: <b>خزّن أقرب ما تسمح الطزاجة</b> — لو الداتا بتتغير كل شهر خليها في
+    المتصفح والـ CDN، ولو بتتغير كل دقيقة نزّلها للـ application cache، ولو لازم تبقى دقيقة اللحظة
+    ما تخزّنهاش خالص.
+  </p>
+  <div class="callout">
+    الطبقة الأخيرة اللي كتير بينساها: الـ <b>buffer pool</b> بتاع SQL Server نفسه كاش. يعني حتى «رحلة
+    الداتابيز» ديه فيها hit وmiss جوّاها — بس دي حاجة مش تحت إيدك، والطبقات اللي فوق تحت إيدك بالكامل.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: نمط الـ Cache-Aside</h2></div>
+  <p class="note">
+    الاسم التاني ليه <b>lazy loading</b>: الكاش مبيتملاش لوحده — بيتملى وقت أول طلب حقيقي على المفتاح.
+  </p>
+
+  <div class="stage">
+    <div class="flow">
+      <div class="fnode" id="fApi">API<span class="tag">GET /api/products/42</span></div>
+      <div class="farrow" id="fA1">⟵</div>
+      <div class="fnode" id="fCache">الكاش<span class="tag" id="fCacheState">فاضي</span></div>
+      <div class="farrow" id="fA2">⟵</div>
+      <div class="fnode" id="fDb">SQL Server<span class="tag">source of truth</span></div>
+    </div>
+    <div class="counters">
+      <span>✅ Hits: <b id="sHits">0</b></span>
+      <span>❌ Misses: <b id="sMisses">0</b></span>
+      <span>🗄️ استعلامات وصلت الداتابيز: <b id="sDb">0</b></span>
+      <span>⏱️ زمن الرد: <b id="sLat">—</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. قبل: كل طلب بيضرب الداتابيز</h3>
+<pre><code>app.MapGet(<span class="s">"/api/products/{id:int}"</span>, <span class="k">async</span> (<span class="k">int</span> id, AppDbContext db) =&gt;
+    <span class="k">await</span> db.Products.AsNoTracking()
+        .FirstOrDefaultAsync(p =&gt; p.Id == id));
+
+<span class="c">// p50 = 46 ms · 1200 req/s → 1200 استعلام في الثانية على نفس الصفوف</span></code></pre>
+
+  <h3>ب. بعد: cache-aside بـ <code>IMemoryCache</code></h3>
+<pre><code>app.MapGet(<span class="s">"/api/products/{id:int}"</span>, <span class="k">async</span> (<span class="k">int</span> id, AppDbContext db, IMemoryCache cache) =&gt;
+{
+    <span class="k">var</span> key = $<span class="s">"product:{id}"</span>;
+    <span class="k">if</span> (cache.TryGetValue(key, <span class="k">out</span> ProductDto? hit))
+        <span class="k">return</span> hit;                                  <span class="c">// 1) اسأل الكاش الأول</span>
+
+    <span class="k">var</span> dto = <span class="k">await</span> db.Products.AsNoTracking()      <span class="c">// 2) miss → المصدر الحقيقي</span>
+        .Where(p =&gt; p.Id == id)
+        .Select(p =&gt; <span class="k">new</span> ProductDto(p.Id, p.Name, p.Price))
+        .FirstOrDefaultAsync();
+
+    <span class="k">if</span> (dto <span class="k">is not null</span>)
+        cache.Set(key, dto, <span class="k">new</span> MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),   <span class="c">// 3) TTL إجباري</span>
+            Size = 1
+        });
+
+    <span class="k">return</span> dto;                                       <span class="c">// 4) رجّع</span>
+});
+
+<span class="c">// hit ratio 94% · p50 نزل من 46 ms لـ 0.4 ms · الداتابيز شافت 6% من الحمل</span></code></pre>
+  <div class="callout info">
+    لاحظ إننا بنخزّن <code>ProductDto</code> مش الكيان بتاع EF. الكيان المتتبَّع مربوط بـ
+    <code>DbContext</code> عمره أقصر من الكاش، والكائن نفسه هيتشارك بين كل الـ requests — أي تعديل عليه
+    بيبوّظ النسخة عند الكل. خزّن DTO ثابت (immutable) وخلاص. والـ <code>Size</code> ده بيلزمك بس لو
+    ظابط <code>SizeLimit</code> على الكاش — وهي حاجة يستحسن تظبطها عشان تحط سقف للذاكرة.
+  </div>
+
+  <h3>ج. <code>IMemoryCache</code> ولا <code>Redis</code>؟</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout good" style="margin-top:0">
+        <strong>IMemoryCache</strong> — نانو ثواني، مفيش serialization ولا شبكة.
+        بس: <b>كل instance بكاشه لوحده</b>، وبيضيع مع كل restart أو deploy.
+        مناسب لـ reference data والمسارات السخنة جداً.
+      </div>
+    </div>
+    <div>
+      <div class="callout info" style="margin-top:0">
+        <strong>Redis</strong> (<code>IDistributedCache</code>) — ملي ثانية، فيها شبكة + serialization.
+        بس: <b>حقيقة واحدة مشتركة</b> بين كل الـ instances وبتعيش بعد الـ deploy.
+        مناسب للـ sessions والداتا اللي إبطالها مهم.
+      </div>
+    </div>
+  </div>
+  <p>
+    والنمط الاحترافي هو <b>الاتنين مع بعض</b>: L1 في الذاكرة بـ TTL قصير (٣٠ ثانية) فوق L2 في Redis
+    (١٠ دقايق) فوق الداتابيز. الـ L1 بيمتص الضرب على المفاتيح السخنة، والـ TTL القصير بيحدّ أد إيه
+    الـ instances ممكن تختلف عن بعض. .NET 9 عمل النمط ده رسمي باسم <code>HybridCache</code>:
+  </p>
+<pre><code>builder.Services.AddHybridCache(o =&gt;
+{
+    o.DefaultEntryOptions = <span class="k">new</span> HybridCacheEntryOptions
+    {
+        LocalCacheExpiration = TimeSpan.FromSeconds(30),   <span class="c">// L1 في الذاكرة</span>
+        Expiration = TimeSpan.FromMinutes(10)              <span class="c">// L2 في Redis</span>
+    };
+});
+
+<span class="c">// الاستخدام: مفيش TryGetValue ولا Set — نمط واحد بيلمّ الحالتين</span>
+<span class="k">var</span> dto = <span class="k">await</span> cache.GetOrCreateAsync(
+    $<span class="s">"product:{id}"</span>,
+    ct =&gt; LoadProductAsync(id, ct));</code></pre>
+
+  <h3>د. جرّب بنفسك: ليه الـ TTL والتوزيع بيحددوا الـ hit ratio</h3>
+  <div class="stage">
+    <div class="keys" id="keys"></div>
+    <div class="counters">
+      <span>✅ Hits: <b id="simHits">0</b></span>
+      <span>❌ Misses: <b id="simMisses">0</b></span>
+      <span>📈 Hit ratio: <b id="simRatio">—</b></span>
+      <span>⏱️ متوسط الرد: <b id="simAvg">—</b></span>
+      <span>🗄️ استعلامات الداتابيز: <b id="simDb">0</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> مش في الكاش</span>
+      <span><i class="swatch" style="background:#34d399"></i> في الكاش (لسه ليه TTL)</span>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn" id="simRun">▶ ابعت ٥٠ طلب</button>
+    <button class="btn ghost" id="simFlush">🧹 امسح الكاش (زي deploy)</button>
+    <button class="btn ghost" id="simReset">↺ إعادة</button>
+  </div>
+  <div class="controls slider">
+    <label for="ttl">TTL (بعدد الطلبات):</label>
+    <input type="range" id="ttl" min="2" max="40" value="20">
+    <b class="mono" id="ttlVal">20</b>
+  </div>
+  <p class="note">
+    التوزيع مقصود إنه واقعي: ٧٥٪ من الطلبات بتروح لأول منتجين. نزّل الـ TTL لـ ٢ وشوف الـ hit ratio
+    بيقع، ودوس «امسح الكاش» عشان تشوف اللحظة اللي بعد كل deploy — كاش بارد والداتابيز بتشرب الحمل كله.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>كاش من غير TTL</b> — «الداتا دي مبتتغيرش» مش سبب. المدخل هيفضل في الذاكرة لحد ما البروسيس
+      يموت. أي مدخل كاش ليه تاريخ انتهاء، من غير استثناء.</li>
+    <li><b>مفتاح ناقص هوية</b> — <code>cache.Set("profile", dto)</code> بدل <code>$"profile:{userId}"</code>
+      (أو الـ tenant). دي مش مشكلة أداء، دي <b>تسريب بيانات</b> من مستخدم لمستخدم، وبتظهر في الإنتاج بس.</li>
+    <li><b>توقّع طزاجة موحّدة من <code>IMemoryCache</code> على أكتر من instance</b> — عدّلت المنتج،
+      instance واحد بس اللي عرف، والباقي هيفضلوا يرجّعوا القديم لحد ما الـ TTL يخلص. لو الطزاجة مهمة
+      → Redis مشترك.</li>
+    <li><b>تخزين كيان EF متتبَّع أو object قابل للتعديل</b> — كل الـ requests بتشوف <u>نفس</u> الكائن،
+      وأي تعديل عليه بيتسرب للكل. خزّن DTO ثابت.</li>
+    <li><b>الشغل من غير قياس</b> — من غير <b>hit ratio</b> إنت مش عارف لو الكاش شغال أصلاً. تحت ٨٠٪ على
+      مسار قرائي معناه TTL قصير أوي أو مفاتيح غلط أو داتا مش مناسبة للتخزين.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. في الـ cache-aside، لو الكاش نفسه وقع، بيحصل إيه؟</div>
+    <button class="opt">عطل كامل — التطبيق بيقف</button>
+    <button class="opt">كل الطلبات بتعدّي للداتابيز — أبطأ بس شغّال (لو الداتابيز تستحمل)</button>
+    <button class="opt">الداتا بتتخرّب</button>
+    <button class="opt">بيعمل failover تلقائي للديسك</button>
+    <div class="feedback">
+      الـ cache-aside بيعامل الكاش كتسريع اختياري والداتابيز هي مصدر الحقيقة — عشان كده استثناء من Redis
+      لازم يبقى fallback مش 500. وبرضه خد بالك: داتابيز باردة تحت الحمل الكامل دي مخاطرة لوحدها.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">
+      2. عندك ٤ instances بـ <code>IMemoryCache</code> وTTL عشر دقايق. حد عدّل سعر منتج في الداتابيز
+      من غير أي إبطال. إيه اللي بيحصل؟
+    </div>
+    <button class="opt">كل الـ instances تشوف السعر الجديد فوراً</button>
+    <button class="opt">الكاش بيتمسح تلقائي لما الصف يتغير</button>
+    <button class="opt">لحد عشر دقايق، كل instance ممكن يرد بسعر مختلف عن التاني</button>
+    <button class="opt">الطلبات كلها هتفشل لحد ما الـ TTL يخلص</button>
+    <div class="feedback">
+      كل instance بكاشه لوحده وبـ TTL بدأ في وقت مختلف، فالمستخدم ممكن يعمل refresh ويشوف سعرين. ده
+      السبب الجوهري لاختيار Redis لما الطزاجة المشتركة مهمة — أو TTL قصير جداً لو الاختلاف مقبول.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الكاش صفقة واضحة: بتدفع طزاجة وتقبض سرعة — فحدّد أد إيه الداتا مسموح تبقى قديمة قبل ما تختار الطبقة.</li>
+    <li>Cache-aside = اسأل الكاش، لو مش موجود هات من المصدر وخزّن بـ TTL — وميزته إن سقوط الكاش بيبطّئ التطبيق مبيوقّفهوش.</li>
+    <li><code>IMemoryCache</code> أسرع بس لكل instance لوحده، وRedis أبطأ بس حقيقة واحدة مشتركة — والـ HybridCache بيديك الاتنين بـ TTL قصير فوق TTL طويل.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- layers animation toggle
+  var layerStage = document.getElementById('layerStage');
+  var layerToggle = document.getElementById('layerToggle');
+  layerToggle.addEventListener('click', function () {
+    var paused = layerStage.classList.toggle('paused');
+    layerToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- cache-aside stepper
+  var fApi = document.getElementById('fApi');
+  var fCache = document.getElementById('fCache');
+  var fDb = document.getElementById('fDb');
+  var fCacheState = document.getElementById('fCacheState');
+  var fA1 = document.getElementById('fA1'), fA2 = document.getElementById('fA2');
+  var sHits = document.getElementById('sHits'), sMisses = document.getElementById('sMisses');
+  var sDb = document.getElementById('sDb'), sLat = document.getElementById('sLat');
+
+  // كل خطوة بتوصف الحالة كاملة، فالرجوع بيعيد البناء من الصفر مش بيلغي آخر إطار
+  var steps = [
+    {
+      text: 'البداية: التطبيق شغال والكاش فاضي تماماً (بعد deploy مثلاً). أي طلب دلوقتي لازم يروح للداتابيز.',
+      api: '', cache: '', db: '', a1: false, a2: false,
+      state: 'فاضي', hits: 0, misses: 0, dbq: 0, lat: '—'
+    },
+    {
+      text: 'وصل الطلب الأول: GET /api/products/42. الـ API بيبني المفتاح product:42 — المفتاح لازم يشمل كل حاجة بتغيّر النتيجة (الـ id، المستخدم، اللغة).',
+      api: 'active', cache: '', db: '', a1: false, a2: false,
+      state: 'فاضي', hits: 0, misses: 0, dbq: 0, lat: '—'
+    },
+    {
+      text: 'الخطوة الأولى في cache-aside: اسأل الكاش الأول. المفتاح مش موجود → miss. لحد دلوقتي مدفعناش غير ملي ثانية ضايعة.',
+      api: 'active', cache: 'miss', db: '', a1: true, a2: false,
+      state: 'miss على product:42', hits: 0, misses: 1, dbq: 0, lat: '—'
+    },
+    {
+      text: 'الـ miss بيوديك للمصدر الحقيقي: استعلام على SQL Server بـ 45 ملي ثانية. ده «سعر الـ miss» — أول طلب بيدفع الحساب عن اللي بعده.',
+      api: 'active', cache: 'miss', db: 'active', a1: true, a2: true,
+      state: 'miss على product:42', hits: 0, misses: 1, dbq: 1, lat: '45 ms'
+    },
+    {
+      text: 'خزّن النتيجة في الكاش بـ TTL = 10 دقايق، وبعدين رجّع الرد. الـ TTL مش رفاهية — من غيرها المدخل ده عايش للأبد.',
+      api: 'active', cache: 'stored', db: '', a1: true, a2: false,
+      state: 'product:42 · TTL 10:00', hits: 0, misses: 1, dbq: 1, lat: '45 ms'
+    },
+    {
+      text: 'الطلب التاني (وكل اللي بعده لحد ما الـ TTL يخلص): hit من الكاش في 0.4 ملي ثانية، والداتابيز مشافتش الطلب أصلاً. لما الـ TTL يخلص، أول طلب بعده هيبقى miss ويدفع الـ 45 ms تاني — ودي بالظبط الطزاجة اللي بعتها.',
+      api: 'active', cache: 'hit', db: '', a1: true, a2: false,
+      state: 'product:42 · hit', hits: 1, misses: 1, dbq: 1, lat: '0.4 ms'
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+
+    fApi.className = 'fnode' + (s.api ? ' ' + s.api : '');
+    fCache.className = 'fnode' + (s.cache ? ' ' + s.cache : '');
+    fDb.className = 'fnode' + (s.db ? ' ' + s.db : '');
+    fA1.className = 'farrow' + (s.a1 ? ' on' : '');
+    fA2.className = 'farrow' + (s.a2 ? ' on' : '');
+    fCacheState.textContent = s.state;
+    sHits.textContent = s.hits;
+    sMisses.textContent = s.misses;
+    sDb.textContent = s.dbq;
+    sLat.textContent = s.lat;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- hit-ratio simulator
+  var KEYS = 8;
+  var keysEl = document.getElementById('keys');
+  var keyEls = [];
+  for (var k = 0; k < KEYS; k++) {
+    var d = document.createElement('div');
+    d.className = 'key';
+    d.innerHTML = 'product:' + (k + 1) + '<span class="ttl">—</span>';
+    keysEl.appendChild(d);
+    keyEls.push(d);
+  }
+
+  var ttlInput = document.getElementById('ttl'), ttlVal = document.getElementById('ttlVal');
+  var simHits = document.getElementById('simHits'), simMisses = document.getElementById('simMisses');
+  var simRatio = document.getElementById('simRatio'), simAvg = document.getElementById('simAvg');
+  var simDb = document.getElementById('simDb');
+  var expiry, now, hits, misses, totalMs, simTimer = null;
+
+  function drawKeys(pinged) {
+    for (var i = 0; i < KEYS; i++) {
+      var left = expiry[i] - now;
+      var warm = left > 0;
+      keyEls[i].className = 'key' + (warm ? ' warm' : '') + (i === pinged ? ' ping' : '');
+      keyEls[i].lastChild.textContent = warm ? 'TTL ' + left : '—';
+    }
+    simHits.textContent = hits;
+    simMisses.textContent = misses;
+    simDb.textContent = misses;
+    var total = hits + misses;
+    simRatio.textContent = total ? Math.round((hits / total) * 100) + '%' : '—';
+    simAvg.textContent = total ? (totalMs / total).toFixed(1) + ' ms' : '—';
+  }
+  function resetSim() {
+    if (simTimer) { clearInterval(simTimer); simTimer = null; }
+    expiry = []; for (var i = 0; i < KEYS; i++) expiry.push(0);
+    now = 0; hits = 0; misses = 0; totalMs = 0;
+    drawKeys(-1);
+  }
+  function pickKey() {
+    var r = Math.random();
+    if (r < 0.45) return 0;              // المنتج الترند
+    if (r < 0.75) return 1;              // التاني عليه
+    return 2 + Math.floor(Math.random() * (KEYS - 2));
+  }
+  function request() {
+    now++;
+    var key = pickKey();
+    if (expiry[key] > now) {
+      hits++; totalMs += 0.4;            // hit من الكاش
+    } else {
+      misses++; totalMs += 45;           // miss → رحلة للداتابيز
+      expiry[key] = now + parseInt(ttlInput.value, 10);
+    }
+    drawKeys(key);
+  }
+  ttlInput.addEventListener('input', function () { ttlVal.textContent = ttlInput.value; });
+  document.getElementById('simRun').addEventListener('click', function () {
+    if (simTimer) { clearInterval(simTimer); simTimer = null; }
+    var n = 0;
+    simTimer = setInterval(function () {
+      if (n++ >= 50) { clearInterval(simTimer); simTimer = null; return; }
+      request();
+    }, 70);
+  });
+  document.getElementById('simFlush').addEventListener('click', function () {
+    for (var i = 0; i < KEYS; i++) expiry[i] = 0;   // الذاكرة راحت مع الـ restart
+    drawKeys(-1);
+  });
+  document.getElementById('simReset').addEventListener('click', resetSim);
+  resetSim();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

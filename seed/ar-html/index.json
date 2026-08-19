@@ -34,6 +34,11 @@
       "topic": "SQL Server Optimization",
       "title": "Reading Execution Plans: Your Debugger for SQL",
       "file": "3-sql-optimization/reading-execution-plans-your-debugger-for-sql.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Caching I: Layers and Cache-Aside",
+      "file": "4-system-design/caching-i-layers-and-cache-aside.html"
     }
   ]
 }
