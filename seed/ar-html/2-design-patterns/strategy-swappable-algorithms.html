@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy: Swappable Algorithms — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .socket-wrap { display: flex; align-items: center; justify-content: center; }
+  .socket { width: 100%; max-width: 520px; height: 190px; }
+  .plug-a { animation: swap-a 5s ease-in-out infinite; }
+  .plug-b { animation: swap-b 5s ease-in-out infinite; }
+  @keyframes swap-a {
+    0%, 8%    { transform: translate(0, 0); opacity: 1; }
+    22%, 50%  { transform: translate(0, -58px); opacity: 0; }
+    64%, 100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes swap-b {
+    0%, 8%    { transform: translate(0, 58px); opacity: 0; }
+    22%, 50%  { transform: translate(0, 0); opacity: 1; }
+    64%, 100% { transform: translate(0, 58px); opacity: 0; }
+  }
+  .paused .plug-a, .paused .plug-b { animation-play-state: paused; }
+
+  .pipe { display: flex; flex-direction: row-reverse; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .node {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface-2);
+    font-family: Consolas, monospace; font-size: 13px; direction: ltr; color: var(--text-dim);
+    transition: all .3s ease; text-align: center;
+  }
+  .node.on { border-color: var(--primary); background: #14384d; color: #bae6fd; }
+  .node.skip { opacity: .4; text-decoration: line-through; }
+  .node.done { border-color: var(--success); background: rgba(52,211,153,.14); color: #d1fae5; }
+  .node b { display: block; font-size: 11px; color: inherit; }
+  .arrow { color: var(--text-dim); }
+
+  .toggles { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip {
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px; background: var(--surface-2);
+    color: var(--text-dim); font-family: inherit; font-size: 14px; cursor: pointer;
+  }
+  .chip.on { border-color: var(--success); background: rgba(52,211,153,.16); color: #d1fae5; }
+  .total { font-family: Consolas, monospace; font-size: 20px; margin-top: 10px; }
+  .total b { color: var(--primary); }
+  .warn-order { color: var(--warning); font-size: 14px; min-height: 22px; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🏗️ Design Patterns · درس مصري مفصّل</div>
+  <h1>بدل ما تسأل «النوع إيه؟» — سيب كل خوارزمية تعرّف نفسها</h1>
+  <div class="en">Strategy: Swappable Algorithms</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>CheckoutService</code> بيحسب الخصم. النهارده فيه خصم VIP وخصم كوبون. الشهر الجاي
+    «خصم أول أوردر»، وبعده «خصم الجمعة البيضا»، وبعده «خصم الموظفين». لو كل واحد فيهم
+    <code>if</code> جديد جوّه نفس الميثود، الميثود دي هتوصل ٢٠٠ سطر وكل حساب فاتورة في الشركة
+    بيعدّي عليها.
+  </p>
+  <div class="callout info">
+    الـ <strong>Strategy</strong> بيقلب السؤال: بدل ما الخدمة تسأل «العميل نوعه إيه وأعمل إيه؟»،
+    كل خصم بيبقى كلاس صغير بيرد على سؤالين بس: <code>AppliesTo</code> — أنا ينطبق عليّا؟
+    و<code>Apply</code> — طيب خد الحساب. الخدمة بقت أنبوبة بتمرّر الرقم على اللي ينطبق.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتفضل تعدّل نفس الملف كل sprint، والتست بتاع «الخصم القديم»
+    هيقع بسبب فيتشر مالهاش علاقة، ومحدش هيقدر يجرّب خصم لوحده لأنه متلحّم جوّه <code>if</code>.
+  </div>
+  <p class="note">
+    ده اللي شفته في درس <b>Open/Closed</b> — بس هنا الصورة كاملة: الشكل، البديل الخفيف بالـ delegates،
+    وترتيب التنفيذ اللي بيوقع ناس كتير.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: مقبس واحد، قوابس كتير</h2></div>
+  <div class="stage" id="socketStage">
+    <div class="socket-wrap">
+      <svg class="socket" viewBox="0 0 520 190" xmlns="http://www.w3.org/2000/svg">
+        <rect x="300" y="55" width="185" height="80" rx="12" fill="#1e293b" stroke="#38bdf8"/>
+        <text x="392" y="88" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Segoe UI">CheckoutService</text>
+        <text x="392" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">مبيعرفش أي خصم بالاسم</text>
+
+        <rect x="245" y="72" width="56" height="46" rx="6" fill="#0b1220" stroke="#334155"/>
+        <text x="273" y="99" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Consolas">socket</text>
+
+        <g class="plug-a">
+          <rect x="60" y="72" width="180" height="46" rx="8" fill="#14384d" stroke="#38bdf8"/>
+          <text x="150" y="94" fill="#bae6fd" font-size="12" text-anchor="middle" font-family="Consolas">VipDiscount</text>
+          <text x="150" y="110" fill="#7dd3fc" font-size="10" text-anchor="middle" font-family="Consolas">total * 0.85</text>
+        </g>
+        <g class="plug-b">
+          <rect x="60" y="72" width="180" height="46" rx="8" fill="rgba(52,211,153,.16)" stroke="#34d399"/>
+          <text x="150" y="94" fill="#d1fae5" font-size="12" text-anchor="middle" font-family="Consolas">CouponDiscount</text>
+          <text x="150" y="110" fill="#6ee7b7" font-size="10" text-anchor="middle" font-family="Consolas">total - 50</text>
+        </g>
+
+        <text x="260" y="165" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+          الواجهة IDiscountStrategy هي شكل المقبس — أي قابس بنفس الشكل بيدخل من غير ما الخدمة تتغير
+        </text>
+      </svg>
+    </div>
+    <div class="controls">
+      <button class="btn ghost" id="socketToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الخدمة بتتكلم مع <b>الشكل</b> (الواجهة)، مش مع القابس. عشان كده تقدر تبدّل، تزوّد، تشيل
+    خصم — والخدمة نفسها ملفهاش دعوة.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة جوّه <code>FinalTotal</code></h2></div>
+
+  <div class="stage">
+    <div class="pipe" id="pipe"></div>
+    <div class="total">الإجمالي: <b id="stepTotal">1000.00</b> جنيه</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>جرّبها بنفسك: شغّل خصومات وشوف الناتج</h2></div>
+  <p class="note">اختار صفات العميل، وشغّل/طفّي الاستراتيجيات المسجّلة في الـ DI. لاحظ إن الترتيب بيفرق.</p>
+
+  <div class="stage">
+    <div style="margin-bottom:10px">العميل:</div>
+    <div class="toggles" id="flags">
+      <button class="chip" data-flag="vip">VIP</button>
+      <button class="chip" data-flag="coupon">معاه كوبون</button>
+      <button class="chip" data-flag="first">أول أوردر</button>
+    </div>
+
+    <div style="margin:12px 0 10px">الاستراتيجيات المسجّلة في الـ DI:</div>
+    <div class="toggles" id="regs">
+      <button class="chip on" data-reg="vip">VipDiscount (‎-15%)</button>
+      <button class="chip on" data-reg="coupon">CouponDiscount (‎-50)</button>
+      <button class="chip on" data-reg="first">FirstOrderDiscount (‎-10%)</button>
+    </div>
+
+    <div class="pipe" id="demoPipe"></div>
+    <div class="total">1000.00 → <b id="demoTotal">1000.00</b> جنيه</div>
+    <div class="warn-order" id="orderNote"></div>
+    <div class="controls" style="margin-top:10px">
+      <button class="btn ghost" id="swapOrder">🔀 اعكس ترتيب التسجيل</button>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>الشكل في الكود</h2></div>
+<pre><code><span class="c">// 1) الواجهة: سؤالين بس</span>
+<span class="k">public interface</span> IDiscountStrategy {
+    <span class="k">bool</span> AppliesTo(Customer c);
+    <span class="k">decimal</span> Apply(<span class="k">decimal</span> total);
+}
+
+<span class="c">// 2) كل خصم كلاس لوحده — يتقرا لوحده، يتستيست لوحده</span>
+<span class="k">public class</span> VipDiscount : IDiscountStrategy {
+    <span class="k">public bool</span> AppliesTo(Customer c) =&gt; c.IsVip;
+    <span class="k">public decimal</span> Apply(<span class="k">decimal</span> total) =&gt; total * <span class="s">0.85m</span>;
+}
+
+<span class="c">// 3) الخدمة: بتمرّر الرقم على اللي ينطبق، ومبتعرفش أي اسم</span>
+<span class="k">public class</span> CheckoutService(IEnumerable&lt;IDiscountStrategy&gt; strategies) {
+    <span class="k">public decimal</span> FinalTotal(Customer c, <span class="k">decimal</span> total) =&gt;
+        strategies.Where(s =&gt; s.AppliesTo(c))
+                  .Aggregate(total, (t, s) =&gt; s.Apply(t));
+}
+
+<span class="c">// 4) التسجيل — ترتيب التسجيل هو ترتيب التنفيذ</span>
+builder.Services.AddScoped&lt;IDiscountStrategy, VipDiscount&gt;();
+builder.Services.AddScoped&lt;IDiscountStrategy, CouponDiscount&gt;();</code></pre>
+
+  <div class="callout good">
+    <strong>إنت مستخدمه أصلاً:</strong> <code>IComparer&lt;T&gt;</code> اللي بتبعته لـ <code>Sort</code> =
+    استراتيجية مقارنة. الـ authentication schemes في ASP.NET Core (JWT مقابل Cookies) = استراتيجيات.
+    الـ output formatters (JSON مقابل XML) = استراتيجيات.
+  </div>
+
+  <h3>البديل الخفيف: delegate بدل كلاس</h3>
+<pre><code><span class="k">var</span> shippingRules = <span class="k">new</span> Dictionary&lt;<span class="k">string</span>, Func&lt;Order, <span class="k">decimal</span>&gt;&gt; {
+    [<span class="s">"DHL"</span>]    = o =&gt; o.Weight * <span class="s">2.5m</span>,
+    [<span class="s">"Aramex"</span>] = o =&gt; o.Weight * <span class="s">2.0m</span> + <span class="s">10</span>
+};
+
+<span class="k">var</span> cost = shippingRules[order.Carrier](order);</code></pre>
+  <div class="callout info">
+    <strong>امتى كلاس وامتى delegate؟</strong> كلاس لو الاستراتيجية محتاجة حاجات محقونة بالـ DI
+    (ريبوزيتوري، لوجر، إعدادات) أو ليها تستات خاصة بيها. delegate لو سطر حسابي واحد ومفيش اعتماديات.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>الاعتماد على ترتيب التسجيل من غير ما تقصده</b> — <code>Aggregate</code> بيمشي بترتيب
+      الـ <code>IEnumerable</code>، يعني ترتيب <code>AddScoped</code>. لو الترتيب مهم فعلاً، حط
+      <code>int Order</code> في الواجهة و<code>OrderBy(s =&gt; s.Order)</code> قبل التنفيذ.</li>
+    <li><b>استراتيجية بتاخد قرارها من نوع العميل بـ <code>if</code> جوّاها</b> — رجّعت الـ switch من
+      الشباك. <code>AppliesTo</code> شرط واحد بسيط، مش شجرة قرارات.</li>
+    <li><b>نسيان التسجيل في الـ DI</b> — الكلاس موجود والتستات خضرا والخصم مش شغال في الإنتاج، لأن
+      <code>IEnumerable&lt;IDiscountStrategy&gt;</code> مبيشوفش غير المسجّل. (<code>Scrutor</code> بيسجّل الكل أوتوماتيك.)</li>
+    <li><b>واجهة بتكبر لكل استراتيجية جديدة</b> — لو ضفت ميثود عشان حالة واحدة، الباقي كله هيرمي
+      <code>NotImplementedException</code>. ده كسر لـ Interface Segregation، والحل استراتيجية تانية مش ميثود تانية.</li>
+    <li><b>كلاس لكل سطر حسابي</b> — تلات كلاسات + تلات تسجيلات عشان <code>weight * 2</code> تعقيد
+      من غير عائد. الـ <code>Dictionary&lt;string, Func&lt;&gt;&gt;</code> أوضح هنا.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. لما تبعت <code>IComparer&lt;T&gt;</code> لـ <code>List&lt;T&gt;.Sort</code> — ده أنهي pattern؟</div>
+    <button class="opt">Template Method</button>
+    <button class="opt">Strategy — خوارزمية المقارنة قابلة للتبديل</button>
+    <button class="opt">Adapter</button>
+    <div class="feedback">الـ <code>Sort</code> بيمسك الخوارزمية الثابتة (الترتيب نفسه)، والـ comparer المحقون هو الجزء المتبدّل — ده Strategy بالظبط.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. خصمين شغالين مع بعض والناتج بيختلف لما تعكس ترتيب <code>AddScoped</code>. إيه التصرف الصح؟</div>
+    <button class="opt">أسيبه — الترتيب مش مهم في Strategy</button>
+    <button class="opt">أرجع لـ <code>if/else</code> عشان أتحكم في الترتيب</button>
+    <button class="opt">أخلّي الترتيب صريح: <code>int Order</code> في الواجهة + <code>OrderBy</code> قبل التنفيذ</button>
+    <div class="feedback">لو الترتيب جزء من قواعد الشغل، لازم يبقى مكتوب في الكود مش ناتج بالصدفة من ترتيب سطور التسجيل.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>Strategy = عيلة خوارزميات ورا واجهة واحدة، والاختيار وقت التشغيل مش وقت الكتابة.</li>
+    <li>كل استراتيجية بترد على سؤالين: <code>AppliesTo</code> و<code>Apply</code> — والخدمة بتمرّر بس.</li>
+    <li>كلاس لو فيه اعتماديات أو تستات، delegate لو سطر واحد. ولو الترتيب مهم، اكتبه صريح.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- socket animation
+  var socketStage = document.getElementById('socketStage');
+  var socketToggle = document.getElementById('socketToggle');
+  socketToggle.addEventListener('click', function () {
+    var paused = socketStage.classList.toggle('paused');
+    socketToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- stepper over FinalTotal
+  var pipe = document.getElementById('pipe');
+  var stepTotalEl = document.getElementById('stepTotal');
+  var stages = [
+    { name: 'total = 1000', tag: 'البداية' },
+    { name: 'VipDiscount', tag: 'AppliesTo? ✔ · ‎-15%' },
+    { name: 'CouponDiscount', tag: 'AppliesTo? ✘ · اتخطّى' },
+    { name: 'FirstOrderDiscount', tag: 'AppliesTo? ✔ · ‎-10%' }
+  ];
+  function drawPipe(state) {
+    pipe.innerHTML = '';
+    stages.forEach(function (s, i) {
+      if (i > 0) {
+        var a = document.createElement('span');
+        a.className = 'arrow';
+        a.textContent = '←';
+        pipe.appendChild(a);
+      }
+      var n = document.createElement('div');
+      n.className = 'node' + (state[i] ? ' ' + state[i] : '');
+      n.innerHTML = s.name + '<b>' + s.tag + '</b>';
+      pipe.appendChild(n);
+    });
+  }
+  var steps = [
+    { t: 'الخدمة بتاخد الإجمالي الأصلي 1000 جنيه، وقايمة الاستراتيجيات المحقونة من الـ DI. لسه مفيش أي حساب.', state: ['on', '', '', ''], total: 1000 },
+    { t: 'الفلترة: Where(s => s.AppliesTo(c)). العميل VIP → VipDiscount ينطبق.', state: ['done', 'on', '', ''], total: 1000 },
+    { t: 'CouponDiscount بيسأل نفسه: العميل معاه كوبون؟ لأ → بيتشال من القايمة، والخدمة مسألتش عنه أصلاً.', state: ['done', 'on', 'skip', ''], total: 1000 },
+    { t: 'Aggregate بيبدأ: الإجمالي بيدخل على VipDiscount → 1000 × 0.85 = 850.', state: ['done', 'done', 'skip', 'on'], total: 850 },
+    { t: 'ناتج الأولى بيدخل على اللي بعدها (أول أوردر): 850 × 0.90 = 765. لاحظ إنها اشتغلت على 850 مش على 1000.', state: ['done', 'done', 'skip', 'done'], total: 765 },
+    { t: 'خلصت الأنبوبة → 765 جنيه. عايز خصم جديد؟ كلاس جديد + سطر تسجيل. CheckoutService مفتحتش خالص.', state: ['done', 'done', 'skip', 'done'], total: 765 }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+  function render() {
+    var s = steps[step];
+    drawPipe(s.state);
+    stepTotalEl.textContent = s.total.toFixed(2);
+    stepBox.textContent = s.t;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- driveable demo
+  var STRATEGIES = {
+    vip:    { label: 'VipDiscount', apply: function (t) { return t * 0.85; }, tag: '‎-15%' },
+    coupon: { label: 'CouponDiscount', apply: function (t) { return t - 50; }, tag: '‎-50' },
+    first:  { label: 'FirstOrderDiscount', apply: function (t) { return t * 0.90; }, tag: '‎-10%' }
+  };
+  var flags = { vip: false, coupon: false, first: false };
+  var registered = ['vip', 'coupon', 'first'];
+  var demoPipe = document.getElementById('demoPipe');
+  var demoTotal = document.getElementById('demoTotal');
+  var orderNote = document.getElementById('orderNote');
+
+  function totalFor(order) {
+    var t = 1000;
+    order.forEach(function (key) { if (flags[key]) t = STRATEGIES[key].apply(t); });
+    return t;
+  }
+  function runDemo() {
+    var t = 1000;
+    demoPipe.innerHTML = '';
+    var first = document.createElement('div');
+    first.className = 'node done';
+    first.innerHTML = '1000.00<b>الإجمالي الأصلي</b>';
+    demoPipe.appendChild(first);
+
+    registered.forEach(function (key) {
+      var a = document.createElement('span');
+      a.className = 'arrow';
+      a.textContent = '←';
+      demoPipe.appendChild(a);
+
+      var s = STRATEGIES[key];
+      var n = document.createElement('div');
+      if (flags[key]) {
+        t = s.apply(t);
+        n.className = 'node done';
+        n.innerHTML = s.label + '<b>' + s.tag + ' → ' + t.toFixed(2) + '</b>';
+      } else {
+        n.className = 'node skip';
+        n.innerHTML = s.label + '<b>AppliesTo ✘</b>';
+      }
+      demoPipe.appendChild(n);
+    });
+
+    demoTotal.textContent = t.toFixed(2);
+
+    var reversed = registered.slice().reverse();
+    var other = totalFor(reversed);
+    orderNote.textContent = Math.abs(other - t) > 0.001
+      ? '⚠️ بترتيب تسجيل معكوس الناتج كان هيبقى ' + other.toFixed(2) + ' — الترتيب بيفرق هنا.'
+      : '';
+    postHeight();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#flags .chip'), function (c) {
+    c.addEventListener('click', function () {
+      var k = c.getAttribute('data-flag');
+      flags[k] = !flags[k];
+      c.classList.toggle('on', flags[k]);
+      runDemo();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('#regs .chip'), function (c) {
+    c.addEventListener('click', function () {
+      var k = c.getAttribute('data-reg');
+      var i = registered.indexOf(k);
+      if (i >= 0) { registered.splice(i, 1); c.classList.remove('on'); }
+      else { registered.push(k); c.classList.add('on'); }
+      runDemo();
+    });
+  });
+  document.getElementById('swapOrder').addEventListener('click', function () {
+    registered.reverse();
+    runDemo();
+  });
+  flags.vip = true; flags.first = true;
+  document.querySelector('#flags .chip[data-flag="vip"]').classList.add('on');
+  document.querySelector('#flags .chip[data-flag="first"]').classList.add('on');
+  runDemo();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

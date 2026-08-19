@@ -24,6 +24,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Hash Tables: How Dictionary<TKey,TValue> Works",
       "file": "1-dsa/hash-tables-dictionary.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "Strategy: Swappable Algorithms",
+      "file": "2-design-patterns/strategy-swappable-algorithms.html"
     }
   ]
 }

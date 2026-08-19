@@ -15,9 +15,10 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 - [x] `Data Structures & Algorithms` — Strings, Immutability and StringBuilder → `1-dsa/strings-immutability-stringbuilder.html`
 - [x] `Data Structures & Algorithms` — Hash Tables: How Dictionary<TKey,TValue> Works → `1-dsa/hash-tables-dictionary.html`
 
-## Queue (148)
+- [x] `Design Patterns` — Strategy: Swappable Algorithms → `2-design-patterns/strategy-swappable-algorithms.html`
 
-- [ ] 1. `Design Patterns` — Strategy: Swappable Algorithms → `2-design-patterns/strategy-swappable-algorithms.html`
+## Queue (147)
+
 - [ ] 2. `SQL Server Optimization` — Reading Execution Plans: Your Debugger for SQL → `3-sql-optimization/reading-execution-plans-your-debugger-for-sql.html`
 - [ ] 3. `System Design` — Caching I: Layers and Cache-Aside → `4-system-design/caching-i-layers-and-cache-aside.html`
 - [ ] 4. `Frontend Engineering` — CSS Flexbox: One-Dimensional Layout Mastery → `5-frontend/css-flexbox-one-dimensional-layout-mastery.html`
