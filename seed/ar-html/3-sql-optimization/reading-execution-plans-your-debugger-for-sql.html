@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reading Execution Plans: Your Debugger for SQL — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .board { display: flex; align-items: center; min-width: 700px; }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+
+  .op {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; min-width: 170px; cursor: pointer; transition: border-color .25s, background .25s, transform .2s;
+  }
+  .op:hover { border-color: var(--primary); }
+  .op.focus { border-color: var(--primary); background: #14384d; transform: translateY(-3px); }
+  .op.hot { border-color: var(--danger); background: rgba(248,113,113,.14); }
+  .op.ok { border-color: var(--success); background: rgba(52,211,153,.12); }
+  .op .oname { font-family: Consolas, monospace; direction: ltr; font-size: 13px; color: var(--text); }
+  .op .osub { font-family: Consolas, monospace; direction: ltr; font-size: 11px; color: var(--text-dim); }
+  .op .orows { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .op .orows b { font-family: Consolas, monospace; }
+  .op .warn { color: var(--warning); font-size: 12px; }
+  .costbar { height: 4px; border-radius: 3px; background: var(--border); margin-top: 6px; overflow: hidden; }
+  .costbar i { display: block; height: 100%; background: var(--primary); }
+  .op.hot .costbar i { background: var(--danger); }
+
+  .arrows { display: flex; flex-direction: column; gap: 14px; }
+  .arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 92px; }
+  .arrow .abar { width: 100%; background: var(--primary); border-radius: 2px; transition: height .35s ease; }
+  .arrow.fat .abar { background: var(--danger); }
+  .arrow .alabel { font-family: Consolas, monospace; font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+  .arrow .head { color: var(--primary); font-size: 13px; line-height: 1; }
+  .arrow.fat .head { color: var(--danger); }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .stats b { font-family: Consolas, monospace; }
+  .detail { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 14px; min-height: 66px; }
+  .verdict { margin-top: 10px; font-size: 14px; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 82px; }
+
+  .flow { width: 100%; height: 158px; }
+  .pkt { animation: leftward 3s linear infinite; }
+  .pkt.b { animation-delay: 1s; }
+  .pkt.c { animation-delay: 2s; }
+  @keyframes leftward {
+    0%   { transform: translateX(0); opacity: 0; }
+    8%   { opacity: 1; }
+    92%  { opacity: 1; }
+    100% { transform: translateX(-300px); opacity: 0; }
+  }
+  .paused .pkt { animation-play-state: paused; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>الخطة مش تقرير — دي الـ stack trace بتاعة الاستعلام</h1>
+  <div class="en">Reading Execution Plans: Your Debugger for SQL</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك endpoint في ASP.NET Core بيرجّع أوردرات عميل. على جهازك بيرد في ٦ ملي ثانية، وعلى
+    الإنتاج نفس الكود بياخد <b>٤.٢ ثانية</b> — من غير ما تغيّر سطر. نفس الـ SQL، نفس الفهارس،
+    نفس EF Core. الفرق الوحيد: عدد الصفوف اللي <b>الـ optimizer فاكر</b> إنها هترجع.
+  </p>
+  <div class="callout info">
+    الـ execution plan هو الإجابة الوحيدة على سؤال «هو عمل إيه بالظبط؟». بيوريك شجرة الـ operators
+    اللي الـ optimizer اختارها، وكمان — لو طلبت <strong>actual plan</strong> — بيوريك
+    <strong>Estimated vs Actual rows</strong>. الفرق بين الرقمين ده هو ٨٠٪ من التشخيص.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش عارف تقراها:</strong> هتفضل تضيف فهارس بالتخمين، وتصدّق الـ <code>cost %</code>
+    وهو مجرد <u>تقدير</u>، وتقعد تحسّن الـ operator الغلط ساعتين والمشكلة الحقيقية إن
+    الـ statistics بايتة وسطر واحد اتقدّر مكان ٥٠ ألف.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الصفوف بتمشي من اليمين للشمال</h2></div>
+  <p class="note">
+    الـ operator اللي على أقصى اليمين هو اللي بيلمس الداتا فعلاً (Seek / Scan)، وكل operator بيسلّم
+    صفوفه للي على شماله لغاية <code>SELECT</code>. السهم بينهم = الصفوف اللي عدّت، وسُمكه = عددها.
+  </p>
+  <div class="stage" id="flowStage">
+    <svg class="flow" viewBox="0 0 470 158">
+      <rect x="330" y="40" width="128" height="62" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="394" y="66" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Index Seek</text>
+      <text x="394" y="86" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">بيقرا الداتا</text>
+
+      <rect x="170" y="40" width="128" height="62" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="234" y="66" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Nested Loops</text>
+      <text x="234" y="86" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">بيدمج/بيلف</text>
+
+      <rect x="12" y="40" width="126" height="62" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="75" y="66" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">SELECT</text>
+      <text x="75" y="86" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">النتيجة ليك</text>
+
+      <line x1="298" y1="71" x2="330" y2="71" stroke="#334155" stroke-width="2"/>
+      <line x1="138" y1="71" x2="170" y2="71" stroke="#334155" stroke-width="2"/>
+
+      <g class="pkt"><rect x="306" y="64" width="16" height="14" rx="3" fill="#38bdf8"/></g>
+      <g class="pkt b"><rect x="306" y="64" width="16" height="14" rx="3" fill="#38bdf8"/></g>
+      <g class="pkt c"><rect x="306" y="64" width="16" height="14" rx="3" fill="#38bdf8"/></g>
+
+      <text x="235" y="136" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        القراءة تبدأ من اليمين — من عند الداتا — مش من عند SELECT
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <div class="callout">
+    <strong>إزاي تجيب الخطة أصلاً؟</strong> في SSMS: <code>Ctrl+M</code> وبعدين نفّذ (actual plan)،
+    أو <code>Ctrl+L</code> للـ estimated من غير تنفيذ. بالـ T-SQL:
+    <code>SET STATISTICS XML ON</code>. ومع EF Core: <code>query.ToQueryString()</code> يديك الـ SQL
+    الحقيقي، الصقه في SSMS وشغّله بالـ actual plan. <b>دايماً الـ actual</b> — لأنه بس هو اللي فيه
+    الأعمدة الحقيقية للمقارنة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>اقرا خطة بنفسك — غيّر الشكل وغيّر عدد الصفوف</h2></div>
+  <p class="note">
+    الاستعلام: <code>SELECT OrderId, Total, Status FROM Orders WHERE CustomerId = @cid;</code>
+    — اختار شكل الخطة، وبعدين غيّر عدد الصفوف الحقيقي وشوف الأرقام بتتحرك. دوس على أي operator عشان تقرا تفاصيله.
+  </p>
+
+  <div class="controls">
+    <button class="btn" data-shape="cover">✅ فهرس مغطّي (Seek بس)</button>
+    <button class="btn ghost" data-shape="lookup">🔁 Seek + Key Lookup</button>
+    <button class="btn ghost" data-shape="scan">⚠️ Scan بسبب implicit conversion</button>
+  </div>
+  <div class="controls">
+    <span class="step-label">الصفوف الراجعة فعلاً:</span>
+    <button class="btn ghost" data-rows="1">1</button>
+    <button class="btn ghost" data-rows="500">500</button>
+    <button class="btn ghost" data-rows="50000">50,000</button>
+  </div>
+
+  <div class="stage">
+    <div class="board" id="board"></div>
+    <div class="stats">
+      <span>📄 Logical reads: <b id="statReads">—</b></span>
+      <span>⏱️ الزمن: <b id="statTime">—</b></span>
+      <span>📐 Estimated / Actual: <b id="statRatio">—</b></span>
+    </div>
+    <div class="verdict" id="verdict"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#38bdf8"></i> تدفّق طبيعي</span>
+      <span><i class="swatch" style="background:#f87171"></i> سهم تخين / operator غالي</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> ⚠ تحذير على الـ operator</span>
+    </div>
+  </div>
+  <div class="detail" id="detail">دوس على أي operator فوق عشان تشوف تفاصيله — زي ما بتعمل hover في SSMS.</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>خطوة بخطوة: إزاي تشخّص خطة بايظة</h2></div>
+  <p class="note">الستّة خطوات دول هما بالظبط الترتيب اللي بتقرا بيه أي plan لأول مرة.</p>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">اللوحة اللي فوق بتتحدّث مع كل خطوة — ارجع لفوق وإنت بتقلّب.</p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>مثال واقعي: من EF Core لغاية الأرقام</h2></div>
+
+  <h3>أ. هات الـ SQL الحقيقي من EF Core</h3>
+<pre><code><span class="c">// أي IQueryable — من غير ما تنفّذه</span>
+<span class="k">var</span> query = db.Orders
+    .Where(o =&gt; o.CustomerId == cid)
+    .Select(o =&gt; <span class="k">new</span> { o.OrderId, o.Total, o.Status });
+
+<span class="k">var</span> sql = query.ToQueryString();   <span class="c">// نص T-SQL كامل بالـ parameters</span>
+
+<span class="c">// أو سجّل كل حاجة على الـ console وقت التطوير</span>
+options.LogTo(Console.WriteLine, LogLevel.Information);</code></pre>
+
+  <h3>ب. شغّله في SSMS بالـ actual plan + اقرا الأرقام</h3>
+<pre><code>SET STATISTICS IO, TIME ON;
+
+<span class="c">-- قبل: فهرس على CustomerId بس (مش مغطّي)</span>
+SELECT OrderId, Total, Status FROM Orders WHERE CustomerId = 91;
+<span class="c">-- Index Seek → Key Lookup × 50,000</span>
+<span class="c">-- logical reads 150,182   |   elapsed time = 4,254 ms</span>
+
+<span class="c">-- الحل: خلي الفهرس يغطّي الأعمدة المطلوبة</span>
+CREATE NONCLUSTERED INDEX IX_Orders_CustomerId
+    ON Orders(CustomerId) INCLUDE (Total, Status)
+    WITH (DROP_EXISTING = ON);
+
+<span class="c">-- بعد: Index Seek لوحده — الـ Key Lookup اختفى من الخطة</span>
+SELECT OrderId, Total, Status FROM Orders WHERE CustomerId = 91;
+<span class="c">-- logical reads 182       |   elapsed time = 118 ms</span></code></pre>
+  <div class="callout good">
+    <b>825× أقل قراءات.</b> ومحدش غيّر سطر C#. الخطة هي اللي قالت المشكلة فين — الـ Key Lookup
+    كان بيتنفّذ مرة لكل صف راجع.
+  </div>
+
+  <h3>ج. ولو الـ Estimated بعيد عن الـ Actual؟</h3>
+<pre><code><span class="c">-- 1) statistics بايتة → حدّثها وشوف الخطة اتغيّرت ولا لأ</span>
+UPDATE STATISTICS Orders WITH FULLSCAN;
+
+<span class="c">-- 2) قيمة parameter شاذة (parameter sniffing) → خطة لكل تنفيذ</span>
+SELECT OrderId, Total FROM Orders WHERE CustomerId = @cid
+OPTION (RECOMPILE);
+
+<span class="c">-- 3) شوف الخطة المتخزنة في الكاش من غير ما تعيد التنفيذ</span>
+SELECT qp.query_plan, st.text
+FROM sys.dm_exec_query_stats AS qs
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+ORDER BY qs.total_logical_reads DESC;</code></pre>
+  <div class="callout info">
+    <strong>ترتيب التشخيص الصح:</strong> الفرق بين Estimated و Actual الأول ← بعدين السهم التخين ←
+    بعدين علامة ⚠ الصفرا ← وآخر حاجة <code>cost %</code>. الـ cost تقدير من الـ optimizer نفسه،
+    فلو تقديره غلط أصلاً فالنسبة دي كمان غلط.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>الاعتماد على الـ estimated plan</b> — مفيهوش actual rows، يعني مفيش مقارنة، يعني ضاع أهم دليل عندك.
+      اطلب الـ actual (<code>Ctrl+M</code>) طول ما تقدر تنفّذ الاستعلام.</li>
+    <li><b>مطاردة الـ operator صاحب أعلى <code>cost %</code></b> — النسبة دي محسوبة من تقدير ممكن يكون
+      غلط ١٠٠٠ ضعف. ابدأ من Estimated vs Actual، وأكّد بـ <code>SET STATISTICS IO</code>.</li>
+    <li><b>تجاهل المثلث الأصفر ⚠</b> على الـ operator — دي مش زينة، دي
+      <code>CONVERT_IMPLICIT</code> أو spill على <code>tempdb</code> أو join predicate ناقص، والـ plan
+      حرفياً بيقولك المشكلة.</li>
+    <li><b>«شفت Scan يبقى في مشكلة»</b> — الـ Scan طبيعي جداً لجدول صغير أو لتقرير بياخد نص الجدول.
+      المشكلة هي Scan على جدول كبير في استعلام <u>انتقائي</u>.</li>
+    <li><b>قراية الخطة من الشمال لليمين</b> — <code>SELECT</code> آخر خطوة مش أولها. ابدأ من أقصى يمين
+      الشجرة حيث الداتا بتتلمس فعلاً.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. في actual plan: operator عليه Estimated rows = 1 و Actual rows = 50,000. ده معناه إيه غالباً؟</div>
+    <button class="opt">الخطة ممتازة، التقدير مش مهم</button>
+    <button class="opt">statistics بايتة أو predicate الـ optimizer مش قادر يقدّره — فاختار شكل خطة مبني على حجم بيانات غلط</button>
+    <button class="opt">مشكلة في الشبكة</button>
+    <div class="feedback">الـ optimizer اختار operators (زي Nested Loops) وهو فاكر إن صف واحد هيعدّي. لما يعدّي ٥٠ ألف في نفس الشكل، ده بيبقى كارثة أداء.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. أنهي رقم في الخطة تثق فيه الأول لما تقارن نسختين من نفس الاستعلام؟</div>
+    <button class="opt">الـ cost % بتاع الـ operator</button>
+    <button class="opt">عدد الـ operators في الشجرة</button>
+    <button class="opt">الـ logical reads من <code>SET STATISTICS IO</code></button>
+    <div class="feedback">الـ logical reads قياس فعلي لعدد الصفحات اللي اتقرت، مش تقدير — وبيفضل ثابت مهما كان السيرفر مشغول أو الكاش دافي.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الخطة بتتقرا من اليمين للشمال، والبداية دايماً عند الـ operator اللي بيلمس الداتا.</li>
+    <li>الفرق بين Estimated و Actual rows هو أسرع تشخيص عندك — فرق كبير معناه إن شكل الخطة اتاخد لحجم بيانات غير الحقيقي.</li>
+    <li>الـ <code>cost %</code> تقدير، والـ logical reads قياس — قارن بالقياس مش بالتقدير.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- flow animation toggle
+  var flowStage = document.getElementById('flowStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = flowStage.classList.toggle('paused');
+    flowToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- plan model
+  function fmt(n) {
+    return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function ms(v) {
+    return v >= 1000 ? (v / 1000).toFixed(1) + ' ثانية' : Math.round(v) + ' ملي ثانية';
+  }
+
+  // كل شكل: العمليات من اليمين (الداتا) للشمال (SELECT)
+  var shapes = {
+    cover: {
+      est: 42,
+      inputs: [{
+        key: 'seek', name: 'Index Seek (NonClustered)', sub: '[IX_Orders_CustomerId]',
+        detail: 'نزول في شجرة الفهرس على CustomerId. الفهرس مغطّي (INCLUDE Total, Status) فكل الأعمدة المطلوبة موجودة في الورقة — مفيش رجوع للجدول.'
+      }],
+      join: null,
+      reads: function (act) { return 3 + Math.ceil(act / 280); },
+      time: function (act) { return 0.4 + act * 0.002; }
+    },
+    lookup: {
+      est: 42,
+      inputs: [
+        { key: 'seek', name: 'Index Seek (NonClustered)', sub: '[IX_Orders_CustomerId]',
+          detail: 'بيلاقي الصفوف بسرعة، بس الفهرس فيه CustomerId والمفتاح بس — Total و Status مش موجودين، فلازم رحلة تانية لكل صف.' },
+        { key: 'lookup', name: 'Key Lookup (Clustered)', sub: '[PK_Orders]',
+          detail: 'بيتنفّذ مرة واحدة لكل صف طالع من الـ Seek (Number of Executions = عدد الصفوف). كل تنفيذ ≈ 3 قراءات منطقية عشان ينزل الشجرة يجيب باقي الأعمدة.' }
+      ],
+      join: { key: 'nl', name: 'Nested Loops (Inner Join)', sub: 'seek ⨝ lookup',
+        detail: 'بيلف على كل صف من الـ Seek وينادي الـ Key Lookup. لما عدد الصفوف يبقى صغير ده مثالي؛ لما يبقى عشرات الآلاف بيتحوّل لعشرات الآلاف من الرحلات العشوائية.' },
+      reads: function (act) { return 3 + Math.ceil(act / 280) + act * 3; },
+      time: function (act) { return 0.4 + act * 0.085; }
+    },
+    scan: {
+      est: 1,
+      inputs: [{
+        key: 'scan', name: 'Clustered Index Scan', sub: '[PK_Orders]  ⚠',
+        warn: 'CONVERT_IMPLICIT(nvarchar) على العمود — الـ predicate بقى unSARGable، فمفيش seek وكمان التقدير بقى صف واحد.',
+        detail: 'بيقرا كل صفحات الجدول (٥ مليون صف) وبيصفّي بعد القراية. سببه هنا تحويل ضمني في نوع العمود — علامة ⚠ الصفرا على الـ operator بتقولها بالحرف.'
+      }],
+      join: null,
+      reads: function () { return 41882; },
+      time: function (act) { return 380 + act * 0.002; }
+    }
+  };
+
+  var state = { shape: 'lookup', act: 500, focus: null };
+
+  var board = document.getElementById('board');
+  var detailEl = document.getElementById('detail');
+  var statReads = document.getElementById('statReads');
+  var statTime = document.getElementById('statTime');
+  var statRatio = document.getElementById('statRatio');
+  var verdictEl = document.getElementById('verdict');
+
+  function thickness(rows) {
+    return Math.max(3, Math.min(30, 3 + Math.log(rows + 1) / Math.LN10 * 6));
+  }
+  function makeOp(op, costPct, hot) {
+    var d = document.createElement('div');
+    d.className = 'op' + (state.focus === op.key ? ' focus' : '') + (hot ? ' hot' : '');
+    var html = '<div class="oname">' + op.name + '</div>' +
+               '<div class="osub">' + op.sub + '</div>' +
+               '<div class="orows">est <b>' + fmt(op.est) + '</b> · actual <b>' + fmt(op.act) + '</b>' +
+               (op.execs > 1 ? ' · executions <b>' + fmt(op.execs) + '</b>' : '') + '</div>';
+    if (op.warn) html += '<div class="warn">⚠ تحذير — دوس اقرا</div>';
+    html += '<div class="costbar"><i style="width:' + costPct + '%"></i></div>';
+    d.innerHTML = html;
+    d.addEventListener('click', function () {
+      state.focus = op.key;
+      render();
+    });
+    return d;
+  }
+  function makeArrow(rows, hot) {
+    var a = document.createElement('div');
+    a.className = 'arrow' + (hot ? ' fat' : '');
+    var bar = document.createElement('div');
+    bar.className = 'abar';
+    bar.style.height = thickness(rows) + 'px';
+    var head = document.createElement('div');
+    head.className = 'head';
+    head.textContent = '◀';
+    var lab = document.createElement('div');
+    lab.className = 'alabel';
+    lab.textContent = fmt(rows) + ' rows';
+    a.appendChild(head); a.appendChild(bar); a.appendChild(lab);
+    return a;
+  }
+
+  function render() {
+    var s = shapes[state.shape];
+    var act = state.act;
+    var est = s.est;
+
+    // تكلفة كل operator محسوبة من القراءات اللي بيعملها فعلاً — مش رقم ثابت
+    var costs = {};
+    var total = 0;
+    s.inputs.forEach(function (op) {
+      var c = op.key === 'lookup' ? act * 3 : (op.key === 'scan' ? 41882 : 3 + Math.ceil(act / 280));
+      costs[op.key] = c; total += c;
+    });
+    if (s.join) { costs[s.join.key] = Math.max(1, act * 0.02); total += costs[s.join.key]; }
+    total = Math.max(total, 1);
+
+    board.innerHTML = '';
+    var inputsCol = document.createElement('div');
+    inputsCol.className = 'col';
+    var arrowsCol = document.createElement('div');
+    arrowsCol.className = 'arrows';
+
+    s.inputs.forEach(function (op) {
+      var pct = Math.round(costs[op.key] / total * 100);
+      var hot = pct >= 60;
+      var view = {
+        key: op.key, name: op.name, sub: op.sub, detail: op.detail, warn: op.warn,
+        est: op.key === 'lookup' ? 1 : est,
+        act: op.key === 'lookup' ? 1 : act,
+        execs: op.key === 'lookup' ? act : 1,
+        pct: pct
+      };
+      inputsCol.appendChild(makeOp(view, pct, hot));
+      arrowsCol.appendChild(makeArrow(act, act >= 10000));
+      op.view = view;
+    });
+
+    board.appendChild(inputsCol);
+    board.appendChild(arrowsCol);
+
+    if (s.join) {
+      var jpct = Math.round(costs[s.join.key] / total * 100);
+      var jview = { key: s.join.key, name: s.join.name, sub: s.join.sub, detail: s.join.detail,
+                    est: est, act: act, execs: 1, pct: jpct };
+      board.appendChild(makeOp(jview, jpct, false));
+      board.appendChild(makeArrow(act, act >= 10000));
+      s.join.view = jview;
+    }
+
+    var sel = document.createElement('div');
+    sel.className = 'op' + (state.focus === 'select' ? ' focus' : '') + ' ok';
+    sel.innerHTML = '<div class="oname">SELECT</div><div class="osub">النتيجة النهائية</div>' +
+                    '<div class="orows">actual <b>' + fmt(act) + '</b> rows</div>' +
+                    '<div class="costbar"><i style="width:0%"></i></div>';
+    sel.addEventListener('click', function () {
+      state.focus = 'select';
+      render();
+    });
+    board.appendChild(sel);
+
+    var reads = s.reads(act), t = s.time(act);
+    statReads.textContent = fmt(reads);
+    statTime.textContent = ms(t);
+    var ratio = act / est;
+    statRatio.textContent = fmt(est) + ' / ' + fmt(act) + (ratio >= 10 ? '  (×' + fmt(ratio) + ' فرق)' : '');
+
+    var v = [];
+    if (ratio >= 10) {
+      v.push('<div class="callout bad" style="margin:8px 0">التقدير بعيد عن الحقيقي <b>' + fmt(ratio) +
+             '</b> ضعف — الشكل ده اتاخد لحجم بيانات تاني خالص. ابدأ التشخيص من هنا: statistics بايتة أو parameter sniffing.</div>');
+    } else {
+      v.push('<div class="callout good" style="margin:8px 0">التقدير قريب من الحقيقي — يعني شكل الخطة مبني على معلومة صح.</div>');
+    }
+    if (state.shape === 'lookup' && act >= 10000) {
+      v.push('<div class="callout bad" style="margin:8px 0">' + fmt(act) +
+             ' تنفيذ للـ Key Lookup = ' + fmt(act * 3) + ' قراءة زيادة. الحل: <code>INCLUDE</code> للأعمدة الناقصة.</div>');
+    } else if (state.shape === 'lookup') {
+      v.push('<div class="callout" style="margin:8px 0">مع العدد الصغير ده الـ Key Lookup مقبول تماماً — مش كل lookup مشكلة.</div>');
+    } else if (state.shape === 'scan') {
+      v.push('<div class="callout bad" style="margin:8px 0">الـ Scan هنا مش اختيار — الـ ⚠ CONVERT_IMPLICIT منع الـ seek. صلّح نوع العمود/الـ parameter وهيرجع Seek.</div>');
+    } else {
+      v.push('<div class="callout good" style="margin:8px 0">فهرس مغطّي: operator واحد، مفيش رجوع للجدول، والقراءات بتكبر مع النتيجة بس.</div>');
+    }
+    verdictEl.innerHTML = v.join('');
+
+    // لوحة التفاصيل
+    var all = s.inputs.map(function (o) { return o.view; });
+    if (s.join) all.push(s.join.view);
+    var found = null;
+    all.forEach(function (o) { if (o && o.key === state.focus) found = o; });
+    if (state.focus === 'select') {
+      detailEl.innerHTML = '<b>SELECT</b> — مش operator بيشتغل، ده بس رأس الشجرة اللي بيسلّم النتيجة للتطبيق. عمره ما بيكون سبب البطء.';
+    } else if (found) {
+      var src = null;
+      s.inputs.forEach(function (o) { if (o.key === found.key) src = o; });
+      if (!src && s.join && s.join.key === found.key) src = s.join;
+      detailEl.innerHTML = '<b>' + found.name + '</b> · cost ' + found.pct + '%<br>' +
+        'Estimated rows: <b>' + fmt(found.est) + '</b> · Actual rows: <b>' + fmt(found.act) + '</b>' +
+        (found.execs > 1 ? ' · Number of Executions: <b>' + fmt(found.execs) + '</b>' : '') + '<br>' +
+        src.detail + (src.warn ? '<br><span style="color:var(--warning)">⚠ ' + src.warn + '</span>' : '');
+    } else {
+      detailEl.innerHTML = 'دوس على أي operator فوق عشان تشوف تفاصيله — زي ما بتعمل hover في SSMS.';
+    }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-shape]'), function (b) {
+    b.addEventListener('click', function () {
+      state.shape = b.getAttribute('data-shape');
+      state.focus = null;
+      render();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-rows]'), function (b) {
+    b.addEventListener('click', function () {
+      state.act = parseInt(b.getAttribute('data-rows'), 10);
+      render();
+    });
+  });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    { text: 'الاستعلام رجع في ٤ ثواني والمفروض ملي ثانية. أول خطوة: هات الـ actual plan (Ctrl+M) مش الـ estimated — عايزين الأرقام الحقيقية.',
+      apply: function () { state.shape = 'lookup'; state.act = 50000; state.focus = null; } },
+    { text: 'ابدأ من أقصى اليمين — الـ operator اللي بيلمس الداتا. هنا Index Seek على IX_Orders_CustomerId. الـ Seek نفسه سليم.',
+      apply: function () { state.focus = 'seek'; } },
+    { text: 'قارن Estimated بـ Actual على نفس الـ operator: التقدير ٤٢ صف، الحقيقي ٥٠ ألف. فرق ~١١٩٠ ضعف = الـ optimizer اختار الشكل وهو مخدوع.',
+      apply: function () { state.focus = 'seek'; } },
+    { text: 'بصّ على سُمك السهم الداخل على الـ Nested Loops — تخين وأحمر. السهم التخين الداخل على Loops أو Sort أو Hash علامة حمرا دايماً.',
+      apply: function () { state.focus = 'nl'; } },
+    { text: 'الـ Key Lookup: Number of Executions = ٥٠ ألف، يعني ٥٠ ألف رحلة للـ clustered index × ٣ قراءات = ١٥٠ ألف قراءة منطقية زيادة. ده مصدر الـ ٤ ثواني.',
+      apply: function () { state.focus = 'lookup'; } },
+    { text: 'العلاج: INCLUDE (Total, Status) على الفهرس يشيل الـ Key Lookup خالص → عدّي على زرار «فهرس مغطّي» فوق وقارن الأرقام. ولو الفرق في التقدير فضل، حدّث الـ statistics أو استخدم OPTION (RECOMPILE).',
+      apply: function () { state.shape = 'cover'; state.act = 50000; state.focus = 'seek'; } }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح مش مجرد تراجع
+    state.shape = 'lookup'; state.act = 50000; state.focus = null;
+    for (var i = 0; i <= step; i++) steps[i].apply();
+    render();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+
+  renderStep();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
