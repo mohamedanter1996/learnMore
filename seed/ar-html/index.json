@@ -39,6 +39,11 @@
       "topic": "System Design",
       "title": "Caching I: Layers and Cache-Aside",
       "file": "4-system-design/caching-i-layers-and-cache-aside.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "CSS Flexbox: One-Dimensional Layout Mastery",
+      "file": "5-frontend/css-flexbox-one-dimensional-layout-mastery.html"
     }
   ]
 }

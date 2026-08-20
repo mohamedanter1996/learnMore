@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSS Flexbox: One-Dimensional Layout Mastery — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  /* ---------- الرسم: المحاور ---------- */
+  .axiswrap { min-width: 560px; }
+  .axisbox {
+    display: flex; gap: 10px; border: 1px dashed var(--primary); border-radius: 10px;
+    padding: 14px; min-height: 130px; direction: ltr; transition: all .35s ease;
+  }
+  .axisbox.col { flex-direction: column; }
+  .fitem {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 18px; color: var(--text-dim); font-family: Consolas, monospace; font-size: 13px;
+    text-align: center; transition: all .3s ease;
+  }
+  .track { position: relative; height: 26px; margin-top: 10px; direction: ltr; }
+  .track .rail { position: absolute; inset: 12px 0 auto 0; height: 2px; background: var(--border); }
+  .track .dot {
+    position: absolute; top: 7px; right: auto; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--text-dim); animation: slide 2.8s ease-in-out infinite;
+  }
+  .track .tl { position: absolute; top: -4px; left: 0; font-size: 12px; color: var(--text-dim); }
+  .track.main .rail { background: var(--primary); }
+  .track.main .dot { background: var(--primary); }
+  .track.main .tl { color: var(--primary); }
+  .track.cross .rail { background: var(--warning); }
+  .track.cross .dot { background: var(--warning); }
+  .track.cross .tl { color: var(--warning); }
+  @keyframes slide {
+    0%   { left: 0; opacity: .2; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { left: calc(100% - 12px); opacity: .2; }
+  }
+  .paused .dot { animation-play-state: paused; }
+
+  /* ---------- الملعب ---------- */
+  .pgbox {
+    display: flex; gap: 8px; direction: ltr; background: var(--bg);
+    border: 1px dashed var(--border); border-radius: 8px; padding: 10px;
+    height: 170px; overflow: hidden; transition: all .3s ease;
+  }
+  .pgitem {
+    background: #14384d; border: 1px solid var(--primary); color: #bae6fd; border-radius: 6px;
+    padding: 10px 16px; font-family: Consolas, monospace; font-size: 13px; white-space: nowrap;
+  }
+
+  /* ---------- محاكاة التفاوض ---------- */
+  .simhead { color: var(--text-dim); font-size: 13px; margin-bottom: 8px; }
+  .simbox {
+    border: 1px dashed var(--primary); border-radius: 8px; padding: 10px;
+    direction: ltr; transition: width .35s ease;
+  }
+  .simrow { display: flex; }
+  .simitem {
+    height: 58px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-dim); font-family: Consolas, monospace; font-size: 12px; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    white-space: nowrap; transition: width .35s ease, background .3s ease;
+  }
+  .simitem.act { background: #14384d; border-color: var(--primary); color: #bae6fd; }
+  .simitem.over { background: rgba(248,113,113,.18); border-color: var(--danger); color: #fecaca; }
+  .simfree {
+    height: 58px; border: 1px dashed var(--success); border-radius: 6px; color: #d1fae5;
+    font-family: Consolas, monospace; font-size: 12px; display: flex; align-items: center;
+    justify-content: center; transition: width .35s ease;
+  }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 78px; }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+
+  /* ---------- ديمو الـ ellipsis ---------- */
+  .trow {
+    display: flex; gap: 8px; width: 420px; direction: ltr; overflow-x: auto;
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+  }
+  .tcell {
+    background: var(--surface-2); border-radius: 6px; padding: 8px 10px;
+    font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim); white-space: nowrap;
+  }
+  .flexcell { flex: 1; }
+  .flexcell.fixed { min-width: 0; }
+  .flexcell.fixed span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🎨 Frontend Engineering · درس مصري مفصّل</div>
+  <h1>الحاوية بتحطّ القواعد، والعناصر بتتفاوض على المساحة</h1>
+  <div class="en">CSS Flexbox: One-Dimensional Layout Mastery</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك جدول في Angular بيعرض <code>Orders</code>، عرض الشاشة ٩٦٠ بكسل، وكل صف
+    <code>display: flex</code>. جه عميل إيميله ٧٨ حرف من غير أي مسافة، وفجأة الصفحة كلها بقى فيها
+    <b>سكرول أفقي</b>: عرض المحتوى طلع ١٨٤٠ بكسل بدل ٩٦٠، والـ header الثابت بقى مقصوص.
+    مفيش أي حاجة اتغيرت في الـ CSS — اتغيّرت <b>الداتا</b> بس.
+  </p>
+  <div class="callout info">
+    السبب مش bug في المتصفح: عنصر الـ flex الافتراضي <code>min-width: auto</code>، يعني
+    <strong>بيرفض يضغط تحت حجم محتواه الأدنى</strong>. الـ <code>flex-shrink</code> بيوصل لحد الأرضية دي
+    ويقف. الحل سطر واحد: <code>min-width: 0</code> على العنصر.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تحل مشاكل الـ layout بـ <code>width: 33%</code> و
+    <code>position: absolute</code> و<code>!important</code>، وهتكتب <code>justify-content: center</code>
+    وانت عايز توسيط رأسي فتستغرب ليه مش شغال، وهتشحت في الـ overflow اللي بيظهر مع داتا حقيقية بس.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: محورين، مش أربع اتجاهات</h2></div>
+  <p>
+    الـ flex container ليه <b>محور رئيسي (main axis)</b> بتترصّ عليه العناصر، و<b>محور عرضي (cross axis)</b>
+    عمودي عليه. <code>justify-*</code> بيشتغل على الرئيسي و<code>align-*</code> على العرضي.
+    <code>flex-direction</code> بيبدّل مين فيهم مين — وده مصدر اللخبطة كله.
+  </p>
+
+  <div class="stage" id="axisStage">
+    <div class="axiswrap">
+      <div class="axisbox" id="axisBox">
+        <div class="fitem">item 1</div>
+        <div class="fitem">item 2</div>
+        <div class="fitem">item 3</div>
+      </div>
+      <div class="track main" id="trackH">
+        <span class="tl" id="labelH">أفقي: المحور الرئيسي — justify-content بيوزّع هنا</span>
+        <div class="rail"></div><div class="dot"></div>
+      </div>
+      <div class="track cross" id="trackV">
+        <span class="tl" id="labelV">رأسي: المحور العرضي — align-items بيحاذي هنا</span>
+        <div class="rail"></div><div class="dot"></div>
+      </div>
+    </div>
+    <div class="controls" style="margin-top:14px">
+      <button class="btn" id="dirToggle">🔁 حوّل لـ flex-direction: column</button>
+      <button class="btn ghost" id="axisToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>القاعدة الوحيدة اللي محتاج تحفظها:</strong> اسأل نفسك «المحور الرئيسي دلوقتي أنهي؟».
+    لو <code>row</code> → <code>justify-content</code> أفقي و<code>align-items</code> رأسي.
+    لو <code>column</code> → العكس بالظبط. مفيش قاعدة تانية.
+  </div>
+
+  <h3>جرّب بنفسك</h3>
+  <div class="stage">
+    <div class="pgbox" id="pgBox">
+      <div class="pgitem" style="padding-block:8px">A</div>
+      <div class="pgitem" style="padding-block:20px">B</div>
+      <div class="pgitem" style="padding-block:34px">C</div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn ghost" data-just="flex-start">justify: flex-start</button>
+    <button class="btn ghost" data-just="center">center</button>
+    <button class="btn ghost" data-just="space-between">space-between</button>
+    <button class="btn ghost" data-just="space-around">space-around</button>
+  </div>
+  <div class="controls">
+    <button class="btn ghost" data-align="stretch">align: stretch</button>
+    <button class="btn ghost" data-align="center">center</button>
+    <button class="btn ghost" data-align="flex-end">flex-end</button>
+    <button class="btn ghost" id="pgAdd">➕ ضيف عنصر</button>
+    <button class="btn ghost" id="pgReset">↺ إعادة</button>
+  </div>
+<pre><code id="pgCode"></code></pre>
+  <p class="note">
+    لاحظ إن <code>stretch</code> هو الافتراضي — عشان كده الـ sidebar بيطلع بطول الحاوية لوحده،
+    ولما تكتب <code>align-items: center</code> بتكسر السلوك ده من غير ما تقصد.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إزاي بتتحسب العروض فعلاً</h2></div>
+  <p class="note">
+    Toolbar فيه تلات عناصر: <code>.logo { flex: 0 0 120px }</code> ·
+    <code>.search { flex: 1 1 200px }</code> · <code>.actions { flex: 0 1 200px }</code>
+  </p>
+
+  <div class="stage">
+    <div class="simhead">الحاوية: <b id="simCw">600px</b> · الحالة: <b id="simState">—</b></div>
+    <div class="simbox" id="simBox">
+      <div class="simrow" id="simRow"></div>
+    </div>
+    <div class="counters">
+      <span>📏 مجموع العناصر: <b id="simSum">—</b></span>
+      <span>🟢 مساحة حرة: <b id="simFreeTxt">—</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="callout info">
+    <strong>الحتة اللي بتفرق:</strong> الـ <code>flex-shrink</code> مش بيتقسم بالتساوي — بيتقسم
+    <b>مضروب في الـ basis</b>. عنصر <code>flex: 1 1 0</code> نظرياً مش بيضغط خالص (0 × 1 = 0)،
+    وعنصر basis كبير بيتحمّل الضغط الأكبر. عشان كده عمود بـ <code>flex: 1</code> بيفيض بدل ما يضغط.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. الـ overflow اللي بيكسر جدول Angular — وحله</h3>
+  <div class="stage">
+    <div class="trow" id="truncRow">
+      <div class="tcell">#1042</div>
+      <div class="tcell flexcell" id="truncCell">
+        <span>mohamed.anter.unbreakable-billing-address@subdomain.example-company-group.com</span>
+      </div>
+      <div class="tcell">تفاصيل</div>
+    </div>
+    <div class="counters">
+      <span>📐 عرض الحاوية: <b>420px</b></span>
+      <span>↔️ عرض المحتوى الفعلي: <b id="truncW">—</b></span>
+      <span>🩹 الحالة: <b id="truncState">min-width: auto (الافتراضي)</b></span>
+    </div>
+    <div class="controls" style="margin-top:12px">
+      <button class="btn" id="truncFix">🩹 طبّق min-width: 0 + ellipsis</button>
+    </div>
+  </div>
+<pre><code><span class="c">/* ❌ العمود بيرفض يضغط تحت طول النص → سكرول أفقي في الصف كله */</span>
+.cell { flex: <span class="s">1</span>; }
+
+<span class="c">/* ✅ الأرضية الضمنية اتشالت، والنص بيتقص بنقط */</span>
+.cell { flex: <span class="s">1</span>; min-width: <span class="s">0</span>; }
+.cell span { overflow: <span class="s">hidden</span>; text-overflow: <span class="s">ellipsis</span>; white-space: <span class="s">nowrap</span>; }</code></pre>
+  <p class="note">
+    نفس القصة بالظبط في <code>flex-direction: column</code> بس بـ <code>min-height: 0</code> — من غيرها
+    العنصر اللي المفروض يعمل <code>overflow-y: auto</code> بيمدّد الصفحة كلها بدل ما يعمل سكرول جوّه نفسه.
+  </p>
+
+  <h3>ب. أعمدة متساوية بجد: <code>flex: 1</code> مقابل <code>flex: 1 1 auto</code></h3>
+  <div class="grid2">
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ basis صفر</strong> — المحتوى ملوش لازمة</div>
+<pre><code>.col { flex: <span class="s">1</span>; }   <span class="c">/* = 1 1 0% */</span>
+<span class="c">// حاوية 900px، محتوى 100/300/200</span>
+<span class="c">// النتيجة: 300 / 300 / 300</span></code></pre>
+    </div>
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ basis auto</strong> — المحتوى الأكبر بياخد أكتر</div>
+<pre><code>.col { flex: <span class="s">1 1 auto</span>; }
+<span class="c">// نفس الحاوية ونفس المحتوى</span>
+<span class="c">// النتيجة: 200 / 400 / 300</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    الاتنين بيوزّعوا الـ ٣٠٠ بكسل الزيادة بالتساوي — الفرق إن الأول بدأ من صفر فالتوزيع هو كل الحكاية،
+    والتاني بدأ من حجم المحتوى فالفروق فضلت موجودة.
+  </p>
+
+  <h3>ج. Navbar وكارت بفوتر ثابت</h3>
+<pre><code><span class="c">/* logo شمال، أزرار يمين — من غير أي عرض ثابت */</span>
+.nav    { display: <span class="s">flex</span>; align-items: <span class="s">center</span>; gap: <span class="s">12px</span>; }
+.spacer { flex: <span class="s">1</span>; }                 <span class="c">/* أو margin-inline-start: auto على الأزرار */</span>
+
+<span class="c">/* كارت الفوتر بتاعه دايماً تحت مهما كان الجسم قصير */</span>
+.card      { display: <span class="s">flex</span>; flex-direction: <span class="s">column</span>; height: <span class="s">100%</span>; }
+.card-body { flex: <span class="s">1</span>; min-height: <span class="s">0</span>; overflow-y: <span class="s">auto</span>; }</code></pre>
+  <div class="callout">
+    <strong>ملاحظة RTL مهمة:</strong> في صفحة <code>dir="rtl"</code> الـ <code>flex-direction: row</code>
+    بيمشي من <b>اليمين للشمال</b> لوحده. متستخدمش <code>row-reverse</code> عشان تعدّلها — ده بيكسر
+    ترتيب الـ DOM للـ keyboard وللـ screen readers. استخدم <code>flex-start</code>/<code>flex-end</code>
+    و<code>margin-inline-start</code> وسيب الاتجاه للمتصفح.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«<code>justify-content: center</code> مش بيوسّط رأسي»</b> — طبعاً، هو بيشتغل على المحور
+      <u>الرئيسي</u>. في <code>row</code> التوسيط الرأسي شغلانة <code>align-items</code>.</li>
+    <li><b>نسيان <code>min-width: 0</code></b> — أشهر gotcha في الـ CSS كله. أي نص طويل أو
+      <code>&lt;pre&gt;</code> أو جدول جوّه flex item بيفيض بدل ما يضغط.</li>
+    <li><b><code>flex-grow: 1</code> لوحده وانت عايز أعمدة متساوية</b> — الـ basis فضل
+      <code>auto</code>، فالمحتوى الأكبر بياخد عمود أعرض. اكتب <code>flex: 1</code>.</li>
+    <li><b>margins بين العناصر بدل <code>gap</code></b> — وبعدين حيلة <code>:last-child</code> عشان
+      تشيل آخر واحدة. <code>gap</code> مدعوم في الـ flexbox في كل المتصفحات الحالية.</li>
+    <li><b>استخدام flex لهيكل صفحة بُعدين</b> بـ <code>flex-wrap</code> و<code>width: 33%</code> —
+      الأعمدة مش بتتحاذى بين الصفوف. ده شغل Grid، مش Flexbox.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. نص طويل من غير مسافات جوّه flex item بيفيض برّه الحاوية. ليه؟</div>
+    <button class="opt">لأن الـ <code>gap</code> ناقص</button>
+    <button class="opt">لأن العنصر افتراضياً <code>min-width: auto</code> فبيرفض يضغط تحت حجم محتواه — و<code>min-width: 0</code> بيرجّع الضغط</button>
+    <button class="opt">لأن الـ <code>flex-basis</code> غلط</button>
+    <div class="feedback">دي قاعدة الحد الأدنى الضمني (implicit minimum size). الـ shrink بيقف عندها، و<code>min-width: 0</code> (أو <code>overflow: hidden</code>) بيلغيها.</div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. <code>flex: 1 1 0</code> على كل الأبناء بيدي أعمدة متساوية. ليه بالظبط؟</div>
+    <button class="opt">لأنها بتحط <code>width: 33%</code> على كل واحد</button>
+    <button class="opt">لأن الـ basis صفر بيلغي تأثير حجم المحتوى — فالمساحة كلها بقت «زيادة» بتتوزّع بالـ grow بالتساوي</button>
+    <button class="opt">لأن الـ <code>shrink</code> بيساويهم في الآخر</button>
+    <div class="feedback">مع <code>basis: auto</code> المحتوى الأكبر = عمود أعرض. الـ basis صفر بيصفّر المطالبة المبدئية، فأوزان الـ grow لوحدها هي اللي بتقرر.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>اسأل «المحور الرئيسي دلوقتي أنهي؟» — <code>justify-*</code> عليه و<code>align-*</code> على اللي عموده.</li>
+    <li><code>flex: grow shrink basis</code> هي التفاوض كله: الـ basis نقطة البداية، والـ grow بيوزّع الزيادة، والـ shrink بيوزّع العجز مضروب في الـ basis.</li>
+    <li>أي overflow غريب في flex → جرّب <code>min-width: 0</code> (أو <code>min-height: 0</code> في العمود) قبل أي حاجة تانية.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- axes diagram
+  var axisStage = document.getElementById('axisStage');
+  var axisBox = document.getElementById('axisBox');
+  var dirToggle = document.getElementById('dirToggle');
+  var axisToggle = document.getElementById('axisToggle');
+  var trackH = document.getElementById('trackH'), trackV = document.getElementById('trackV');
+  var labelH = document.getElementById('labelH'), labelV = document.getElementById('labelV');
+  var isCol = false;
+
+  function renderAxes() {
+    axisBox.classList.toggle('col', isCol);
+    trackH.className = 'track ' + (isCol ? 'cross' : 'main');
+    trackV.className = 'track ' + (isCol ? 'main' : 'cross');
+    labelH.textContent = isCol
+      ? 'أفقي: المحور العرضي — align-items بيحاذي هنا'
+      : 'أفقي: المحور الرئيسي — justify-content بيوزّع هنا';
+    labelV.textContent = isCol
+      ? 'رأسي: المحور الرئيسي — justify-content بيوزّع هنا'
+      : 'رأسي: المحور العرضي — align-items بيحاذي هنا';
+    dirToggle.textContent = isCol
+      ? '🔁 رجّع لـ flex-direction: row'
+      : '🔁 حوّل لـ flex-direction: column';
+  }
+  dirToggle.addEventListener('click', function () { isCol = !isCol; renderAxes(); });
+  axisToggle.addEventListener('click', function () {
+    var paused = axisStage.classList.toggle('paused');
+    axisToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+  renderAxes();
+
+  // ---------------------------------------------------------------- playground
+  var pgBox = document.getElementById('pgBox');
+  var pgCode = document.getElementById('pgCode');
+  var pgJust = 'flex-start', pgAlign = 'stretch', pgCount = 3;
+  var NAMES = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  function pgRender() {
+    pgBox.style.justifyContent = pgJust;
+    pgBox.style.alignItems = pgAlign;
+    pgCode.textContent =
+      '.box {\n' +
+      '  display: flex;\n' +
+      '  flex-direction: row;\n' +
+      '  justify-content: ' + pgJust + ';\n' +
+      '  align-items: ' + pgAlign + ';\n' +
+      '  gap: 8px;\n}';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-just]'), function (b) {
+    b.addEventListener('click', function () { pgJust = b.getAttribute('data-just'); pgRender(); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-align]'), function (b) {
+    b.addEventListener('click', function () { pgAlign = b.getAttribute('data-align'); pgRender(); });
+  });
+  document.getElementById('pgAdd').addEventListener('click', function () {
+    if (pgCount >= NAMES.length) return;
+    var d = document.createElement('div');
+    d.className = 'pgitem';
+    d.style.paddingBlock = (8 + (pgCount % 3) * 12) + 'px';
+    d.textContent = NAMES[pgCount++];
+    pgBox.appendChild(d);
+  });
+  document.getElementById('pgReset').addEventListener('click', function () {
+    while (pgBox.children.length > 3) pgBox.removeChild(pgBox.lastChild);
+    pgCount = 3; pgJust = 'flex-start'; pgAlign = 'stretch';
+    pgRender();
+  });
+  pgRender();
+
+  // ---------------------------------------------------------------- negotiation stepper
+  var SCALE = 0.82;
+  var LABELS = ['.logo', '.search', '.actions'];
+  var simBox = document.getElementById('simBox'), simRow = document.getElementById('simRow');
+  var simCw = document.getElementById('simCw'), simState = document.getElementById('simState');
+  var simSum = document.getElementById('simSum'), simFreeTxt = document.getElementById('simFreeTxt');
+
+  // كل خطوة حالة كاملة بذاتها — الرجوع بيعيد البناء من الصفر مش بيلغي آخر إطار
+  var steps = [
+    {
+      cw: 600, w: [120, 200, 200], act: [], over: false, state: 'flex-basis',
+      text: 'الأحجام المبدئية (flex-basis): 120 + 200 + 200 = 520px جوّه حاوية 600px. لسه مفيش أي تفاوض — دي مجرد نقطة البداية اللي كل عنصر بيطالب بيها.'
+    },
+    {
+      cw: 600, w: [120, 280, 200], act: [1], over: false, state: 'flex-grow',
+      text: 'فاضل 80px حرة. الـ grow بيوزّعها بالأوزان: .logo وزنه 0 و.actions وزنه 0، فـ .search (وزن 1) بياخدها كلها → 200 + 80 = 280px.'
+    },
+    {
+      cw: 400, w: [120, 200, 200], act: [], over: true, state: 'عجز -120px',
+      text: 'المستخدم صغّر النافذة لـ 400px. مجموع الـ basis لسه 520px → عجز 120px. دلوقتي الـ shrink هو اللي بيشتغل، مش الـ grow.'
+    },
+    {
+      cw: 400, w: [120, 140, 140], act: [1, 2], over: false, state: 'flex-shrink',
+      text: 'الضغط بيتوزّع بـ (shrink × basis): .logo = 0×120 = 0 (مبيضغطش)، .search = 1×200 و.actions = 1×200 → كل واحد بياخد نص العجز = 60px. النتيجة 120 / 140 / 140 = 400px بالظبط.'
+    },
+    {
+      cw: 400, w: [120, 260, 140], act: [], over: true, state: 'min-width: auto',
+      text: 'دلوقتي جوّه .search إيميل طويل من غير مسافات حجمه الأدنى 260px. الـ shrink بيقف عند الأرضية دي ومبيكملش → المجموع 520px جوّه حاوية 400px، والنتيجة سكرول أفقي.'
+    },
+    {
+      cw: 400, w: [120, 140, 140], act: [1], over: false, state: 'min-width: 0 ✅',
+      text: 'كتبنا min-width: 0 على .search فالأرضية اتشالت، والـ shrink كمّل شغله ورجعنا 120 / 140 / 140. النص نفسه بيتقص بـ text-overflow: ellipsis جوّه العنصر.'
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    var s = steps[step];
+    simBox.style.width = (s.cw * SCALE + 22) + 'px';
+    simCw.textContent = s.cw + 'px';
+    simState.textContent = s.state;
+
+    var sum = s.w[0] + s.w[1] + s.w[2];
+    simSum.textContent = sum + 'px';
+    var free = s.cw - sum;
+    simFreeTxt.textContent = free > 0 ? '+' + free + 'px' : (free < 0 ? free + 'px (بيفيض)' : '0px');
+
+    simRow.innerHTML = '';
+    s.w.forEach(function (w, i) {
+      var d = document.createElement('div');
+      d.className = 'simitem'
+        + (s.act.indexOf(i) >= 0 ? ' act' : '')
+        + (s.over ? ' over' : '');
+      d.style.width = (w * SCALE) + 'px';
+      d.innerHTML = LABELS[i] + '<span>' + w + 'px</span>';
+      simRow.appendChild(d);
+    });
+    if (free > 0) {
+      var f = document.createElement('div');
+      f.className = 'simfree';
+      f.style.width = (free * SCALE) + 'px';
+      f.textContent = '+' + free;
+      simRow.appendChild(f);
+    }
+
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- truncation demo
+  var truncRow = document.getElementById('truncRow');
+  var truncCell = document.getElementById('truncCell');
+  var truncW = document.getElementById('truncW'), truncState = document.getElementById('truncState');
+  var truncFix = document.getElementById('truncFix');
+
+  function measure() {
+    truncW.textContent = truncRow.scrollWidth + 'px';
+  }
+  truncFix.addEventListener('click', function () {
+    var fixed = truncCell.classList.toggle('fixed');
+    truncState.textContent = fixed ? 'min-width: 0 ✅' : 'min-width: auto (الافتراضي)';
+    truncFix.textContent = fixed ? '↺ شيل الإصلاح وشوف المشكلة' : '🩹 طبّق min-width: 0 + ellipsis';
+    measure();
+  });
+  window.addEventListener('load', measure);
+  measure();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

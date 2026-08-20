@@ -21,9 +21,10 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — Caching I: Layers and Cache-Aside → `4-system-design/caching-i-layers-and-cache-aside.html`
 
-## Queue (145)
+- [x] `Frontend Engineering` — CSS Flexbox: One-Dimensional Layout Mastery → `5-frontend/css-flexbox-one-dimensional-layout-mastery.html`
 
-- [ ] 4. `Frontend Engineering` — CSS Flexbox: One-Dimensional Layout Mastery → `5-frontend/css-flexbox-one-dimensional-layout-mastery.html`
+## Queue (144)
+
 - [ ] 5. `Data Structures & Algorithms` — Linked Lists: Trade-offs vs Arrays → `1-dsa/linked-lists-trade-offs-vs-arrays.html`
 - [ ] 6. `Design Patterns` — Factory Method & Simple Factory → `2-design-patterns/factory-method-simple-factory.html`
 - [ ] 7. `SQL Server Optimization` — Seeks vs Scans: Selectivity Decides → `3-sql-optimization/seeks-vs-scans-selectivity-decides.html`
