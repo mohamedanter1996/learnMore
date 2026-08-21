@@ -44,6 +44,11 @@
       "topic": "Frontend Engineering",
       "title": "CSS Flexbox: One-Dimensional Layout Mastery",
       "file": "5-frontend/css-flexbox-one-dimensional-layout-mastery.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Linked Lists: Trade-offs vs Arrays",
+      "file": "1-dsa/linked-lists-trade-offs-vs-arrays.html"
     }
   ]
 }

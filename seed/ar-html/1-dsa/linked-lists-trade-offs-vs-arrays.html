@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linked Lists: Trade-offs vs Arrays — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .layout { width: 100%; height: 320px; min-width: 560px; }
+  .token { animation: hopArr 6s steps(1, end) infinite; }
+  .token2 { animation: hopList 6s steps(1, end) infinite; }
+  @keyframes hopArr {
+    0%   { transform: translate(0, 0); }
+    16%  { transform: translate(50px, 0); }
+    33%  { transform: translate(100px, 0); }
+    50%  { transform: translate(150px, 0); }
+    66%  { transform: translate(200px, 0); }
+    83%  { transform: translate(250px, 0); }
+    100% { transform: translate(250px, 0); }
+  }
+  @keyframes hopList {
+    0%   { transform: translate(0, 0); }
+    16%  { transform: translate(-240px, 60px); }
+    33%  { transform: translate(-140px, 160px); }
+    50%  { transform: translate(-290px, 160px); }
+    66%  { transform: translate(-350px, 10px); }
+    83%  { transform: translate(-60px, 105px); }
+    100% { transform: translate(-60px, 105px); }
+  }
+  .paused .token, .paused .token2 { animation-play-state: paused; }
+
+  .rev { width: 100%; height: 200px; min-width: 560px; }
+  .ptr-tag { font-family: Consolas, monospace; font-size: 11px; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  .chain { display: flex; gap: 6px; direction: ltr; align-items: flex-start; min-width: 520px; }
+  .fnode {
+    width: 54px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+    padding: 6px 0; text-align: center; font-family: Consolas, monospace; font-size: 12px;
+    color: var(--text-dim); transition: background .2s, border-color .2s, color .2s;
+  }
+  .fnode .marks { display: block; height: 16px; font-size: 11px; }
+  .fnode.slow { border-color: var(--primary); color: #bae6fd; background: #14384d; }
+  .fnode.fast { border-color: var(--warning); color: #fde68a; }
+  .fnode.met  { border-color: var(--success); background: rgba(52,211,153,.18); color: #d1fae5; }
+  .cycle-hint { color: var(--text-dim); font-size: 12px; margin-top: 8px; direction: ltr; text-align: left; }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures &amp; Algorithms · درس مصري مفصّل</div>
+  <h1>الـ Linked List مش «List أسرع» — دي مقايضة: قفزة في الذاكرة مقابل حذف بـ O(1)</h1>
+  <div class="en">Linked Lists: Trade-offs vs Arrays</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك في الـ API كاش صغير للـ <code>Product</code> بيشيل ١٠ آلاف عنصر، ولما يمتلي بيرمي أقدم عنصر.
+    كتبته بـ <code>List&lt;Product&gt;</code> وبتستخدم <code>list.RemoveAt(0)</code> عشان تشيل الأقدم —
+    كل حذف بينسخ الـ ٩٩٩٩ عنصر اللي بعده مكان واحد لورا. تحت ضغط ٥٠٠ request/sec ده بيطلع
+    <b>ملايين النسخ في الثانية</b> على الفاضي، والـ p99 بيقفز من ٣ ملي لـ ٤٠ ملي.
+  </p>
+  <p>
+    بنفس المنطق بالظبط: <code>list.Insert(0, x)</code> مية ألف مرة ≈ <b>٢١٠٠ ملي ثانية</b>، بينما
+    <code>linked.AddFirst(x)</code> نفس العدد ≈ <b>٦ ملي ثانية</b>. نفس الشغل، فرق ٣٥٠ ضعف.
+  </p>
+  <div class="callout info">
+    بس اقلب العملة: لفّة على ١٠ مليون عنصر في <code>List&lt;int&gt;</code> ≈ <b>٨ ملي</b>، وفي
+    <code>LinkedList&lt;int&gt;</code> ≈ <b>١٢٠ ملي</b>. الـ array بلوك متصل، والـ linked list
+    عبارة عن nodes متبعترة كل واحدة بتقولك «اللي بعدي فين» — وكل قفزة احتمال cache miss.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم المقايضة دي:</strong> هتختار <code>LinkedList&lt;T&gt;</code> عشان سمعت إن
+    «الحذف فيها O(1)» وهي في الحقيقة O(n) لأنك بتدوّر على العنصر الأول، هتكتب
+    <code>O(n²)</code> مخفية وإنت بتلف بالـ index على linked list، وهتفضل تستخدم
+    <code>Insert(0, x)</code> في حلقة من غير ما تعرف إنها بتنسخ المصفوفة كلها كل مرة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: نفس الست عناصر — وشكلين مختلفين تماماً في الذاكرة</h2></div>
+  <div class="stage" id="layoutStage">
+    <svg class="layout" viewBox="0 0 520 320">
+      <defs>
+        <marker id="arw" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#64748b"/>
+        </marker>
+      </defs>
+
+      <text x="510" y="20" fill="#94a3b8" font-size="13" text-anchor="end" font-family="Segoe UI">Array / List&lt;T&gt; — بلوك واحد متصل</text>
+      <g>
+        <rect x="40" y="34" width="300" height="44" rx="8" fill="none" stroke="#334155" stroke-dasharray="4 4"/>
+        <g fill="#283548" stroke="#334155">
+          <rect x="44" y="38" width="44" height="36" rx="5"/>
+          <rect x="94" y="38" width="44" height="36" rx="5"/>
+          <rect x="144" y="38" width="44" height="36" rx="5"/>
+          <rect x="194" y="38" width="44" height="36" rx="5"/>
+          <rect x="244" y="38" width="44" height="36" rx="5"/>
+          <rect x="294" y="38" width="44" height="36" rx="5"/>
+        </g>
+        <g fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Consolas, monospace">
+          <text x="66" y="61">10</text><text x="116" y="61">20</text><text x="166" y="61">30</text>
+          <text x="216" y="61">40</text><text x="266" y="61">50</text><text x="316" y="61">60</text>
+        </g>
+        <g class="token">
+          <rect x="44" y="38" width="44" height="36" rx="5" fill="none" stroke="#34d399" stroke-width="2"/>
+        </g>
+        <text x="340" y="98" fill="#64748b" font-size="11" text-anchor="end" font-family="Segoe UI">
+          العنصر اللي بعده = العنوان + حجم العنصر → قراءة واحدة بتجيب الجيران معاها
+        </text>
+      </g>
+
+      <line x1="20" y1="115" x2="500" y2="115" stroke="#334155" stroke-dasharray="3 5"/>
+      <text x="510" y="140" fill="#94a3b8" font-size="13" text-anchor="end" font-family="Segoe UI">LinkedList&lt;T&gt; — nodes متبعترة + pointers</text>
+
+      <g stroke="#64748b" stroke-width="1.4" fill="none" marker-end="url(#arw)">
+        <path d="M312,168 C260,168 200,190 132,206"/>
+        <path d="M78,224 C120,258 180,272 224,286"/>
+        <path d="M270,286 C300,270 320,250 350,242"/>
+        <path d="M350,258 C300,300 240,306 200,300" stroke-dasharray="4 3"/>
+        <path d="M196,300 C170,290 160,276 158,264" stroke-dasharray="4 3"/>
+      </g>
+
+      <g fill="#283548" stroke="#334155">
+        <rect x="290" y="150" width="44" height="36" rx="5"/>
+        <rect x="56" y="210" width="44" height="36" rx="5"/>
+        <rect x="226" y="268" width="44" height="36" rx="5"/>
+        <rect x="136" y="240" width="44" height="36" rx="5"/>
+        <rect x="346" y="224" width="44" height="36" rx="5"/>
+        <rect x="420" y="160" width="44" height="36" rx="5"/>
+      </g>
+      <g fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Consolas, monospace">
+        <text x="312" y="173">10</text><text x="78" y="233">20</text><text x="248" y="291">30</text>
+        <text x="158" y="263">40</text><text x="368" y="247">50</text><text x="442" y="183">60</text>
+      </g>
+      <g class="token2">
+        <rect x="290" y="150" width="44" height="36" rx="5" fill="none" stroke="#f87171" stroke-width="2"/>
+      </g>
+      <text x="510" y="312" fill="#64748b" font-size="11" text-anchor="end" font-family="Segoe UI">
+        كل سهم = قفزة لعنوان تاني خالص = احتمال cache miss جديد
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="layoutToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الاتنين فيهم ٦ عناصر والمرور عليهم O(n) في الحالتين. الفرق إن الإطار الأخضر بيمشي على بلوك واحد
+    (الجهاز جايب ١٦ عنصر مع أول قراءة)، والإطار الأحمر بيلف في الذاكرة ورا pointer — ومحدش يقدر
+    يتوقّع رايح فين، فمفيش prefetch يفيدك.
+  </p>
+  <div class="callout">
+    <strong>ثمن مخفي:</strong> <code>LinkedListNode&lt;int&gt;</code> في .NET 64-bit بياخد ≈ <b>٤٨ بايت</b>
+    (object header + next + prev + مرجع للـ list + القيمة) عشان يخزّن <code>int</code> بـ ٤ بايت.
+    يعني ١٠ مليون <code>int</code> = ٤٠ ميجا في array، وأكتر من <b>٤٥٠ ميجا</b> في linked list،
+    وكمان ١٠ مليون جسم على الـ GC.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: اعكس linked list بتلات pointers</h2></div>
+  <p class="note">
+    ده أشهر سؤال انترفيو على الموضوع. المفتاح: قبل ما تلمس <code>curr.Next</code>، خزّن اللي بعده —
+    وإلا هتفقد باقي القايمة للأبد.
+  </p>
+
+  <div class="stage">
+    <svg class="rev" viewBox="0 0 520 200" id="revSvg"></svg>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+<pre><code>Node? prev = <span class="k">null</span>, curr = head;
+<span class="k">while</span> (curr != <span class="k">null</span>)
+{
+    <span class="k">var</span> next = curr.Next;   <span class="c">// 1) خزّن اللي بعده الأول</span>
+    curr.Next = prev;        <span class="c">// 2) اقلب السهم</span>
+    prev = curr;             <span class="c">// 3) قدّم prev</span>
+    curr = next;             <span class="c">// 4) قدّم curr</span>
+}
+<span class="c">// prev هو الـ head الجديد — مش curr (curr بقى null)</span></code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. الإضافة من الأول: <code>List&lt;T&gt;</code> مقابل <code>LinkedList&lt;T&gt;</code></h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ نسخ المصفوفة كلها كل مرة</strong></div>
+<pre><code><span class="k">var</span> list = <span class="k">new</span> List&lt;<span class="k">int</span>&gt;();
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 100_000; i++)
+    list.Insert(0, i);   <span class="c">// ≈ 2100 ms — O(n²)</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ node جديدة وخلاص</strong></div>
+<pre><code><span class="k">var</span> linked = <span class="k">new</span> LinkedList&lt;<span class="k">int</span>&gt;();
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 100_000; i++)
+    linked.AddFirst(i);  <span class="c">// ≈ 6 ms — O(1) للعنصر</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    وبالعكس تماماً في المرور: <code>foreach</code> على ١٠ مليون عنصر ≈ ٨ ملي في <code>List</code>
+    مقابل ≈ ١٢٠ ملي في <code>LinkedList</code>. يعني اختار على حسب العملية الغالبة عندك، مش على حسب السمعة.
+  </p>
+
+  <h3>ب. المكان اللي بتكسب فيه فعلاً: LRU cache</h3>
+  <p>
+    القاعدة: <code>LinkedList</code> بتكسب لما تكون <b>ماسك الـ node نفسها</b> — والـ
+    <code>Dictionary</code> هو اللي بيديك الـ node دي في O(1). ده بالظبط شكل أي LRU حقيقي:
+  </p>
+<pre><code><span class="k">class</span> LruCache&lt;K, V&gt; <span class="k">where</span> K : notnull
+{
+    <span class="k">private readonly int</span> _cap;
+    <span class="k">private readonly</span> Dictionary&lt;K, LinkedListNode&lt;(K Key, V Val)&gt;&gt; _map = <span class="k">new</span>();
+    <span class="k">private readonly</span> LinkedList&lt;(K Key, V Val)&gt; _order = <span class="k">new</span>();
+
+    <span class="k">public</span> LruCache(<span class="k">int</span> cap) =&gt; _cap = cap;
+
+    <span class="k">public bool</span> TryGet(K key, <span class="k">out</span> V val)
+    {
+        <span class="k">if</span> (!_map.TryGetValue(key, <span class="k">out var</span> node)) { val = <span class="k">default</span>!; <span class="k">return false</span>; }
+        <span class="hl">_order.Remove(node);        <span class="c">// O(1) — إحنا ماسكين الـ node</span></span>
+        _order.AddFirst(node);      <span class="c">// بقى أحدث واحد</span>
+        val = node.Value.Val;
+        <span class="k">return true</span>;
+    }
+
+    <span class="k">public void</span> Set(K key, V val)
+    {
+        <span class="k">if</span> (_map.TryGetValue(key, <span class="k">out var</span> old)) { _order.Remove(old); _map.Remove(key); }
+        <span class="k">else if</span> (_map.Count &gt;= _cap)
+        {
+            <span class="k">var</span> lru = _order.Last!;  <span class="c">// أقدم عنصر</span>
+            _order.RemoveLast();
+            _map.Remove(lru.Value.Key);
+        }
+        _map[key] = _order.AddFirst((key, val));
+    }
+}</code></pre>
+  <div class="callout good">
+    <code>Remove(node)</code> هنا O(1) حقيقية لأننا مش بندوّر. لو كتبت <code>_order.Remove(value)</code>
+    (بالقيمة مش بالـ node) بتبقى <b>O(n)</b> وكل الفكرة تروح. والفرق ده هو كل الدرس.
+  </div>
+
+  <h3>ج. المؤشر السريع والبطيء — جرّب بنفسك</h3>
+  <p class="note">
+    <code>slow</code> بيتحرك خطوة و<code>fast</code> خطوتين. لو فيه cycle الاتنين لازم يتقابلوا،
+    ولو مفيش الـ <code>fast</code> بيخلص والـ <code>slow</code> بيبقى واقف في النص بالظبط.
+  </p>
+  <div class="stage">
+    <div class="chain" id="chain"></div>
+    <div class="cycle-hint" id="cycleHint"></div>
+    <div class="counters">
+      <span>👣 خطوات: <b id="fSteps">0</b></span>
+      <span>🔎 النتيجة: <b id="fResult">—</b></span>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn" id="runNoCycle">▶ قايمة عادية (لقّي النص)</button>
+    <button class="btn" id="runCycle">▶ قايمة فيها cycle</button>
+    <button class="btn ghost" id="resetF">↺ إعادة</button>
+  </div>
+<pre><code><span class="k">static bool</span> HasCycle(Node? head)
+{
+    <span class="k">var</span> slow = head; <span class="k">var</span> fast = head;
+    <span class="k">while</span> (fast != <span class="k">null</span> &amp;&amp; fast.Next != <span class="k">null</span>)   <span class="c">// الشرطين مع بعض أو NullReference</span>
+    {
+        slow = slow!.Next;
+        fast = fast.Next.Next;
+        <span class="k">if</span> (ReferenceEquals(slow, fast)) <span class="k">return true</span>;
+    }
+    <span class="k">return false</span>;
+}</code></pre>
+  <div class="callout info">
+    ليه لازم يتقابلوا؟ أول ما الاتنين يدخلوا الدايرة، الـ <code>fast</code> بيقرّب من الـ
+    <code>slow</code> خطوة واحدة كل تكرار — فالمسافة بينهم بتقل ١ كل مرة لحد ما توصل صفر. مفيش قفز فوق بعض.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«الحذف في LinkedList بـ O(1)»</b> — الحذف نفسه O(1) بس <u>لما تكون ماسك الـ node</u>.
+      <code>linked.Remove(value)</code> بتلف على القايمة الأول → O(n). لازم Dictionary جنبها عشان تاخد المكسب.</li>
+    <li><b>اللف بالـ index</b> — <code>for (i…) { node = GetAt(i); }</code> على linked list =
+      O(n²) مخفية. لف بالـ <code>foreach</code> أو امسك <code>node = node.Next</code> بنفسك.</li>
+    <li><b>الرجوع بـ <code>curr</code> بعد العكس</b> — بعد ما الحلقة تخلص <code>curr</code> بيبقى
+      <code>null</code>. الـ head الجديد هو <code>prev</code>.</li>
+    <li><b>تعديل <code>curr.Next</code> قبل ما تخزّن <code>next</code></b> — بتقطع باقي القايمة
+      وتفضل تدور على bug مش موجود في الكود اللي بعده.</li>
+    <li><b>فحص <code>fast.Next.Next</code> من غير ما تفحص <code>fast.Next</code></b> —
+      <code>NullReferenceException</code> على أي قايمة عدد عناصرها فردي.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. في خوارزمية Floyd، ليه الـ fast (خطوتين) والـ slow (خطوة) لازم يتقابلوا لو فيه cycle؟</div>
+    <button class="opt">لأنهم بيرجعوا للـ head كل شوية</button>
+    <button class="opt">لأن المسافة بينهم جوّه الدايرة بتقل ١ كل خطوة لحد ما تبقى صفر</button>
+    <button class="opt">لأن الـ hash codes بتتصادم في الآخر</button>
+    <button class="opt">لأن القايمة بتتترتب الأول</button>
+    <div class="feedback">أول ما الاتنين يبقوا جوّه الدايرة، الـ fast بيكسب موقع واحد على الـ slow كل تكرار — فالفرق بينهم بينزل لصفر ومستحيل يقفز فوقه.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إمتى <code>LinkedList&lt;T&gt;</code> تكسب <code>List&lt;T&gt;</code> فعلاً في كود إنتاج؟</div>
+    <button class="opt">لما أعمل بحث كتير بالـ index</button>
+    <button class="opt">لما أضيف في آخر القايمة كتير</button>
+    <button class="opt">لما أشيل/أضيف من النص وأنا ماسك الـ node (زي LRU مع Dictionary)</button>
+    <button class="opt">لما الداتا كبيرة عشان بتاخد ذاكرة أقل</button>
+    <div class="feedback">ده الموقف الوحيد اللي المكسب فيه حقيقي: الـ node في إيدك فالحذف/الإضافة O(1) من غير أي إزاحة ولا بحث. والذاكرة عكس ما ناس فاكرة — الـ node بتاخد ≈٤٨ بايت للـ int الواحد.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ linked list بتبيع لك حذف/إضافة بـ O(1) وبتاخد منها الوصول بالـ index والـ cache locality — دي مقايضة مش ترقية.</li>
+    <li>المكسب بيتحقق بس لما تكون <b>ماسك الـ node نفسها</b>، وعشان كده كل LRU حقيقي = <code>Dictionary</code> + <code>LinkedList</code>.</li>
+    <li>اتنين حيلة بيحلّوا عيلة كاملة من الأسئلة: عكس بتلات pointers (والـ head الجديد هو <code>prev</code>)، ومؤشر سريع وبطيء للنص وللـ cycle.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- layout animation toggle
+  var layoutStage = document.getElementById('layoutStage');
+  var layoutToggle = document.getElementById('layoutToggle');
+  layoutToggle.addEventListener('click', function () {
+    var paused = layoutStage.classList.toggle('paused');
+    layoutToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- reverse stepper
+  var VALUES = ['A', 'B', 'C', 'D'];
+  var X = [40, 160, 280, 400], BOX_W = 80, BOX_H = 40, BOX_Y = 80;
+  var revSvg = document.getElementById('revSvg');
+
+  // الحالة بتتبني من الصفر في كل خطوة عشان الرجوع يبقى صح
+  function stateFor(step) {
+    var st = { next: [1, 2, 3, -1], prev: -1, curr: 0, saved: -1, done: false };
+    var apply = [
+      function () { },                                                        // 0: البداية
+      function () { st.saved = st.next[st.curr]; },                           // 1: خزّن next
+      function () { st.next[st.curr] = st.prev; },                            // 2: اقلب السهم
+      function () { st.prev = st.curr; st.curr = st.saved; st.saved = -1; },  // 3: قدّم المؤشرين
+      function () {                                                           // 4: كرر على B
+        st.saved = st.next[st.curr]; st.next[st.curr] = st.prev;
+        st.prev = st.curr; st.curr = st.saved; st.saved = -1;
+      },
+      function () {                                                           // 5: كمّل C و D
+        while (st.curr !== -1) {
+          var nx = st.next[st.curr];
+          st.next[st.curr] = st.prev;
+          st.prev = st.curr;
+          st.curr = nx;
+        }
+        st.done = true;
+      }
+    ];
+    for (var i = 1; i <= step; i++) apply[i]();
+    return st;
+  }
+
+  function esc(s) { return String(s); }
+
+  function drawRev(st) {
+    var p = [];
+    p.push('<defs><marker id="rarw" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">' +
+           '<path d="M0,0 L6,3 L0,6 z" fill="#38bdf8"/></marker></defs>');
+
+    // الصناديق
+    for (var i = 0; i < VALUES.length; i++) {
+      var fill = i === st.curr ? '#14384d' : (i === st.prev ? 'rgba(52,211,153,.18)' : '#283548');
+      var stroke = i === st.curr ? '#38bdf8' : (i === st.prev ? '#34d399' : '#334155');
+      p.push('<rect x="' + X[i] + '" y="' + BOX_Y + '" width="' + BOX_W + '" height="' + BOX_H +
+             '" rx="8" fill="' + fill + '" stroke="' + stroke + '"/>');
+      p.push('<text x="' + (X[i] + BOX_W / 2) + '" y="' + (BOX_Y + 26) +
+             '" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Consolas, monospace">' +
+             esc(VALUES[i]) + '</text>');
+    }
+
+    // السهام حسب next الحالية
+    for (var j = 0; j < VALUES.length; j++) {
+      var to = st.next[j];
+      var cx = X[j] + BOX_W / 2;
+      if (to === -1) {
+        p.push('<text x="' + cx + '" y="' + (BOX_Y + BOX_H + 20) +
+               '" fill="#64748b" font-size="12" text-anchor="middle" font-family="Consolas, monospace">null</text>');
+        continue;
+      }
+      var tx = X[to] + BOX_W / 2;
+      var up = to > j;   // للأمام فوق، للخلف تحت
+      var y = up ? BOX_Y - 4 : BOX_Y + BOX_H + 4;
+      var ctrl = up ? BOX_Y - 40 : BOX_Y + BOX_H + 40;
+      var from = up ? cx + 20 : cx - 20;
+      var dest = up ? tx - 20 : tx + 20;
+      p.push('<path d="M' + from + ',' + y + ' C' + from + ',' + ctrl + ' ' + dest + ',' + ctrl + ' ' +
+             dest + ',' + y + '" fill="none" stroke="#38bdf8" stroke-width="1.6" marker-end="url(#rarw)"/>');
+    }
+
+    // لافتات المؤشرات
+    function tag(idx, name, color, dy) {
+      if (idx === -1 || idx === undefined) return;
+      p.push('<text class="ptr-tag" x="' + (X[idx] + BOX_W / 2) + '" y="' + dy + '" fill="' + color +
+             '" text-anchor="middle">' + name + '</text>');
+    }
+    tag(st.prev, 'prev', '#34d399', 30);
+    tag(st.curr, 'curr', '#38bdf8', 46);
+    tag(st.saved, 'next', '#fbbf24', 62);
+
+    if (st.prev === -1) {
+      p.push('<text class="ptr-tag" x="20" y="30" fill="#34d399" text-anchor="middle">prev</text>');
+      p.push('<text class="ptr-tag" x="20" y="46" fill="#64748b" text-anchor="middle">null</text>');
+    }
+    if (st.done) {
+      p.push('<text x="510" y="180" fill="#34d399" font-size="13" text-anchor="end" font-family="Segoe UI">' +
+             'الـ head الجديد = prev = D</text>');
+    }
+    revSvg.innerHTML = p.join('');
+  }
+
+  var steps = [
+    'البداية: head = A، والقايمة A→B→C→D→null. prev = null و curr = A.',
+    'خطوة ١ جوّه الحلقة: next = curr.Next → مسكنا B في متغير. من غير الخطوة دي هنفقد باقي القايمة.',
+    'خطوة ٢: curr.Next = prev → سهم A بقى على null. دلوقتي A هو آخر عنصر في القايمة المعكوسة.',
+    'خطوة ٣ و٤: prev = curr (بقى A) و curr = next (بقى B). التكرار الأول خلص.',
+    'التكرار التاني على B بالظبط بنفس الترتيب: خزّن C، اقلب سهم B على A، قدّم المؤشرين.',
+    'كمّلنا C و D بنفس الأربع خطوات. curr بقى null فالحلقة وقفت، و prev = D هو الـ head الجديد: D→C→B→A→null.'
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+  function render() {
+    stepBox.textContent = steps[step];
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    drawRev(stateFor(step));
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- fast & slow demo
+  var N = 8, CYCLE_TO = 3;
+  var chain = document.getElementById('chain');
+  var hintEl = document.getElementById('cycleHint');
+  var stepsEl = document.getElementById('fSteps'), resultEl = document.getElementById('fResult');
+  var fnodes = [], fTimer = null;
+
+  for (var n = 0; n < N; n++) {
+    var d = document.createElement('div');
+    d.className = 'fnode';
+    d.innerHTML = '<span class="marks"></span>' + n;
+    chain.appendChild(d);
+    fnodes.push(d);
+  }
+
+  function clearNodes() {
+    fnodes.forEach(function (el) {
+      el.classList.remove('slow', 'fast', 'met');
+      el.querySelector('.marks').textContent = '';
+    });
+  }
+  function stopF() { if (fTimer) { clearInterval(fTimer); fTimer = null; } }
+  function resetF() {
+    stopF(); clearNodes();
+    stepsEl.textContent = '0';
+    resultEl.textContent = '—';
+    hintEl.textContent = '';
+  }
+  function mark(slow, fast, met) {
+    clearNodes();
+    if (slow >= 0) { fnodes[slow].classList.add('slow'); fnodes[slow].querySelector('.marks').textContent = 'slow'; }
+    if (fast >= 0) {
+      fnodes[fast].classList.add('fast');
+      var m = fnodes[fast].querySelector('.marks');
+      m.textContent = m.textContent ? 'both' : 'fast';
+    }
+    if (met >= 0) fnodes[met].classList.add('met');
+  }
+  function nextOf(i, cyclic) {
+    if (i === N - 1) return cyclic ? CYCLE_TO : -1;
+    return i + 1;
+  }
+  function run(cyclic) {
+    resetF();
+    hintEl.textContent = cyclic
+      ? 'node[7].Next = node[3]  →  الدايرة طولها 5'
+      : 'node[7].Next = null  →  قايمة مقفولة عادي';
+    var slow = 0, fast = 0, count = 0;
+    mark(slow, fast, -1);
+    fTimer = setInterval(function () {
+      var f1 = nextOf(fast, cyclic);
+      var f2 = f1 === -1 ? -1 : nextOf(f1, cyclic);
+      if (f1 === -1 || f2 === -1) {          // fast وصل الآخر → مفيش cycle
+        stopF();
+        mark(slow, -1, -1);
+        resultEl.textContent = 'مفيش cycle — و slow واقف في النص (' + slow + ')';
+        postHeight();
+        return;
+      }
+      slow = nextOf(slow, cyclic);
+      fast = f2;
+      count++;
+      stepsEl.textContent = count;
+      if (slow === fast) {
+        stopF();
+        mark(slow, fast, slow);
+        resultEl.textContent = 'اتقابلوا عند node[' + slow + '] → فيه cycle';
+        postHeight();
+        return;
+      }
+      mark(slow, fast, -1);
+    }, 700);
+  }
+  document.getElementById('runNoCycle').addEventListener('click', function () { run(false); });
+  document.getElementById('runCycle').addEventListener('click', function () { run(true); });
+  document.getElementById('resetF').addEventListener('click', resetF);
+  resetF();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
