@@ -49,6 +49,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Linked Lists: Trade-offs vs Arrays",
       "file": "1-dsa/linked-lists-trade-offs-vs-arrays.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "Factory Method & Simple Factory",
+      "file": "2-design-patterns/factory-method-simple-factory.html"
     }
   ]
 }

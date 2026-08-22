@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory Method &amp; Simple Factory — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .wiring { width: 100%; min-width: 620px; height: 230px; }
+  .wiring * { transition: opacity .3s ease, stroke .3s ease, fill .3s ease; }
+  .box { fill: #1e293b; stroke: #334155; stroke-width: 1.4; }
+  .box.on { stroke: #38bdf8; }
+  .box.ok { stroke: #34d399; }
+  .box.bad { stroke: #f87171; }
+  .lbl { fill: #e2e8f0; font-size: 12px; font-family: Consolas, monospace; }
+  .sub { fill: #94a3b8; font-size: 10px; font-family: "Segoe UI", Tahoma, sans-serif; }
+  .wire { stroke: #334155; stroke-width: 1.5; fill: none; }
+  .wire.direct { stroke: #fbbf24; stroke-dasharray: 4 4; }
+  .wire.hot { stroke: #f87171; stroke-width: 2.2; }
+  .dim { opacity: .16; }
+  .gone { opacity: 0; }
+  .pkt { animation: route 3.6s ease-in-out infinite; }
+  @keyframes route {
+    0%   { transform: translate(0, 0); opacity: 0; }
+    8%   { opacity: 1; }
+    32%  { transform: translate(-60px, 0); opacity: 1; }
+    52%  { transform: translate(-60px, 0); opacity: 1; }
+    88%  { transform: translate(-190px, -27px); opacity: 1; }
+    100% { transform: translate(-190px, -27px); opacity: 0; }
+  }
+  .paused .pkt { animation-play-state: paused; }
+  #pkt.gone { display: none; }   /* الـ opacity لوحده مبيكفيش وسط animation شغالة */
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 13px; line-height: 1.5;
+  }
+  .chip .path { display: block; font-family: Consolas, monospace; direction: ltr; text-align: right; font-size: 12px; color: var(--text-dim); }
+  .chip.dirty { border-color: var(--danger); background: rgba(248, 113, 113, .14); animation: pop .35s ease; }
+  .chip.clean { border-color: var(--success); }
+  .chip.fac { border-color: var(--primary); background: #14384d; }
+  @keyframes pop { from { transform: scale(.85); opacity: .3; } to { transform: none; opacity: 1; } }
+  .btn.on { box-shadow: 0 0 0 2px var(--primary); }
+  .counters { display: flex; gap: 22px; margin-top: 14px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧩 Design Patterns · درس مصري مفصّل</div>
+  <h1>قرار «أعمل <code>new</code> لمين؟» لازم يعيش في مكان واحد</h1>
+  <div class="en">Factory Method &amp; Simple Factory</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك API فيه إشعارات على ٣ قنوات: Email و SMS و Push. الاختيار بين التلاتة متكرر بـ
+    <code>if/else</code> في <b>٧ ملفات</b> — كنترولر، ويب هوك، background job، إلخ. جالك ريكوست:
+    «ضيف WhatsApp». فتحت ٧ ملفات، نسيت واحد، والـ bug طلع في الإنتاج بعد أسبوع.
+  </p>
+  <p>
+    ونفس الحكاية بشكل أخطر مع <code>new HttpClient()</code> جوّه كل request handler: على ٢٥٠
+    request/ثانية بتفضل تفتح sockets جديدة، وكل socket بيقعد في <span class="mono">TIME_WAIT</span>
+    حوالي ٢٤٠ ثانية — فبتوصل لآلاف الـ sockets المفتوحة ويرجعلك
+    <code>SocketException</code> والـ p99 يطلع من ٤٠ms لتايم أوت.
+  </p>
+  <div class="callout info">
+    الحل في الحالتين واحد: <strong>مركزية قرار الإنشاء</strong>. الـ caller يقول «عايز
+    <code>INotifier</code> للقناة دي» ومايعرفش ولا يهمّه الكلاس الملموس اللي هيتعمله ولا إزاي بيتبني.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تنسخ نفس الـ <code>switch</code> في كل حتة، وكل نوع جديد
+    هيلمس نص المشروع، وهتقع في <code>new HttpClient()</code> اللي بيستهلك الـ sockets وبيمسك DNS قديم،
+    وهتلاقي الـ dependencies بتاعة الكلاسات بتتبني بالإيد بدل ما تيجي من الـ DI.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <p class="note">
+    على الشمال الأنواع الملموسة، على اليمين الأماكن اللي بتطلبها. الفرق كله في: مين اللي عارف مين.
+  </p>
+  <div class="stage" id="wireStage">
+    <svg class="wiring" viewBox="0 0 460 230">
+      <!-- direct new: caller → concrete -->
+      <g id="directLinks">
+        <line class="wire direct" x1="330" y1="37"  x2="130" y2="25"/>
+        <line class="wire direct" x1="330" y1="37"  x2="130" y2="70"/>
+        <line class="wire direct" x1="330" y1="37"  x2="130" y2="115"/>
+        <line class="wire direct" x1="330" y1="95"  x2="130" y2="25"/>
+        <line class="wire direct" x1="330" y1="95"  x2="130" y2="70"/>
+        <line class="wire direct" x1="330" y1="95"  x2="130" y2="115"/>
+        <line class="wire direct" x1="330" y1="153" x2="130" y2="25"/>
+        <line class="wire direct" x1="330" y1="153" x2="130" y2="70"/>
+        <line class="wire direct" x1="330" y1="153" x2="130" y2="115"/>
+      </g>
+      <g id="p3Links">
+        <line class="wire direct" x1="330" y1="37"  x2="130" y2="160"/>
+        <line class="wire direct" x1="330" y1="95"  x2="130" y2="160"/>
+        <line class="wire direct" x1="330" y1="153" x2="130" y2="160"/>
+      </g>
+
+      <!-- funnel: caller → factory → concrete -->
+      <g id="facLinks">
+        <line class="wire" x1="330" y1="37"  x2="275" y2="100"/>
+        <line class="wire" x1="330" y1="95"  x2="275" y2="100"/>
+        <line class="wire" x1="330" y1="153" x2="275" y2="100"/>
+        <line class="wire" x1="185" y1="100" x2="130" y2="25"/>
+        <line class="wire" x1="185" y1="100" x2="130" y2="70"/>
+        <line class="wire" x1="185" y1="100" x2="130" y2="115"/>
+        <line class="wire" x1="185" y1="100" x2="130" y2="160"/>
+      </g>
+
+      <!-- concrete products -->
+      <rect id="p0" class="box" x="20" y="10"  width="110" height="30" rx="7"/>
+      <text class="lbl" x="75" y="30"  text-anchor="middle">EmailNotifier</text>
+      <rect id="p1" class="box" x="20" y="55"  width="110" height="30" rx="7"/>
+      <text class="lbl" x="75" y="75"  text-anchor="middle">SmsNotifier</text>
+      <rect id="p2" class="box" x="20" y="100" width="110" height="30" rx="7"/>
+      <text class="lbl" x="75" y="120" text-anchor="middle">PushNotifier</text>
+      <g id="p3g">
+        <rect id="p3" class="box" x="20" y="145" width="110" height="30" rx="7"/>
+        <text class="lbl" x="75" y="165" text-anchor="middle">WhatsAppNotifier</text>
+      </g>
+      <text class="sub" x="75" y="195" text-anchor="middle">أنواع ملموسة (concrete)</text>
+
+      <!-- factory -->
+      <g id="facg">
+        <rect id="fac" class="box on" x="185" y="78" width="90" height="44" rx="9"/>
+        <text class="lbl" x="230" y="98"  text-anchor="middle">Factory</text>
+        <text class="sub" x="230" y="113" text-anchor="middle">Create(channel)</text>
+      </g>
+      <text id="gofNote" class="sub" x="230" y="150" text-anchor="middle">الأب بيحدد الخطوات، الابن بيحدد المنتج</text>
+
+      <!-- callers -->
+      <rect id="c0" class="box" x="330" y="20"  width="110" height="34" rx="7"/>
+      <text class="lbl" x="385" y="41"  text-anchor="middle">OrdersController</text>
+      <rect id="c1" class="box" x="330" y="78"  width="110" height="34" rx="7"/>
+      <text class="lbl" x="385" y="99"  text-anchor="middle">PaymentWebhook</text>
+      <rect id="c2" class="box" x="330" y="136" width="110" height="34" rx="7"/>
+      <text class="lbl" x="385" y="157" text-anchor="middle">ReminderJob</text>
+      <text class="sub" x="385" y="195" text-anchor="middle">أماكن الاستخدام (callers)</text>
+
+      <g id="pkt" class="pkt">
+        <rect x="282" y="84" width="46" height="22" rx="6" fill="#38bdf8"/>
+        <text x="305" y="99" fill="#0c2431" font-size="11" text-anchor="middle" font-family="Segoe UI">طلب</text>
+      </g>
+    </svg>
+    <div class="controls" style="margin-bottom:0">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    في الحالة الأولانية كل caller مربوط بـ <b>كل</b> نوع ملموس (٣ × ٣ = ٩ خيوط). في الحالة التانية كل
+    caller مربوط بخيط واحد بس للـ factory، والـ factory هو الوحيد اللي عارف الأنواع. ده هو المكسب:
+    عدد الخيوط بيبقى <span class="mono">n + m</span> بدل <span class="mono">n × m</span>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">الرسمة اللي فوق بتتغيّر مع كل خطوة — ارجع لورا وشوف الحالة بترجع زي ما كانت بالظبط.</p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. الـ Simple Factory — الشغال اليومي (مش من GoF)</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ قبل</strong> — نفس الـ switch متكرر في ٧ ملفات</div>
+<pre><code><span class="c">// OrdersController.cs</span>
+INotifier n = channel <span class="k">switch</span>
+{
+  Channel.Email =&gt; <span class="k">new</span> EmailNotifier(_smtp, _log),
+  Channel.Sms   =&gt; <span class="k">new</span> SmsNotifier(_twilioKey),
+  _             =&gt; <span class="k">new</span> PushNotifier(_fcm)
+};
+n.Send(msg);
+<span class="c">// ونفس الكلام في PaymentWebhook.cs …</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ بعد</strong> — القرار في مكان واحد، والـ DI شغّال</div>
+<pre><code><span class="k">public sealed class</span> NotifierFactory(IServiceProvider sp)
+{
+  <span class="k">public</span> INotifier Create(Channel channel) =&gt; channel <span class="k">switch</span>
+  {
+    Channel.Email =&gt; sp.GetRequiredService&lt;EmailNotifier&gt;(),
+    Channel.Sms   =&gt; sp.GetRequiredService&lt;SmsNotifier&gt;(),
+    Channel.Push  =&gt; sp.GetRequiredService&lt;PushNotifier&gt;(),
+    _ =&gt; <span class="k">throw new</span> ArgumentOutOfRangeException(<span class="k">nameof</span>(channel))
+  };
+}</code></pre>
+    </div>
+  </div>
+  <p class="note">
+    مهم: الـ factory مش بيعمل <code>new</code> بإيده — بيسأل الـ <code>IServiceProvider</code>، فكل
+    notifier لسه بياخد الـ dependencies بتاعته (logger، options، HttpClient) من الـ DI عادي.
+  </p>
+  <p>وفي .NET 8 فيه اختصار جاهز للحالة دي، الـ <b>keyed services</b>:</p>
+<pre><code>builder.Services.AddKeyedScoped&lt;INotifier, EmailNotifier&gt;(<span class="s">"email"</span>);
+builder.Services.AddKeyedScoped&lt;INotifier, SmsNotifier&gt;(<span class="s">"sms"</span>);
+
+<span class="c">// جوّه أي service</span>
+<span class="k">public</span> OrderService([FromKeyedServices(<span class="s">"email"</span>)] INotifier notifier) { }
+<span class="c">// أو ديناميكي: sp.GetRequiredKeyedService&lt;INotifier&gt;(key)</span></code></pre>
+
+  <h3>ب. الـ Factory Method الأصلي (GoF) — القرار بالوراثة</h3>
+<pre><code><span class="k">public abstract class</span> ReportExporter
+{
+  <span class="k">public byte</span>[] Export(ReportData data)     <span class="c">// الخوارزمية ثابتة هنا</span>
+  {
+    <span class="k">var</span> writer = CreateWriter();          <span class="c">// ← الـ factory method</span>
+    writer.WriteHeader(data.Title);
+    writer.WriteRows(data.Rows);
+    <span class="k">return</span> writer.GetBytes();
+  }
+  <span class="k">protected abstract</span> IReportWriter CreateWriter();
+}
+
+<span class="k">public class</span> PdfExporter : ReportExporter
+{
+  <span class="k">protected override</span> IReportWriter CreateWriter() =&gt; <span class="k">new</span> PdfWriter();
+}</code></pre>
+  <div class="callout">
+    <strong>الفرق في سطر:</strong> الـ Simple Factory بيقرر بـ <code>switch</code> جوّه method واحدة،
+    والـ Factory Method بيسيب القرار لكلاس وارث بيعمل <code>override</code> — من غير ما تلمس الخوارزمية
+    الأصلية. الأول أسهل، والتاني بيدّيك امتداد من غير تعديل (Open/Closed).
+  </div>
+
+  <h3>ج. الـ factories اللي إنت مستخدمها من غير ما تاخد بالك</h3>
+<pre><code><span class="c">// ❌ كل request بيفتح sockets جديدة → TIME_WAIT وSocketException</span>
+<span class="k">using var</span> http = <span class="k">new</span> HttpClient();
+<span class="k">var</span> res = <span class="k">await</span> http.GetAsync(path);   <span class="c">// p99 بيطلع من 40ms لتايم أوت</span>
+
+<span class="c">// ✅ الـ factory بيعمل pooling للـ handlers وconfig مركزي بالاسم</span>
+builder.Services.AddHttpClient(<span class="s">"payments"</span>, c =&gt;
+{
+  c.BaseAddress = <span class="k">new</span> Uri(cfg[<span class="s">"Payments:BaseUrl"</span>]!);
+  c.Timeout = TimeSpan.FromSeconds(10);
+});
+
+<span class="k">public class</span> PaymentsClient(IHttpClientFactory factory)
+{
+  <span class="k">public</span> Task&lt;HttpResponseMessage&gt; Charge(...)
+    =&gt; factory.CreateClient(<span class="s">"payments"</span>).PostAsync(...);
+}
+
+<span class="c">// ونفس الفكرة:</span>
+ILoggerFactory.CreateLogger&lt;OrderService&gt;();
+IDbContextFactory&lt;AppDbContext&gt;.CreateDbContext();  <span class="c">// لبرّه الـ scope: jobs، Blazor</span></code></pre>
+  <div class="callout info">
+    <code>IHttpClientFactory</code> موجود عشان يدير <b>عمر الـ handler</b>: بيعيد استخدام الاتصالات
+    (فمفيش socket exhaustion) وبيدوّر الـ handler كل دقيقتين (فمفيش DNS قديم). لو مصمّم على
+    <code>static HttpClient</code> واحد، لازم تظبط
+    <code>SocketsHttpHandler.PooledConnectionLifetime</code> بإيدك.
+  </div>
+
+  <h3>د. جرّب بنفسك: كام ملف هتفتح عشان تضيف قناة؟</h3>
+  <div class="stage">
+    <div class="controls">
+      <button class="btn ghost on" id="modeScattered">🧨 new مبعتر في كل مكان</button>
+      <button class="btn ghost" id="modeFactory">🏭 Factory واحد</button>
+      <button class="btn" id="addChannel">➕ ضيف قناة جديدة</button>
+      <button class="btn ghost" id="resetDemo">↺ إعادة</button>
+    </div>
+    <div class="chips" id="demoBoard"></div>
+    <div class="counters">
+      <span>📝 ملفات اتعدّلت: <b id="filesTouched">0</b></span>
+      <span>🔌 عدد القنوات: <b id="channelCount">3</b></span>
+    </div>
+  </div>
+  <p class="note">
+    نفس المطلب بالظبط (قناة جديدة) — الفرق إن التكلفة في الأول بتكبر مع عدد أماكن الاستخدام، وفي التاني ثابتة.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>Factory بيرجّع نوع ملموس</b> — <code>EmailNotifier Create(...)</code> بدل
+      <code>INotifier</code>. كده الـ caller لسه مربوط بالتفاصيل ومكسبتش حاجة غير سطر زيادة.</li>
+    <li><b>Factory بيعمل <code>new</code> بإيده جوّه</b> — بيقتل الـ DI: الـ logger والـ options والـ
+      HttpClient بتتبني بالإيد، والـ lifetime بيبوظ. اسأل الـ <code>IServiceProvider</code> أو استخدم
+      keyed services.</li>
+    <li><b>حقن <code>IServiceProvider</code> في كل كلاس</b> بدل factory بواجهة صريحة — ده
+      service locator، بيخفي الـ dependencies وبيخلي الأخطاء تظهر وقت التشغيل مش وقت الكومبايل.</li>
+    <li><b>Factory لكل حاجة</b> — لو الإنشاء مفيهوش قرار ولا config ولا pooling، الـ constructor العادي
+      أوضح. الـ factory بيتكتب لما الـ caller مش المفروض يعرف حاجة عشان يبني الحاجة.</li>
+    <li><b>‏switch من غير حالة افتراضية</b> — أي قيمة جديدة في الـ enum بترجّع <code>null</code> وتتحول
+      لـ <code>NullReferenceException</code> بعيد عن السبب. ارمي
+      <code>ArgumentOutOfRangeException</code> في مكانها.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. <code>IHttpClientFactory</code> موجود أساساً لأن:</div>
+    <button class="opt">‏<code>HttpClient</code> كلاس sealed ومينفعش يتورث</button>
+    <button class="opt">إنشاء والتخلص من <code>HttpClient</code> لكل request بيستهلك الـ sockets — والـ factory بيعمل pooling للـ handlers وconfig مركزي</button>
+    <button class="opt">بيخلي الطلبات نفسها أسرع على الشبكة</button>
+    <div class="feedback">الـ factory بيدير عمر الـ handlers (فمفيش socket exhaustion ولا DNS قديم) وبيجمّع الإعدادات المسمّاة في مكان واحد — دي مكاسب الـ factory الكلاسيكية.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إيه الفرق الجوهري بين Simple Factory و Factory Method؟</div>
+    <button class="opt">مفيش فرق، مجرد اسمين لنفس الحاجة</button>
+    <button class="opt">الـ Simple Factory بيشتغل مع DI بس والتاني لأ</button>
+    <button class="opt">الـ Simple Factory بيقرر بـ <code>switch</code> جوّه method واحدة، والـ Factory Method بيسيب القرار لكلاس وارث بيعمل <code>override</code></button>
+    <div class="feedback">الـ Factory Method (GoF) بيثبّت الخوارزمية في الكلاس الأب ويسيب خطوة الإنشاء abstract — فالامتداد بيحصل بوراثة من غير تعديل الأصل.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ factory بيمركز قرار «أعمل new لمين» في مكان واحد، فالـ caller يعتمد على الواجهة بس.</li>
+    <li>Simple Factory = <code>switch</code> في method واحدة؛ Factory Method = خطوة إنشاء abstract الابن بيعملها override.</li>
+    <li>لو الإنشاء محتاج معرفة مش من حق الـ caller (config، شرط، pooling) — اخفيه ورا factory؛ غير كده الـ constructor كفاية.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- animation toggle
+  var wireStage = document.getElementById('wireStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = wireStage.classList.contains('paused');
+    if (paused) { wireStage.classList.remove('paused'); flowToggle.textContent = '⏸ وقف الحركة'; }
+    else { wireStage.classList.add('paused'); flowToggle.textContent = '▶ شغّل الحركة'; }
+  });
+
+  // ---------------------------------------------------------------- wiring diagram
+  function set(id, cls) { document.getElementById(id).setAttribute('class', cls); }
+  function setLinks(groupId, cls) {
+    var lines = document.getElementById(groupId).childNodes;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].nodeType === 1) lines[i].setAttribute('class', cls);
+    }
+  }
+
+  var steps = [
+    {
+      text: 'البداية: ٣ أماكن في الكود بتعمل new بإيدها. كل caller عارف كل الأنواع الملموسة — ٩ خيوط معرفة بين حاجات المفروض متعرفش بعضها.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct');
+        setLinks('p3Links', 'wire direct gone');
+        setLinks('facLinks', 'wire gone');
+        set('p3g', 'gone'); set('facg', 'gone'); set('gofNote', 'sub gone'); set('pkt', 'pkt gone');
+        set('c0', 'box'); set('c1', 'box'); set('c2', 'box'); set('p3', 'box');
+      }
+    },
+    {
+      text: 'جه مطلب: قناة رابعة (WhatsApp). النوع الجديد لوحده سهل — المشكلة إن كل caller لازم يتفتح ويتعدّل عشان يعرف يعملها new.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct hot');
+        setLinks('p3Links', 'wire direct hot');
+        setLinks('facLinks', 'wire gone');
+        set('p3g', ''); set('facg', 'gone'); set('gofNote', 'sub gone'); set('pkt', 'pkt gone');
+        set('c0', 'box bad'); set('c1', 'box bad'); set('c2', 'box bad'); set('p3', 'box bad');
+      }
+    },
+    {
+      text: 'الخطوة الأولى في الإصلاح: نطلّع قرار الاختيار برّه الـ callers ونحطه في NotifierFactory.Create(channel) — كلاس واحد مسؤوليته إنه يقرر النوع.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct dim');
+        setLinks('p3Links', 'wire direct dim');
+        setLinks('facLinks', 'wire gone');
+        set('p3g', ''); set('facg', ''); set('gofNote', 'sub gone'); set('pkt', 'pkt gone');
+        set('c0', 'box'); set('c1', 'box'); set('c2', 'box'); set('p3', 'box');
+      }
+    },
+    {
+      text: 'الـ callers بقوا بيحقنوا الـ factory ويشتغلوا على INotifier بس. مفيش سطر واحد فيهم بيذكر EmailNotifier ولا SmsNotifier — الخيوط بقت 3 + 4 بدل 3 × 4.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct gone');
+        setLinks('p3Links', 'wire direct gone');
+        setLinks('facLinks', 'wire');
+        set('p3g', ''); set('facg', ''); set('gofNote', 'sub gone'); set('pkt', 'pkt');
+        set('c0', 'box on'); set('c1', 'box on'); set('c2', 'box on'); set('p3', 'box');
+      }
+    },
+    {
+      text: 'المطلب التاني بقى رخيص: قناة جديدة = تسجيلها في الـ DI + سطر في الـ switch جوّه الـ factory. ولا caller اتفتح. ده بالظبط معنى الاعتماد على واجهة.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct gone');
+        setLinks('p3Links', 'wire direct gone');
+        setLinks('facLinks', 'wire');
+        set('p3g', ''); set('facg', ''); set('gofNote', 'sub gone'); set('pkt', 'pkt');
+        set('c0', 'box on'); set('c1', 'box on'); set('c2', 'box on'); set('p3', 'box ok');
+      }
+    },
+    {
+      text: 'النسخة الـ GoF: بدل switch، الكلاس الأب بيمسك الخوارزمية وخطوة الإنشاء abstract — كل ابن بيعمل override ويقرر منتجه. ده اللي .NET نفسه عامله في IHttpClientFactory و ILoggerFactory و IDbContextFactory.',
+      draw: function () {
+        setLinks('directLinks', 'wire direct gone');
+        setLinks('p3Links', 'wire direct gone');
+        setLinks('facLinks', 'wire');
+        set('p3g', ''); set('facg', ''); set('gofNote', 'sub'); set('pkt', 'pkt');
+        set('c0', 'box on'); set('c1', 'box on'); set('c2', 'box on'); set('p3', 'box ok');
+        set('fac', 'box ok');
+      }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // الحالة بتتبني من الصفر كل مرة، فالرجوع بيرجّع نفس الصورة بالظبط
+    set('fac', 'box on');
+    steps[step].draw();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- "كام ملف هتفتح" demo
+  var SITES = ['OrdersController', 'PaymentWebhook', 'ReminderJob', 'SignupHandler',
+               'AdminPanel', 'RetryWorker', 'ImportService'];
+  var EXTRA = ['WhatsApp', 'Slack', 'Teams', 'Telegram'];
+  var BASE = ['Email', 'Sms', 'Push'];
+
+  var board = document.getElementById('demoBoard');
+  var filesEl = document.getElementById('filesTouched');
+  var channelsEl = document.getElementById('channelCount');
+  var scatteredBtn = document.getElementById('modeScattered');
+  var factoryBtn = document.getElementById('modeFactory');
+  var addBtn = document.getElementById('addChannel');
+
+  var mode = 'scattered', added = [], touched = 0, dirty = false;
+
+  function chip(title, path, cls) {
+    var d = document.createElement('div');
+    d.className = 'chip' + (cls ? ' ' + cls : '');
+    d.appendChild(document.createTextNode(title));
+    var s = document.createElement('span');
+    s.className = 'path';
+    s.textContent = path;
+    d.appendChild(s);
+    return d;
+  }
+
+  function drawBoard() {
+    board.innerHTML = '';
+    var count = BASE.length + added.length;
+    if (mode === 'scattered') {
+      SITES.forEach(function (site) {
+        board.appendChild(chip(site, 'switch على ' + count + ' حالة', dirty ? 'dirty' : ''));
+      });
+    } else {
+      board.appendChild(chip('NotifierFactory', 'Create(channel) → ' + count + ' حالة', dirty ? 'dirty fac' : 'fac'));
+      SITES.forEach(function (site) {
+        board.appendChild(chip(site, '_factory.Create(ch)', 'clean'));
+      });
+    }
+    filesEl.textContent = touched;
+    channelsEl.textContent = count;
+    addBtn.disabled = added.length >= EXTRA.length;
+    addBtn.textContent = added.length >= EXTRA.length
+      ? '✓ خلصت القنوات'
+      : '➕ ضيف قناة ' + EXTRA[added.length];
+  }
+
+  function setMode(m) {
+    mode = m;
+    scatteredBtn.className = 'btn ghost' + (m === 'scattered' ? ' on' : '');
+    factoryBtn.className = 'btn ghost' + (m === 'factory' ? ' on' : '');
+    dirty = false;
+    drawBoard();
+  }
+  scatteredBtn.addEventListener('click', function () { setMode('scattered'); });
+  factoryBtn.addEventListener('click', function () { setMode('factory'); });
+
+  addBtn.addEventListener('click', function () {
+    if (added.length >= EXTRA.length) return;
+    added.push(EXTRA[added.length]);
+    touched += (mode === 'scattered' ? SITES.length : 1);
+    dirty = true;
+    drawBoard();
+  });
+  document.getElementById('resetDemo').addEventListener('click', function () {
+    added = []; touched = 0; dirty = false;
+    drawBoard();
+  });
+  drawBoard();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

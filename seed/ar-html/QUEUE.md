@@ -25,9 +25,10 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Data Structures & Algorithms` — Linked Lists: Trade-offs vs Arrays → `1-dsa/linked-lists-trade-offs-vs-arrays.html`
 
-## Queue (143)
+- [x] `Design Patterns` — Factory Method & Simple Factory → `2-design-patterns/factory-method-simple-factory.html`
 
-- [ ] 6. `Design Patterns` — Factory Method & Simple Factory → `2-design-patterns/factory-method-simple-factory.html`
+## Queue (142)
+
 - [ ] 7. `SQL Server Optimization` — Seeks vs Scans: Selectivity Decides → `3-sql-optimization/seeks-vs-scans-selectivity-decides.html`
 - [ ] 8. `SQL Server Optimization` — SARGability: Don't Wrap Columns in Functions → `3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html`
 - [ ] 9. `System Design` — Caching II: Invalidation, Stampedes, Hot Keys → `4-system-design/caching-ii-invalidation-stampedes-hot-keys.html`
