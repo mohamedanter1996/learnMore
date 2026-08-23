@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seeks vs Scans: Selectivity Decides — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .lanes { width: 100%; height: 230px; }
+  .sweep { animation: sweep 3.2s linear infinite; }
+  @keyframes sweep {
+    0%   { transform: translateX(0); opacity: 0; }
+    6%   { opacity: 1; }
+    94%  { opacity: 1; }
+    100% { transform: translateX(348px); opacity: 0; }
+  }
+  .jumper { animation: jump 3.2s steps(1, end) infinite; }
+  @keyframes jump {
+    0%   { transform: translateX(261px); }
+    16%  { transform: translateX(29px); }
+    32%  { transform: translateX(203px); }
+    48%  { transform: translateX(87px); }
+    64%  { transform: translateX(319px); }
+    80%  { transform: translateX(145px); }
+    100% { transform: translateX(261px); }
+  }
+  .paused .sweep, .paused .jumper { animation-play-state: paused; }
+
+  .pgrid {
+    display: grid; grid-template-columns: repeat(20, 1fr); gap: 3px;
+    direction: ltr; min-width: 420px; margin-bottom: 12px;
+  }
+  .pg {
+    height: 16px; border-radius: 3px; background: var(--surface-2);
+    border: 1px solid var(--border); transition: background .2s, border-color .2s;
+  }
+  .pg.seq { background: #14384d; border-color: var(--primary); }
+  .pg.random { background: rgba(251,191,36,.35); border-color: var(--warning); }
+  .bars { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; }
+  .bar-name { width: 132px; color: var(--text-dim); font-size: 13px; }
+  .bar-track {
+    flex: 1; height: 18px; background: var(--surface-2); border-radius: 5px;
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  .bar-fill { height: 100%; width: 0; transition: width .3s ease; }
+  .bar-fill.seek { background: var(--warning); }
+  .bar-fill.scan { background: var(--primary); }
+  .bar-val { width: 118px; font-family: Consolas, monospace; font-size: 13px; direction: ltr; text-align: left; }
+  .bar-row.win .bar-name { color: var(--success); }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .slider { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; }
+  .slider input[type=range] { flex: 1; accent-color: var(--primary); direction: ltr; }
+  .slider .val { font-family: Consolas, monospace; font-size: 14px; direction: ltr; min-width: 108px; text-align: left; }
+  .verdict { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; margin-top: 12px; min-height: 44px; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>الـ Scan مش عيب — نسبة الصفوف اللي بترجع هي اللي بتحكم</h1>
+  <div class="en">Seeks vs Scans: Selectivity Decides</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>Orders</code> فيه مليون صف وعليه فهرس nonclustered على <code>Status</code>.
+    استعلام <code>WHERE Status = 'Cancelled'</code> (٤٠٠ صف) بيعمل seek وبيخلص في ٣ ملي ثانية.
+    استعلام <code>WHERE Status = 'Open'</code> (٣٠٠ ألف صف) الـ SQL Server بيتجاهل الفهرس ويعمل scan —
+    فتقعد تكتب <code>WITH (INDEX(IX_Orders_Status))</code> عشان «تصلّح» الخطة، والاستعلام يبقى
+    <b>أبطأ ٦ أضعاف</b> بعد «الإصلاح».
+  </p>
+  <div class="callout info">
+    السبب إن تكلفة الـ <strong>seek</strong> بتتحسب بعدد الصفوف اللي <strong>بترجع</strong>، وتكلفة الـ
+    <strong>scan</strong> بتتحسب بحجم <strong>الجدول</strong>. أول ما عدد الصفوف الراجعة يعدّي نسبة صغيرة
+    من الجدول، الـ scan التسلسلي بيبقى أرخص فعلاً — والـ optimizer عارف ده.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتحارب الـ optimizer بالـ hints وتخسر، هتضيّف فهارس متتستخدمش،
+    وهتقعد تقول «SQL بيتجاهل الفهرس بتاعي» وإنت في الحقيقة بتطلب ٣٠٪ من الجدول.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <p class="note">
+    فوق: الـ scan بيمرّ على الصفحات ورا بعضها — قراءة تسلسلية رخيصة لكل صفحة.
+    تحت: الـ seek + key lookup بينطّ من صفحة لصفحة عشوائية — كل نطة رحلة لوحدها.
+  </p>
+  <div class="stage" id="busStage">
+    <svg class="lanes" viewBox="0 0 400 230" xmlns="http://www.w3.org/2000/svg">
+      <text x="200" y="18" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">Table Scan — تسلسلي</text>
+      <g>
+        <rect x="24" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="82" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="140" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="198" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="256" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="314" y="30" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+      </g>
+      <g class="sweep">
+        <rect x="18" y="26" width="38" height="42" rx="6" fill="#38bdf8" opacity=".55"/>
+      </g>
+      <text x="200" y="84" fill="#64748b" font-size="11" text-anchor="middle" font-family="Segoe UI">
+        12,500 صفحة ورا بعضها = قراءة واحدة كبيرة، read-ahead بيشتغل
+      </text>
+
+      <line x1="20" y1="104" x2="380" y2="104" stroke="#334155" stroke-dasharray="4 4"/>
+
+      <text x="200" y="128" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">Index Seek + Key Lookup — عشوائي</text>
+      <g>
+        <rect x="24" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="82" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="140" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="198" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="256" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+        <rect x="314" y="140" width="26" height="34" rx="4" fill="#283548" stroke="#334155"/>
+      </g>
+      <g class="jumper">
+        <rect x="18" y="136" width="38" height="42" rx="6" fill="#fbbf24" opacity=".55"/>
+      </g>
+      <text x="200" y="196" fill="#64748b" font-size="11" text-anchor="middle" font-family="Segoe UI">
+        كل صف راجع = نطة لصفحة تانية. ٤٠٠ صف؟ رخيص. ٣٠٠ ألف صف؟ كارثة.
+      </text>
+      <text x="200" y="216" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        نفس الجدول — الفرق في عدد الصفوف الراجعة، مش في «جودة» الفهرس
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="busToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: فين بالظبط نقطة التحوّل؟</h2></div>
+  <p class="note">
+    جدول <code>Orders</code>: مليون صف، ٨٠ صف في الصفحة → <b>12,500</b> صفحة بيانات.
+    كل مربع تحت = ١٪ من صفحات الجدول. حرّك الشريط بنفسك أو امشي بالخطوات.
+  </p>
+
+  <div class="stage">
+    <div class="pgrid" id="pgrid"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> صفحة متقرتش</span>
+      <span><i class="swatch" style="background:#14384d"></i> قراءة تسلسلية (scan)</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> قراءة عشوائية (seek + lookup)</span>
+    </div>
+
+    <div class="slider">
+      <span>Selectivity:</span>
+      <input type="range" id="sel" min="0" max="1000" value="200" aria-label="نسبة الصفوف الراجعة">
+      <span class="val" id="selLabel">0.010%</span>
+    </div>
+
+    <div class="counters">
+      <span>🎯 صفوف راجعة: <b id="matchedRows">—</b></span>
+      <span>🤖 الخطة: <b id="planName">—</b></span>
+    </div>
+
+    <div class="bars">
+      <div class="bar-row" id="rowSeek">
+        <span class="bar-name">Seek + Lookups</span>
+        <span class="bar-track"><span class="bar-fill seek" id="barSeek"></span></span>
+        <span class="bar-val" id="seekReads">0</span>
+      </div>
+      <div class="bar-row" id="rowScan">
+        <span class="bar-name">Table / Index Scan</span>
+        <span class="bar-track"><span class="bar-fill scan" id="barScan"></span></span>
+        <span class="bar-val" id="scanReads">0</span>
+      </div>
+    </div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn ghost" id="forceSeek">🔎 اجبر Seek (FORCESEEK)</button>
+    <button class="btn ghost" id="forceScan">🐌 اجبر Scan</button>
+    <button class="btn ghost" id="autoPlan">🤖 سيب الـ optimizer يختار</button>
+  </div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: اقرا الأرقام بنفسك</h2></div>
+<pre><code>SET STATISTICS IO ON;
+
+<span class="c">-- 1) selectivity عالية: 400 صف من مليون (0.04%)</span>
+SELECT OrderId, CustomerId, Total FROM Orders WHERE Status = <span class="s">'Cancelled'</span>;
+<span class="c">-- Index Seek + Key Lookup → logical reads 1,213      ← ~3 ملي ثانية</span>
+
+<span class="c">-- 2) selectivity واطية: 300,000 صف من مليون (30%)</span>
+SELECT OrderId, CustomerId, Total FROM Orders WHERE Status = <span class="s">'Open'</span>;
+<span class="c">-- Table Scan       → logical reads 12,503            ← ~180 ملي ثانية</span>
+
+<span class="c">-- 3) نفس الاستعلام بس بإجبار الفهرس — «الإصلاح» اللي بيوجع</span>
+SELECT OrderId, CustomerId, Total FROM Orders <span class="k">WITH</span> (FORCESEEK)
+WHERE Status = <span class="s">'Open'</span>;
+<span class="c">-- Index Seek + 300k Lookup → logical reads 921,447   ← ~1,100 ملي ثانية</span></code></pre>
+  <p class="note">
+    نفس البيانات، نفس الفهرس. الفرق ٧٤ ضعف في الـ logical reads — والاتجاه معكوس عن اللي توقعته.
+    <code>FORCESEEK</code> أداة <b>تشخيص</b> بس؛ متسيبهاش في كود production.
+  </p>
+
+  <h3>الحل الحقيقي مش hint — إما covering index أو أعمدة أقل</h3>
+<pre><code><span class="c">-- الـ lookup هو التكلفة، مش الـ seek. غطّي الاستعلام:</span>
+CREATE NONCLUSTERED INDEX IX_Orders_Status_Covering
+  ON Orders (Status) INCLUDE (CustomerId, Total);
+<span class="c">-- دلوقتي حتى 30% ممكن تتخدم من الفهرس نفسه: logical reads ~1,900</span>
+<span class="c">-- (مفيش lookups خالص → الـ tipping point بيتأخر جداً)</span></code></pre>
+
+  <div class="callout info">
+    <strong>فخ الـ residual predicate:</strong> ممكن تشوف «Index Seek» في الخطة وتفرح، وهو في الحقيقة
+    عمل seek على <code>CustomerId</code> بس، وفلتر <code>Status</code> اتنفّذ <u>جوّه</u> العملية على كل
+    الصفوف اللي رجعت. افتح خصائص عملية الـ Seek وقارن بين <code>Seek Predicate</code> (اللي بيستخدم
+    الفهرس فعلاً) و<code>Predicate</code> (فلتر بيتنفّذ بعد القراءة). لو فيه <code>Predicate</code>،
+    الفهرس خدمك نص خدمة بس.
+  </div>
+  <div class="callout good">
+    <strong>القاعدة العملية:</strong> قبل ما تلوم الـ optimizer، اسأل «الاستعلام ده بيرجع كام صف من كام؟».
+    لو الإجابة أكتر من ٢–٣٪ من جدول كبير، الـ scan غالباً هو الاختيار الصح — والشغل بقى إنك ترجّع
+    صفوف أقل أو تعمل الفهرس covering.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«Scan = وحش، Seek = كويس»</b> — دي أشهر خرافة في تيونينج SQL. Scan على جدول ٢ صفحة أرخص من أي
+      seek، وseek بيرجع ٩٠٪ من الجدول كارثة. المقياس هو <code>logical reads</code> مش اسم العملية.</li>
+    <li><b>فهرس على عمود منخفض التنوّع</b> زي <code>IsDeleted</code> أو <code>IsActive</code> اللي ٩٥٪ من
+      الصفوف فيه بنفس القيمة — الفهرس ده هيتعمله صيانة في كل INSERT ومحدش هيستخدمه. لو محتاجه فعلاً،
+      خليه <code>filtered index</code> على القيمة النادرة.</li>
+    <li><b>حل مشكلة الخطة بـ index hint</b> — الـ hint بيثبّت قرار على كل قيم البارامترات وكل أحجام
+      البيانات المستقبلية. المشكلة الحقيقية غالباً lookups أو statistics قديمة.</li>
+    <li><b>نسيان تحديث الـ statistics</b> بعد تحميل بيانات كبير — الـ optimizer بيقدّر ٥٠٠ صف وهما مليون،
+      فيختار seek غلط. <code>UPDATE STATISTICS Orders WITH FULLSCAN;</code> وشوف الخطة تاني.</li>
+    <li><b>الحكم من شكل الخطة من غير أرقام</b> — شغّل <code>SET STATISTICS IO ON</code> وقارن قبل وبعد.
+      الخطة بتقولك «إيه»، الـ logical reads بتقولك «بكام».</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. <code>WHERE IsDeleted = 0</code> بيطابق ٩٧٪ من جدول فيه ١٠ مليون صف، والـ optimizer عمل scan رغم وجود فهرس على العمود. ليه هو صح؟</div>
+    <button class="opt">مش صح — اجبر الفهرس بـ hint</button>
+    <button class="opt">جلب ٩.٧ مليون صف بـ seek + lookups بيكلّف قراءات عشوائية أغلى بكتير من scan تسلسلي واحد</button>
+    <button class="opt">أعمدة الـ bit مينفعش يتعمل عليها فهرس</button>
+    <button class="opt">الـ statistics أكيد قديمة</button>
+    <div class="feedback">الـ seek بيكسب لما الراجع قليل. لما الناتج يبقى معظم الجدول، المرور التسلسلي هو المسار الأرخص — ودي مش مشكلة محتاجة إصلاح.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. استعلامك بيرجع ٥٪ من جدول كبير والـ scan هو الفايز. إيه أفضل تدخّل؟</div>
+    <button class="opt">تضيف <code>WITH (FORCESEEK)</code></button>
+    <button class="opt">تحذف الـ clustered index</button>
+    <button class="opt">تخلي الفهرس covering بـ <code>INCLUDE</code> للأعمدة المطلوبة، أو ترجّع صفوف أقل</button>
+    <button class="opt">تعمل <code>UPDATE STATISTICS</code> كل ساعة</button>
+    <div class="feedback">التكلفة اللي بتقلب المعادلة هي الـ key lookups. لما الفهرس يغطي الاستعلام، الـ lookups بتختفي ونقطة التحوّل بتتأخر كتير — من غير أي hint.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>Seek تكلفته بعدد الصفوف الراجعة، وScan تكلفته بحجم الجدول — فمفيش واحد فيهم «الأحسن» على طول.</li>
+    <li>مع وجود key lookups، نقطة التحوّل بتيجي بدري: حوالي <b>١–٣٪</b> من جدول كبير وبعدها الـ scan بيكسب.</li>
+    <li>لما الفهرس «يتتجاهل»، امشي على الترتيب: selectivity → lookups → SARGability → statistics → حجم الجدول.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- lanes animation toggle
+  var busStage = document.getElementById('busStage');
+  var busToggle = document.getElementById('busToggle');
+  busToggle.addEventListener('click', function () {
+    var paused = busStage.classList.toggle('paused');
+    busToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- selectivity lab
+  var TOTAL_ROWS = 1000000, TOTAL_PAGES = 12500, TREE_HEIGHT = 3, CELLS = 100;
+  var pgrid = document.getElementById('pgrid');
+  var cells = [];
+  for (var i = 0; i < CELLS; i++) {
+    var c = document.createElement('div');
+    c.className = 'pg';
+    pgrid.appendChild(c);
+    cells.push(c);
+  }
+  // ترتيب مبعتر ثابت: القراءات العشوائية بتنطّ في الجدول كله من أول صف
+  var scatter = [];
+  for (var s = 0; s < CELLS; s++) scatter.push((s * 37) % CELLS);
+
+  var selEl = document.getElementById('sel');
+  var selLabel = document.getElementById('selLabel');
+  var matchedEl = document.getElementById('matchedRows');
+  var planEl = document.getElementById('planName');
+  var seekReadsEl = document.getElementById('seekReads');
+  var scanReadsEl = document.getElementById('scanReads');
+  var barSeek = document.getElementById('barSeek'), barScan = document.getElementById('barScan');
+  var rowSeek = document.getElementById('rowSeek'), rowScan = document.getElementById('rowScan');
+  var verdictEl = document.getElementById('verdict');
+
+  var forced = null;   // null = الـ optimizer يختار، أو 'seek' / 'scan'
+
+  // الشريط لوغاريتمي: من 0.001% لحد 100%
+  function sliderToPct(v) { return Math.pow(10, -3 + (v / 1000) * 5); }
+  function pctToSlider(p) { return Math.round(((Math.log(p) / Math.LN10) + 3) / 5 * 1000); }
+  function fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+
+  function draw() {
+    var pct = sliderToPct(Number(selEl.value));
+    var matched = Math.max(1, Math.round(TOTAL_ROWS * pct / 100));
+    var seekCost = TREE_HEIGHT + matched;              // كل صف راجع = key lookup ≈ قراءة صفحة
+    var scanCost = TOTAL_PAGES;
+    var chosen = forced || (seekCost <= scanCost ? 'seek' : 'scan');
+
+    var touched = chosen === 'scan'
+      ? CELLS
+      : Math.min(CELLS, Math.ceil(Math.min(matched, TOTAL_PAGES) / TOTAL_PAGES * CELLS));
+
+    cells.forEach(function (el) { el.className = 'pg'; });
+    for (var k = 0; k < touched; k++) {
+      var idx = chosen === 'scan' ? k : scatter[k];
+      cells[idx].className = 'pg ' + (chosen === 'scan' ? 'seq' : 'random');
+    }
+
+    selLabel.textContent = (pct >= 1 ? pct.toFixed(1) : pct.toFixed(3)) + '%';
+    matchedEl.textContent = fmt(matched) + ' / ' + fmt(TOTAL_ROWS);
+    planEl.textContent = (chosen === 'seek' ? 'Index Seek + Key Lookup' : 'Table Scan')
+      + (forced ? ' (مجبور)' : '');
+    seekReadsEl.textContent = fmt(seekCost);
+    scanReadsEl.textContent = fmt(scanCost);
+
+    var max = Math.max(seekCost, scanCost);
+    barSeek.style.width = (seekCost / max * 100) + '%';
+    barScan.style.width = (scanCost / max * 100) + '%';
+    rowSeek.classList.toggle('win', seekCost < scanCost);
+    rowScan.classList.toggle('win', scanCost < seekCost);
+
+    var ratio = (Math.max(seekCost, scanCost) / Math.min(seekCost, scanCost)).toFixed(1);
+    var best = seekCost < scanCost ? 'Seek' : 'Scan';
+    var txt = seekCost === scanCost
+      ? 'نقطة التعادل بالظبط — أي زيادة كمان والـ scan بيكسب.'
+      : 'الأرخص هنا: ' + best + ' — بفرق ' + ratio + ' ضعف في الـ logical reads.';
+    if (forced && ((forced === 'seek') !== (seekCost < scanCost))) {
+      txt += ' وإنت مجبّر الخطة الغلط — ده بالظبط اللي بيحصل لما تحط hint.';
+    }
+    verdictEl.textContent = txt;
+  }
+
+  selEl.addEventListener('input', function () { forced = null; draw(); });
+  document.getElementById('forceSeek').addEventListener('click', function () { forced = 'seek'; draw(); });
+  document.getElementById('forceScan').addEventListener('click', function () { forced = 'scan'; draw(); });
+  document.getElementById('autoPlan').addEventListener('click', function () { forced = null; draw(); });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    { pct: 0.0005, force: null,
+      text: '٥ صفوف من مليون (0.0005%). Seek = ٣ قراءات للشجرة + ٥ lookups = ٨ قراءات. الـ scan هيقرا 12,500 صفحة. الـ seek كسبان بألف ضعف.' },
+    { pct: 0.1, force: null,
+      text: '٠.١٪ = ألف صف. Seek ≈ 1,003 قراءة مقابل 12,500 للـ scan. لسه الـ seek كسبان — بس الفرق بيضيق بسرعة.' },
+    { pct: 1.25, force: null,
+      text: 'نقطة التحوّل: 12,500 صف تقريباً — بالظبط عدد صفحات الجدول. هنا التكلفتين بيتقابلوا. لاحظ إنها نسبة صغيرة جداً (~1.25%).' },
+    { pct: 5, force: null,
+      text: '٥٪ = ٥٠ ألف صف. Seek بقى 50,003 قراءة عشوائية مقابل 12,500 تسلسلية. الـ optimizer بيقلب لـ scan — وده قرار صح.' },
+    { pct: 30, force: 'seek',
+      text: 'دلوقتي إنت مجبّر seek على ٣٠٪ من الجدول بـ FORCESEEK. ٣٠٠ ألف lookup عشوائي. ده «الإصلاح» اللي بيخلي الاستعلام أبطأ ٢٤ ضعف.' },
+    { pct: 30, force: null,
+      text: 'شيل الـ hint: الـ scan بـ 12,500 قراءة. لو محتاج تحسّن فعلاً، الحل covering index بـ INCLUDE — يشيل الـ lookups فيأخّر نقطة التحوّل، مش hint.' }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    var st = steps[step];
+    // كل خطوة حالة كاملة، فالرجوع بيرجّع نفس المشهد بالظبط
+    forced = st.force;
+    selEl.value = String(Math.max(0, Math.min(1000, pctToSlider(st.pct))));
+    draw();
+    stepBox.textContent = st.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

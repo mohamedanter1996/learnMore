@@ -54,6 +54,11 @@
       "topic": "Design Patterns",
       "title": "Factory Method & Simple Factory",
       "file": "2-design-patterns/factory-method-simple-factory.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Seeks vs Scans: Selectivity Decides",
+      "file": "3-sql-optimization/seeks-vs-scans-selectivity-decides.html"
     }
   ]
 }
