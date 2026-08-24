@@ -29,9 +29,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `SQL Server Optimization` — Seeks vs Scans: Selectivity Decides → `3-sql-optimization/seeks-vs-scans-selectivity-decides.html`
 
-## Queue (141)
+- [x] `SQL Server Optimization` — SARGability: Don't Wrap Columns in Functions → `3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html`
 
-- [ ] 8. `SQL Server Optimization` — SARGability: Don't Wrap Columns in Functions → `3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html`
+## Queue (140)
 - [ ] 9. `System Design` — Caching II: Invalidation, Stampedes, Hot Keys → `4-system-design/caching-ii-invalidation-stampedes-hot-keys.html`
 - [ ] 10. `Frontend Engineering` — RxJS Foundations: Observables, Subscriptions, Laziness → `5-frontend/rxjs-foundations-observables-subscriptions-laz.html`
 - [ ] 11. `Frontend Engineering` — RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap → `5-frontend/rxjs-flattening-switchmap-vs-mergemap-vs-conca.html`

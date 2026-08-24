@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SARGability: Don't Wrap Columns in Functions — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .strip { display: flex; gap: 6px; direction: ltr; min-width: 660px; padding-top: 26px; position: relative; }
+  .ent {
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 7px; background: var(--surface-2);
+    font-family: Consolas, monospace; font-size: 11.5px; color: var(--text-dim);
+    transition: background .25s, border-color .25s, color .25s, opacity .25s; text-align: center; min-width: 74px;
+    position: relative;
+  }
+  .ent .yr { display: block; font-size: 10px; color: #64748b; }
+  .ent.checked { border-color: var(--danger); background: rgba(248,113,113,.16); color: #fecaca; }
+  .ent.match   { border-color: var(--success); background: rgba(52,211,153,.18); color: #d1fae5; }
+  .ent.skipped { opacity: .3; }
+  .ent.entry::before {
+    content: '▼ seek'; position: absolute; top: -20px; left: 0; font-size: 10px;
+    color: var(--primary); white-space: nowrap;
+  }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 78px; }
+
+  .lanes { width: 100%; height: 220px; }
+  .sweeper { animation: sweepx 3.2s linear infinite; }
+  @keyframes sweepx {
+    0%   { transform: translateX(0); opacity: .15; }
+    8%   { opacity: .85; }
+    92%  { opacity: .85; }
+    100% { transform: translateX(272px); opacity: .15; }
+  }
+  .seeker { animation: seekdrop 3.2s ease-in-out infinite; }
+  @keyframes seekdrop {
+    0%   { transform: translateY(-14px); opacity: 0; }
+    20%  { transform: translateY(0); opacity: 1; }
+    75%  { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(0); opacity: .2; }
+  }
+  .paused .sweeper, .paused .seeker { animation-play-state: paused; }
+
+  .pred {
+    display: block; width: 100%; text-align: left; direction: ltr; background: var(--surface-2);
+    color: var(--text); border: 1px solid var(--border); border-right: 3px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; margin-bottom: 7px;
+    font-family: Consolas, monospace; font-size: 13.5px; cursor: pointer;
+  }
+  .pred:hover { border-color: var(--primary); }
+  .pred.picked-bad  { border-right-color: var(--danger); background: rgba(248,113,113,.12); }
+  .pred.picked-good { border-right-color: var(--success); background: rgba(52,211,153,.12); }
+  .verdict { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 84px; }
+  .verdict .fix { display: block; margin-top: 8px; direction: ltr; text-align: left; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>سيب العمود في حاله — الدالة على العمود بتلغي الفهرس</h1>
+  <div class="en">SARGability: Don't Wrap Columns in Functions</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    جدول <code>Orders</code> فيه ٥٠٠ ألف صف، وعامل عليه فهرس على <code>OrderDate</code>. بتطلب طلبات سنة ٢٠٢٦
+    (٦١,٣٢٠ صف) بـ <code>WHERE YEAR(OrderDate) = 2026</code> → <b>١٥٤٣ logical reads</b> و<b>~٢١٠ ملي ثانية</b>.
+    بتكتب نفس الشرط بالظبط على شكل مدى: <code>OrderDate &gt;= '2026-01-01' AND OrderDate &lt; '2027-01-01'</code>
+    → <b>١٥٨ logical read</b> و<b>~٢٤ ملي ثانية</b>. نفس النتيجة، نفس الفهرس، نفس الصفوف.
+  </p>
+  <div class="callout info">
+    <strong>SARGable</strong> = <b>S</b>earch <b>ARG</b>ument-able، يعني الشرط يقدر يستعمل index seek.
+    القاعدة سطر واحد: <strong>العمود يقف لوحده على طرف، والحسابات كلها تروح للطرف التاني.</strong>
+    الفهرس مترتّب بالقيمة <u>الخام</u> للعمود — مش بناتج <code>YEAR()</code> ولا <code>CAST()</code> ولا <code>UPPER()</code>.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتضيف فهارس ومتحسّش بفرق، وهتفضل تقول «الفهرس موجود أهو» والخطة scan.
+    والأوحش: الدالة على العمود بتعمي الـ <strong>cardinality estimate</strong>، فالمحرّك يقدّر ٥٠٠ صف بدل ٦١ ألف،
+    يختار Nested Loops، وتلاقي key lookups بالملايين في الـ join اللي بعده.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <div class="stage" id="lanesStage">
+    <svg class="lanes" viewBox="0 0 460 220" xmlns="http://www.w3.org/2000/svg">
+      <text x="450" y="16" fill="#f87171" font-size="12" text-anchor="end" font-family="Segoe UI">❌ YEAR(OrderDate) = 2026 → الدالة تتحسب لكل صف</text>
+      <g>
+        <rect x="14" y="28" width="330" height="46" rx="8" fill="#0f172a" stroke="#334155"/>
+        <g fill="#283548">
+          <rect x="22" y="38" width="26" height="26" rx="4"/><rect x="54" y="38" width="26" height="26" rx="4"/>
+          <rect x="86" y="38" width="26" height="26" rx="4"/><rect x="118" y="38" width="26" height="26" rx="4"/>
+          <rect x="150" y="38" width="26" height="26" rx="4"/><rect x="182" y="38" width="26" height="26" rx="4"/>
+          <rect x="214" y="38" width="26" height="26" rx="4"/><rect x="246" y="38" width="26" height="26" rx="4"/>
+          <rect x="278" y="38" width="26" height="26" rx="4"/><rect x="310" y="38" width="26" height="26" rx="4"/>
+        </g>
+        <g class="sweeper">
+          <rect x="20" y="34" width="34" height="34" rx="5" fill="#f87171" opacity=".55"/>
+          <text x="37" y="86" fill="#fecaca" font-size="10" text-anchor="middle" font-family="Consolas">YEAR()</text>
+        </g>
+      </g>
+      <text x="450" y="104" fill="#94a3b8" font-size="11" text-anchor="end" font-family="Segoe UI">كل صف لازم يتقرا ويتحسب قبل المقارنة = Index Scan</text>
+
+      <line x1="14" y1="118" x2="446" y2="118" stroke="#334155" stroke-width="1" stroke-dasharray="4 4"/>
+
+      <text x="450" y="140" fill="#34d399" font-size="12" text-anchor="end" font-family="Segoe UI">✅ OrderDate &gt;= start AND &lt; end → مدى متصل</text>
+      <g>
+        <rect x="14" y="152" width="330" height="46" rx="8" fill="#0f172a" stroke="#334155"/>
+        <g fill="#283548">
+          <rect x="22" y="162" width="26" height="26" rx="4"/><rect x="54" y="162" width="26" height="26" rx="4"/>
+          <rect x="86" y="162" width="26" height="26" rx="4"/><rect x="118" y="162" width="26" height="26" rx="4"/>
+          <rect x="246" y="162" width="26" height="26" rx="4"/>
+          <rect x="278" y="162" width="26" height="26" rx="4"/><rect x="310" y="162" width="26" height="26" rx="4"/>
+        </g>
+        <g class="seeker">
+          <rect x="146" y="158" width="98" height="34" rx="5" fill="#34d399" opacity=".45"/>
+          <path d="M195 138 L189 150 L201 150 Z" fill="#38bdf8"/>
+        </g>
+      </g>
+      <text x="450" y="212" fill="#94a3b8" font-size="11" text-anchor="end" font-family="Segoe UI">نقطة دخول واحدة في الشجرة، وبعدها قراءة متتابعة للمدى بس</text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="lanesToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الفهرس شجرة مترتّبة بالقيمة الخام. لما تكتب <code>YEAR(OrderDate)</code> إنت بتسأل عن قيمة
+    <b>مش موجودة في الترتيب</b> — فمفيش نقطة دخول، والمحرّك مضطر يقرا كل إدخال ويحسب الدالة عليه.
+    لما تسيب العمود عريان وتحوّل الشرط لمدى، الترتيب نفسه بيوصّلك لأول صف مطابق ويقرا اللي بعده ورا بعضه.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>نفس الفهرس، توقّعات مختلفة — جرّب بنفسك</h2></div>
+  <p class="note">
+    الشريط ده إدخالات الفهرس مترتّبة بـ <code>OrderDate</code>. دوس على كل زرار وبصّ على عداد الصفوف والـ reads.
+  </p>
+
+  <div class="stage">
+    <div class="strip" id="strip"></div>
+    <div class="counters">
+      <span>🔍 صفوف اتفحصت: <b id="scanned">0</b></span>
+      <span>✅ صفوف رجعت: <b id="matched">0</b></span>
+      <span>📄 Logical reads: <b id="reads">0</b></span>
+      <span>🎯 العملية: <b id="opMode">—</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> ما اتقراش</span>
+      <span><i class="swatch" style="background:#f87171"></i> اتقرا واتحسبت عليه الدالة</span>
+      <span><i class="swatch" style="background:#34d399"></i> مطابق ورجع</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="badBtn">❌ YEAR(OrderDate) = 2026</button>
+    <button class="btn ghost" id="castBtn">❌ CAST(OrderDate AS date) = '2026-08-24'</button>
+    <button class="btn" id="goodBtn">✅ OrderDate &gt;= '2026-01-01' AND &lt; '2027-01-01'</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+  <p class="note">
+    خد بالك من الحتة دي: التوقّع بالـ <code>CAST</code> بيرجع صف واحد بس — ومع ذلك بيقرا الجدول كله.
+    عدد الصفوف الراجعة مالوش دعوة؛ اللي بيحدد الشغل هو إذا كان الفهرس ينفع يوصّلك للصف ولا لأ.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>خطوة بخطوة جوّه المحرّك</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>مثال واقعي: الأرقام على جدول ٥٠٠ ألف صف</h2></div>
+<pre><code>SET STATISTICS IO, TIME ON;
+
+<span class="c">-- ❌ الدالة ملفوفة على العمود → Index Scan</span>
+SELECT OrderId, Total FROM Orders WHERE YEAR(OrderDate) = <span class="s">2026</span>;
+<span class="c">-- logical reads 1543 | CPU 141 ms | elapsed 210 ms | Estimated Rows 500 مقابل 61320 فعلي</span>
+
+<span class="c">-- ✅ نفس المنطق كمدى نصف مفتوح → Index Seek</span>
+SELECT OrderId, Total FROM Orders
+WHERE OrderDate &gt;= <span class="s">'2026-01-01'</span> AND OrderDate &lt; <span class="s">'2027-01-01'</span>;
+<span class="c">-- logical reads 158  | CPU 15 ms  | elapsed 24 ms  | Estimated Rows 61101 (من الـ histogram)</span>
+
+<span class="c">-- ✅ يوم واحد بالظبط — لاحظ 8 reads بدل 1543</span>
+SELECT OrderId FROM Orders
+WHERE OrderDate &gt;= <span class="s">'2026-08-24'</span> AND OrderDate &lt; <span class="s">'2026-08-25'</span>;
+<span class="c">-- logical reads 8</span></code></pre>
+
+  <div class="callout info">
+    صيغة <b>المدى النصف مفتوح</b> (<code>&gt;= البداية AND &lt; اليوم اللي بعده</code>) هي أكتر إصلاح هتعمله في حياتك.
+    احفظها كده بالظبط ومتستخدمش <code>BETWEEN</code> مع أعمدة الوقت — <code>BETWEEN @d AND @d2</code> بتشمل
+    الطرف الأخير، فبتقع في لعبة <code>23:59:59.997</code> وبتفرق حسب نوع العمود (<code>datetime</code> مقابل <code>datetime2</code>).
+  </div>
+
+  <h3>من EF Core</h3>
+<pre><code><span class="c">// ❌ بتترجم لـ WHERE DATEPART(year, [o].[OrderDate]) = 2026</span>
+<span class="k">var</span> rows = <span class="k">await</span> db.Orders
+    .Where(o =&gt; o.OrderDate.Year == <span class="s">2026</span>)
+    .ToListAsync();
+
+<span class="c">// ✅ بتترجم لمدى SARGable</span>
+<span class="k">var</span> start = <span class="k">new</span> DateTime(<span class="s">2026</span>, 1, 1);
+<span class="k">var</span> end   = start.AddYears(1);
+<span class="k">var</span> rows2 = <span class="k">await</span> db.Orders
+    .Where(o =&gt; o.OrderDate &gt;= start &amp;&amp; o.OrderDate &lt; end)
+    .ToListAsync();</code></pre>
+  <p class="note">
+    نفس القصة مع <code>.Date ==</code> و<code>.ToString()</code> و<code>.Substring()</code> جوّه <code>Where</code> —
+    كلها بتتحوّل لدالة على العمود في الـ SQL النهائي. اقرا الـ SQL المتولّد قبل ما تحكم.
+  </p>
+
+  <h3>معمل التوقّعات — دوس على أي شرط</h3>
+  <div class="stage">
+    <div id="predList">
+      <button class="pred" data-ok="0" data-why="الدالة على العمود: المحرّك لازم يحسب YEAR لكل إدخال في الفهرس قبل المقارنة." data-fix="WHERE OrderDate &gt;= '2026-01-01' AND OrderDate &lt; '2027-01-01'">WHERE YEAR(OrderDate) = 2026</button>
+      <button class="pred" data-ok="1" data-why="العمود لوحده والطرف التاني قيم ثابتة → مدى متصل في الشجرة = Index Seek." data-fix="">WHERE OrderDate &gt;= '2026-01-01' AND OrderDate &lt; '2027-01-01'</button>
+      <button class="pred" data-ok="0" data-why="wildcard في الأول = مفيش بادئة معروفة = مفيش نقطة دخول في الـ B-tree." data-fix="مفيش إعادة كتابة بتنقذها. لو ده نمط بحث أساسي: full-text search أو عمود مقلوب (REVERSE) مفهرس.">WHERE LastName LIKE '%son'</button>
+      <button class="pred" data-ok="1" data-why="البادئة المعروفة بتتحوّل لمدى متصل في الشجرة يبدأ من 'John' — seek عادي." data-fix="">WHERE LastName LIKE 'John%'</button>
+      <button class="pred" data-ok="0" data-why="الضرب واقع على العمود، فترتيب الفهرس مالوش لازمة. انقل الحساب للثابت." data-fix="WHERE Total &gt; 1000 / 1.14">WHERE Total * 1.14 &gt; 1000</button>
+      <button class="pred" data-ok="0" data-why="ISNULL دالة على العمود. والمنطق أصلاً مش محتاجها: NULL عمره ما هيساوي 'Open'." data-fix="WHERE Status = 'Open'">WHERE ISNULL(Status, 'None') = 'Open'</button>
+      <button class="pred" data-ok="0" data-why="العمود VARCHAR والباراميتر NVARCHAR: أولوية النوع بتخلي SQL Server يحط CONVERT_IMPLICIT على العمود — نفس أثر الدالة بالظبط، من غير ما تكتب دالة." data-fix="خلي نوع الباراميتر زي نوع العمود (VARCHAR) — في EF Core استخدم IsUnicode(false) على الـ mapping.">WHERE Code = @code   -- Code VARCHAR(20), @code NVARCHAR(20)</button>
+    </div>
+    <div class="verdict" id="verdict">اختار شرط من فوق عشان تشوف هو SARGable ولا لأ، وإيه إعادة الكتابة.</div>
+  </div>
+
+  <div class="callout good">
+    <strong>لو الحساب مطلوب فعلاً:</strong> مفيش حاجة اسمها فهرس على <code>YEAR(OrderDate)</code> مباشرة.
+    اعمل <b>persisted computed column</b> وافهرسه:
+    <code>ALTER TABLE Orders ADD OrderYear AS YEAR(OrderDate) PERSISTED;</code> وبعدها فهرس عادي عليه.
+    ساعتها الشرط <code>WHERE OrderYear = 2026</code> بقى على عمود حقيقي مترتّب.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«الفهرس موجود يبقى فيه seek»</b> — وجود الفهرس شرط لازم مش كافي. الشرط هو اللي بيقرر إذا كان الفهرس
+      ينفع يستخدم ترتيبه ولا لأ. اقرا الخطة: كلمة <code>Scan</code> جنب اسم الفهرس معناها إنك ضيّعته.</li>
+    <li><b><code>BETWEEN</code> مع أعمدة الوقت</b> — <code>BETWEEN '2026-01-01' AND '2026-12-31'</code> بتفقد كل طلبات
+      يوم ٣١ ديسمبر بعد منتصف الليل. استخدم المدى النصف مفتوح دايماً.</li>
+    <li><b>لفّ العمود بـ <code>UPPER</code> أو <code>LTRIM/RTRIM</code> «للأمان»</b> — الـ collation الافتراضي أصلاً
+      case-insensitive، والمقارنة بـ <code>=</code> بتتجاهل المسافات في الآخر. إنت بتدفع scan مقابل لا حاجة.</li>
+    <li><b>الاعتماد على EF Core إنه «هيحسّنها»</b> — <code>o.OrderDate.Year == 2026</code> بتترجم حرفياً لـ
+      <code>DATEPART</code> على العمود. الـ ORM بيترجم، مش بيعيد الصياغة.</li>
+    <li><b>نسيان الـ cardinality estimate</b> — حتى لو الـ scan نفسه مقبول على جدول صغير، التقدير الغلط بيتسرّب
+      للـ joins اللي بعده ويطلّع خطة كارثية على جدول كبير.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. <code>WHERE CAST(CreatedAt AS date) = '2026-07-05'</code> بيعمل scan رغم وجود فهرس على <code>CreatedAt</code> — ليه؟</div>
+    <button class="opt">لأن أعمدة التواريخ مينفعش تتفهرس</button>
+    <button class="opt">لأن الدالة لازم تتنفّذ على قيمة كل صف قبل المقارنة، وترتيب الشجرة مبني على القيمة الخام مش على ناتج الـ CAST</button>
+    <button class="opt">لأن صيغة النص غلط</button>
+    <div class="feedback">إدخالات الفهرس مترتّبة بـ <code>CreatedAt</code>، مش بـ <code>CAST(CreatedAt AS date)</code>. أعد الكتابة كمدى نصف مفتوح: <code>&gt;= '2026-07-05' AND &lt; '2026-07-06'</code>.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. أنهي نمط <code>LIKE</code> يقدر يستخدم index seek؟</div>
+    <button class="opt">LIKE '%smith'</button>
+    <button class="opt">LIKE '%smith%'</button>
+    <button class="opt">LIKE 'smith%'</button>
+    <button class="opt">ولا واحد — LIKE بيعمل scan دايماً</button>
+    <div class="feedback">البادئة المعروفة بتتحوّل لمدى في الشجرة. الـ wildcard في الأول مبيديش نقطة دخول خالص — لو محتاجه بجد، ده شغل full-text search.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>العمود يقف لوحده على طرف الشرط، وأي حساب يروح للطرف التاني — دي كل قصة الـ SARGability.</li>
+    <li>أي دالة على العمود (<code>YEAR</code>، <code>CAST</code>، <code>ISNULL</code>، أو حتى تحويل ضمني) بتلغي ترتيب الفهرس فتتحوّل لـ scan.</li>
+    <li>الخسارة مزدوجة: scan زيادة + تقدير صفوف غلط بيخرّب الخطة كلها بعد كده — والعلاج غالباً مدى نصف مفتوح من سطرين.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- lanes animation toggle
+  var lanesStage = document.getElementById('lanesStage');
+  var lanesToggle = document.getElementById('lanesToggle');
+  lanesToggle.addEventListener('click', function () {
+    var paused = lanesStage.classList.toggle('paused');
+    lanesToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- index strip
+  var dates = [
+    '2025-03-02', '2025-06-18', '2025-09-30', '2025-12-24',
+    '2026-01-07', '2026-02-19', '2026-04-11', '2026-06-05',
+    '2026-08-24', '2026-10-02', '2026-11-30',
+    '2027-01-15', '2027-03-08', '2027-07-21'
+  ];
+  var FIRST_2026 = 4, LAST_2026 = 10;          // مدى سنة ٢٠٢٦ جوّه الشريط
+  var DAY_IDX = 8;                              // 2026-08-24
+  var SCAN_READS = 1543, SEEK_READS = 158, DAY_READS = 8;
+
+  var stripEl = document.getElementById('strip');
+  var scannedEl = document.getElementById('scanned'), matchedEl = document.getElementById('matched');
+  var readsEl = document.getElementById('reads'), opEl = document.getElementById('opMode');
+  var ents = [], timer = null;
+
+  dates.forEach(function (d, i) {
+    var e = document.createElement('div');
+    e.className = 'ent';
+    e.innerHTML = d + '<span class="yr">row ' + (i + 1) + '</span>';
+    stripEl.appendChild(e);
+    ents.push(e);
+  });
+
+  function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+  function clearMarks() {
+    ents.forEach(function (e) { e.classList.remove('checked', 'match', 'skipped', 'entry'); });
+  }
+  function setCounters(scanned, matched, reads, mode) {
+    scannedEl.textContent = String(scanned);
+    matchedEl.textContent = String(matched);
+    readsEl.textContent = String(reads);
+    opEl.textContent = mode;
+  }
+  function reset() {
+    stopTimer();
+    clearMarks();
+    setCounters(0, 0, 0, '—');
+  }
+
+  // scan: بيقرا كل إدخال ويحسب الدالة عليه، ويعلّم المطابق أخضر
+  function runScan(isMatch, mode) {
+    reset();
+    opEl.textContent = mode;
+    var i = 0, matched = 0;
+    timer = setInterval(function () {
+      if (i >= ents.length) { stopTimer(); return; }
+      ents[i].classList.add(isMatch(i) ? 'match' : 'checked');
+      if (isMatch(i)) matched++;
+      setCounters(i + 1, matched, Math.round((i + 1) / ents.length * SCAN_READS), mode);
+      i++;
+    }, 260);
+  }
+
+  // seek: نقطة دخول واحدة، وبعدها قراءة المدى بس
+  function runSeek() {
+    reset();
+    opEl.textContent = 'Index Seek';
+    ents.forEach(function (e, i) { if (i < FIRST_2026 || i > LAST_2026) e.classList.add('skipped'); });
+    ents[FIRST_2026].classList.add('entry');
+    var i = FIRST_2026, n = 0;
+    timer = setInterval(function () {
+      if (i > LAST_2026) { stopTimer(); return; }
+      ents[i].classList.add('match');
+      n++;
+      setCounters(n, n, Math.round(n / (LAST_2026 - FIRST_2026 + 1) * SEEK_READS), 'Index Seek');
+      i++;
+    }, 260);
+  }
+
+  document.getElementById('badBtn').addEventListener('click', function () {
+    runScan(function (i) { return i >= FIRST_2026 && i <= LAST_2026; }, 'Index Scan (YEAR على العمود)');
+  });
+  document.getElementById('castBtn').addEventListener('click', function () {
+    runScan(function (i) { return i === DAY_IDX; }, 'Index Scan (CAST على العمود)');
+  });
+  document.getElementById('goodBtn').addEventListener('click', runSeek);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+
+  // ---------------------------------------------------------------- stepper
+  function markRangeMatch() {
+    for (var i = FIRST_2026; i <= LAST_2026; i++) ents[i].classList.add('match');
+  }
+  var steps = [
+    {
+      text: 'الفهرس مترتّب بالقيمة الخام لـ OrderDate — من الأقدم للأحدث. الترتيب ده هو رأس مال الـ seek كله.',
+      apply: function () { setCounters(0, 0, 0, '—'); }
+    },
+    {
+      text: 'وصل التوقّع: WHERE YEAR(OrderDate) = 2026. المحرّك عنده فهرس على OrderDate، بس السؤال مش عن OrderDate — السؤال عن ناتج دالة.',
+      apply: function () { setCounters(0, 0, 0, 'لسه بيخطّط'); }
+    },
+    {
+      text: 'مفيش نقطة دخول: ناتج YEAR() مش مخزّن ولا مترتّب في الشجرة. فالمحرّك بيبدأ يقرا من أول إدخال ويحسب YEAR على كل واحد.',
+      apply: function () {
+        for (var i = 0; i < 5; i++) ents[i].classList.add(i >= FIRST_2026 ? 'match' : 'checked');
+        setCounters(5, 1, Math.round(5 / ents.length * SCAN_READS), 'Index Scan');
+      }
+    },
+    {
+      text: 'النتيجة Index Scan على الفهرس كله: 1543 logical reads. وكمان التقدير بيبوظ — الـ optimizer مش شايف الـ histogram من ورا الدالة فبيحزر 500 صف والفعلي 61320.',
+      apply: function () {
+        ents.forEach(function (e, i) {
+          e.classList.add(i >= FIRST_2026 && i <= LAST_2026 ? 'match' : 'checked');
+        });
+        setCounters(ents.length, LAST_2026 - FIRST_2026 + 1, SCAN_READS, 'Index Scan');
+      }
+    },
+    {
+      text: 'نعيد الكتابة من غير ما نغيّر المنطق: OrderDate >= \'2026-01-01\' AND OrderDate < \'2027-01-01\'. العمود بقى عريان على طرف، والحسابات كلها ثوابت على الطرف التاني.',
+      apply: function () {
+        ents.forEach(function (e, i) { if (i < FIRST_2026 || i > LAST_2026) e.classList.add('skipped'); });
+        ents[FIRST_2026].classList.add('entry');
+        setCounters(0, 0, 0, 'Index Seek — نقطة الدخول');
+      }
+    },
+    {
+      text: 'دلوقتي الشجرة بتوصّل لأول صف في المدى في 3 قراءات، وبعدها قراءة متتابعة للمدى بس: 158 logical read بدل 1543، والتقدير 61101 من الـ histogram. نفس الصفوف بالحرف.',
+      apply: function () {
+        ents.forEach(function (e, i) { if (i < FIRST_2026 || i > LAST_2026) e.classList.add('skipped'); });
+        ents[FIRST_2026].classList.add('entry');
+        markRangeMatch();
+        setCounters(LAST_2026 - FIRST_2026 + 1, LAST_2026 - FIRST_2026 + 1, SEEK_READS, 'Index Seek');
+      }
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    reset();                       // كل خطوة بتتبني من الصفر عشان الرجوع يبقى صح
+    steps[step].apply();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- predicate lab
+  var verdict = document.getElementById('verdict');
+  var preds = document.querySelectorAll('#predList .pred');
+  Array.prototype.forEach.call(preds, function (p) {
+    p.addEventListener('click', function () {
+      Array.prototype.forEach.call(preds, function (o) { o.classList.remove('picked-bad', 'picked-good'); });
+      var ok = p.getAttribute('data-ok') === '1';
+      p.classList.add(ok ? 'picked-good' : 'picked-bad');
+      var head = document.createElement('strong');
+      head.textContent = ok ? '✅ SARGable — الفهرس هيشتغل seek.' : '❌ مش SARGable — دي scan.';
+      var why = document.createElement('div');
+      why.textContent = p.getAttribute('data-why');
+      verdict.innerHTML = '';
+      verdict.appendChild(head);
+      verdict.appendChild(why);
+      var fix = p.getAttribute('data-fix');
+      if (fix) {
+        var code = document.createElement('code');
+        code.className = 'fix';
+        code.textContent = fix;      // textContent عشان الـ < و > تفضل نص مش HTML
+        verdict.appendChild(code);
+      }
+      setTimeout(postHeight, 60);
+    });
+  });
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

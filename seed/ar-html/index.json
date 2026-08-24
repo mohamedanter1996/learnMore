@@ -59,6 +59,11 @@
       "topic": "SQL Server Optimization",
       "title": "Seeks vs Scans: Selectivity Decides",
       "file": "3-sql-optimization/seeks-vs-scans-selectivity-decides.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "SARGability: Don't Wrap Columns in Functions",
+      "file": "3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html"
     }
   ]
 }
