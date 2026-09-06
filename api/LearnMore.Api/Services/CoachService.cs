@@ -1,5 +1,3 @@
-using Anthropic;
-using Anthropic.Exceptions;
 using LearnMore.Api.Data;
 using LearnMore.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +18,7 @@ public record SetModelDto(string Model);
 /// anywhere except the one line that hands it to the SDK client. There is no scrubber, because
 /// a scrubber would imply the key might have leaked into a message in the first place.
 /// </summary>
-public class CoachService(AppDbContext db)
+public class CoachService(AppDbContext db, AnthropicHttp anthropic)
 {
     /// <summary>Grading calls allowed per day. The API binds localhost with no authentication and
     /// now fronts a billable endpoint, so a runaway retry loop has to hit a wall somewhere.</summary>
@@ -64,15 +62,8 @@ public class CoachService(AppDbContext db)
 
         var row = await GetRowAsync();
 
-        try
-        {
-            var client = new AnthropicClient { ApiKey = key };
-            await client.Models.Retrieve(row.Model);
-        }
-        catch (Exception ex)
-        {
-            return (false, Describe(ex), null);
-        }
+        var (ok, error) = await anthropic.ValidateKeyAsync(key, row.Model);
+        if (!ok) return (false, error, null);
 
         row.ApiKeyProtected = ApiKeyProtector.Protect(key);
         row.KeyHint = ApiKeyProtector.Hint(key);
@@ -148,19 +139,4 @@ public class CoachService(AppDbContext db)
         await db.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// Maps an SDK failure to a short fixed string. Deliberately does not use the exception
-    /// message: Program.cs has no exception handler, so in a dev build anything that escapes is
-    /// rendered in full on the developer error page.
-    /// </summary>
-    public static string Describe(Exception ex) => ex switch
-    {
-        AnthropicUnauthorizedException => "That API key was rejected.",
-        AnthropicNotFoundException => "That model is not available on your account.",
-        AnthropicRateLimitException => "Rate limited by Anthropic. Try again shortly.",
-        Anthropic5xxException => "Anthropic had a problem at their end. Try again shortly.",
-        TaskCanceledException or TimeoutException => "The coach took too long to answer.",
-        HttpRequestException => "Could not reach Anthropic. Check your connection.",
-        _ => "The coach could not grade this answer."
-    };
 }

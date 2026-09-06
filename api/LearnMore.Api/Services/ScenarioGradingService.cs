@@ -1,7 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Anthropic;
-using Anthropic.Models.Messages;
 using LearnMore.Api.Models;
 
 namespace LearnMore.Api.Services;
@@ -26,7 +24,7 @@ public record GradingResult(
 /// cannot be quoted is marked down to partial. A grader that must quote you cannot reward
 /// hand-waving.
 /// </summary>
-public class ScenarioGradingService(CoachService coach)
+public class ScenarioGradingService(CoachService coach, AnthropicHttp anthropic)
 {
     /// <summary>Byte-identical on every call in the app, so it is the cacheable prefix. Anything
     /// that varies per scenario or per stage belongs in the user message, after this.</summary>
@@ -90,64 +88,70 @@ public class ScenarioGradingService(CoachService coach)
         if (refusal is not null) return Failed(refusal);
         if (key is null) return null; // no coach configured — self-scoring takes over
 
+        var body = new
+        {
+            model,
+            max_tokens = 1500,
+            output_config = new
+            {
+                effort = "medium",
+                format = new { type = "json_schema", schema = Schema() }
+            },
+            system = new object[]
+            {
+                // The contract is byte-identical on every call in the app, so it is the one part
+                // worth caching. Everything scenario- or stage-specific goes in the user message.
+                new
+                {
+                    type = "text",
+                    text = GraderContract,
+                    cache_control = new { type = "ephemeral" }
+                }
+            },
+            messages = new object[]
+            {
+                new { role = "user", content = BuildPrompt(stage, answer) }
+            }
+        };
+
+        var (ok, error, text, inputTokens, outputTokens) =
+            await anthropic.CreateMessageAsync(key, body);
+
+        if (!ok)
+        {
+            await coach.RecordResultAsync(error);
+            return Failed(error ?? "The coach could not grade this answer.");
+        }
+
+        CoachReply? parsed;
         try
         {
-            var client = new AnthropicClient { ApiKey = key };
-
-            var response = await client.Messages.Create(new MessageCreateParams
-            {
-                Model = model,
-                MaxTokens = 1500,
-                OutputConfig = new OutputConfig
-                {
-                    Effort = Effort.Medium,
-                    Format = new JsonOutputFormat { Schema = Schema() }
-                },
-                System = new List<TextBlockParam>
-                {
-                    // 1h TTL: a run spans 20-40 minutes, so the 5-minute default would miss
-                    // between every single stage.
-                    new() { Text = GraderContract, CacheControl = new CacheControlEphemeral { Ttl = Ttl.Ttl1h } }
-                },
-                Messages = [new() { Role = Role.User, Content = BuildPrompt(stage, answer) }]
-            });
-
-            if (response.StopReason == "max_tokens")
-                return Failed("The coach ran out of room mid-answer. Try again.");
-
-            var text = response.Content
-                .Select(b => b.Value).OfType<TextBlock>()
-                .Select(t => t.Text)
-                .FirstOrDefault();
-
-            if (string.IsNullOrWhiteSpace(text))
-                return Failed("The coach returned nothing.");
-
-            var parsed = JsonSerializer.Deserialize<CoachReply>(text, JsonOpts);
-            if (parsed is null) return Failed("The coach returned something unreadable.");
-
-            await coach.RecordResultAsync(null);
-
-            return new GradingResult(
-                true, null, model,
-                (int)(response.Usage?.InputTokens ?? 0),
-                (int)(response.Usage?.OutputTokens ?? 0),
-                Clean(parsed.ProbeQuestion),
-                JsonSerializer.Serialize(new
-                {
-                    strengths = Trim(parsed.Strengths),
-                    gaps = Trim(parsed.Gaps),
-                    seniorMove = parsed.SeniorMove ?? "",
-                    arabicSummary = parsed.ArabicSummary ?? ""
-                }),
-                Reconcile(stage, answer, parsed));
+            parsed = JsonSerializer.Deserialize<CoachReply>(text!, JsonOpts);
         }
-        catch (Exception ex)
+        catch (JsonException)
         {
-            var message = CoachService.Describe(ex);
-            await coach.RecordResultAsync(message);
-            return Failed(message);
+            parsed = null;
         }
+        if (parsed is null)
+        {
+            const string unreadable = "The coach returned something unreadable.";
+            await coach.RecordResultAsync(unreadable);
+            return Failed(unreadable);
+        }
+
+        await coach.RecordResultAsync(null);
+
+        return new GradingResult(
+            true, null, model, inputTokens, outputTokens,
+            Clean(parsed.ProbeQuestion),
+            JsonSerializer.Serialize(new
+            {
+                strengths = Trim(parsed.Strengths),
+                gaps = Trim(parsed.Gaps),
+                seniorMove = parsed.SeniorMove ?? "",
+                arabicSummary = parsed.ArabicSummary ?? ""
+            }),
+            Reconcile(stage, answer, parsed));
     }
 
     // ------------------------------------------------------------------ prompt
@@ -185,13 +189,12 @@ public class ScenarioGradingService(CoachService coach)
         return sb.ToString();
     }
 
-    private static Dictionary<string, JsonElement> Schema() => new()
+    private static object Schema() => new Dictionary<string, object>()
     {
-        ["type"] = JsonSerializer.SerializeToElement("object"),
-        ["additionalProperties"] = JsonSerializer.SerializeToElement(false),
-        ["required"] = JsonSerializer.SerializeToElement(
-            new[] { "coverage", "strengths", "gaps", "seniorMove", "arabicSummary", "probeQuestion" }),
-        ["properties"] = JsonSerializer.SerializeToElement(new
+        ["type"] = "object",
+        ["additionalProperties"] = false,
+        ["required"] = new[] { "coverage", "strengths", "gaps", "seniorMove", "arabicSummary", "probeQuestion" },
+        ["properties"] = (new
         {
             coverage = new
             {

@@ -15,7 +15,6 @@ namespace LearnMore.Api.Services;
 /// .mdf makes it undecryptable. That is expected, not exceptional — <see cref="TryUnprotect"/>
 /// returns null and the app asks for the key again.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public static class ApiKeyProtector
 {
     /// <summary>Extra entropy. Does not stop a targeted attacker; does stop a generic sweep that
@@ -24,6 +23,9 @@ public static class ApiKeyProtector
 
     public static string Protect(string plaintext)
     {
+        // Guarded rather than attributed so callers do not all need the annotation. The app only
+        // ever ships win-x64, so the throw is unreachable in practice.
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         var bytes = ProtectedData.Protect(
             Encoding.UTF8.GetBytes(plaintext), Entropy, DataProtectionScope.CurrentUser);
         return Convert.ToBase64String(bytes);
@@ -32,6 +34,7 @@ public static class ApiKeyProtector
     public static string? TryUnprotect(string? protectedBase64)
     {
         if (string.IsNullOrWhiteSpace(protectedBase64)) return null;
+        if (!OperatingSystem.IsWindows()) return null;
         try
         {
             var bytes = ProtectedData.Unprotect(

@@ -21,6 +21,7 @@ builder.Services.AddScoped<UdemySyncService>();
 builder.Services.AddScoped<ScenarioService>();
 builder.Services.AddScoped<ScenarioGradingService>();
 builder.Services.AddScoped<CoachService>();
+builder.Services.AddScoped<AnthropicHttp>();
 builder.Services.AddSingleton<CourseCatalogService>();
 builder.Services.AddSingleton<RichExplanationService>();
 builder.Services.AddSingleton<WhatsNewService>();
