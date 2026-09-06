@@ -55,6 +55,9 @@ public record SetVerdictsDto(int StageId, List<VerdictItemDto> Verdicts);
 /// </summary>
 public class ScenarioService(AppDbContext db, ScenarioGradingService grader)
 {
+    private static readonly JsonSerializerOptions FeedbackJsonOptions =
+        new() { PropertyNameCaseInsensitive = true };
+
     /// <summary>What a hit, a partial and a miss are worth. The only scoring constant.</summary>
     private static double Factor(CoverageVerdict v) => v switch
     {
@@ -488,7 +491,10 @@ public class ScenarioService(AppDbContext db, ScenarioGradingService grader)
         FeedbackDto? feedback = null;
         if (!string.IsNullOrWhiteSpace(answer.FeedbackJson))
         {
-            try { feedback = JsonSerializer.Deserialize<FeedbackDto>(answer.FeedbackJson); }
+            // Case-insensitive on purpose: the blob is written camelCase and the record is
+            // PascalCase, and the default comparer would bind nothing and silently drop every
+            // piece of feedback the coach wrote.
+            try { feedback = JsonSerializer.Deserialize<FeedbackDto>(answer.FeedbackJson, FeedbackJsonOptions); }
             catch (JsonException) { feedback = null; }
         }
 
