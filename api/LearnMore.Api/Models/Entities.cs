@@ -247,3 +247,152 @@ public class UdemyProgress
     /// <summary>The pending minutes came from the completion-ratio fallback, not lecture durations.</summary>
     public bool IsEstimated { get; set; }
 }
+
+// --------------------------------------------------------------- scenarios
+// A business situation that unfolds in stages. You type what you would actually
+// do; the answer is graded against an authored rubric, never against a model
+// answer. Content is seeded from seed/scenarios/*.json and is never editable
+// from the UI, exactly like the course ladder.
+
+public class Scenario
+{
+    public int Id { get; set; }
+    public string Slug { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Domain { get; set; } = "";
+    public int Difficulty { get; set; } = 2; // 1..3
+    public int EstimatedMinutes { get; set; } = 20;
+    public int SortOrder { get; set; }
+    public string ContextMarkdown { get; set; } = "";
+    public string StakeholdersMarkdown { get; set; } = "";
+    public string ConstraintsMarkdown { get; set; } = "";
+    public List<ScenarioStage> Stages { get; set; } = [];
+}
+
+public class ScenarioStage
+{
+    public int Id { get; set; }
+    public int ScenarioId { get; set; }
+    public Scenario Scenario { get; set; } = null!;
+    public int Order { get; set; }
+    public string? Label { get; set; }
+    public string Prompt { get; set; } = "";
+    public string InputHint { get; set; } = "";
+    /// <summary>Shown only after the stage is answered, and never sent to the grader:
+    /// a grader that can see it starts matching phrasing instead of judging substance.</summary>
+    public string ModelAnswerMarkdown { get; set; } = "";
+    /// <summary>New information revealed after answering. This is what makes a scenario
+    /// feel like a real week rather than a quiz.</summary>
+    public string RevealMarkdown { get; set; } = "";
+    public List<ScenarioRubricPoint> RubricPoints { get; set; } = [];
+}
+
+public class ScenarioRubricPoint
+{
+    public int Id { get; set; }
+    public int StageId { get; set; }
+    public ScenarioStage Stage { get; set; } = null!;
+    public string Text { get; set; } = "";
+    public int Weight { get; set; } = 1; // 1..3
+    /// <summary>Skill axis, e.g. measures-first. The cross-scenario weakness view groups by it,
+    /// which is why it is a normalized column and not part of a JSON blob.</summary>
+    public string Tag { get; set; } = "";
+    public int SortOrder { get; set; }
+}
+
+public enum ScenarioRunStatus
+{
+    InProgress = 0,
+    Completed = 1,
+    Abandoned = 2
+}
+
+public enum CoverageVerdict
+{
+    Miss = 0,
+    Partial = 1,
+    Hit = 2
+}
+
+/// <summary>One attempt at one scenario. There is deliberately no stored cursor and no stored
+/// total: position is the lowest-Order stage without a graded answer, and the score is a pure
+/// function of the coverage rows. Both are computed on read, as everywhere else in this app.</summary>
+public class ScenarioRun
+{
+    public int Id { get; set; }
+    public int ScenarioId { get; set; }
+    public Scenario Scenario { get; set; } = null!;
+    public DateTime StartedAt { get; set; }
+    /// <summary>Set once when the run ends. Never re-derived by counting stages, or a scenario
+    /// that later gains a stage would silently un-complete your history.</summary>
+    public DateTime? CompletedAt { get; set; }
+    public ScenarioRunStatus Status { get; set; } = ScenarioRunStatus.InProgress;
+    public List<ScenarioAnswer> Answers { get; set; } = [];
+}
+
+public class ScenarioAnswer
+{
+    public int Id { get; set; }
+    public int RunId { get; set; }
+    public ScenarioRun Run { get; set; } = null!;
+    public int StageId { get; set; }
+    public ScenarioStage Stage { get; set; } = null!;
+    public string AnswerText { get; set; } = "";
+    public DateTime SubmittedAt { get; set; }
+    /// <summary>Display prose from the coach: strengths, gaps, seniorMove, arabicSummary.
+    /// A payload that is rendered whole and never queried by field, so it stays JSON.</summary>
+    public string? FeedbackJson { get; set; }
+    /// <summary>Comes back with the grade in the same call, so a probe never costs a second one.</summary>
+    public string? ProbeQuestion { get; set; }
+    public string? ProbeAnswerText { get; set; }
+    /// <summary>Set when grading failed, so the UI can offer Retry without losing the answer.</summary>
+    public string? GradeError { get; set; }
+    /// <summary>Which model graded this, so token counts and grades stay attributable.</summary>
+    public string? Model { get; set; }
+    public int InputTokens { get; set; }
+    public int OutputTokens { get; set; }
+    /// <summary>Empty means ungraded. That is the whole representation of the ungraded state.</summary>
+    public List<ScenarioCoverage> Coverage { get; set; } = [];
+}
+
+/// <summary>How one rubric point fared against one answer. Holds both verdicts so the coach path
+/// and the self-score path are one table with one read rule, and so disagreeing with a grade is a
+/// one-click write that improves the weakness signal instead of poisoning it.</summary>
+public class ScenarioCoverage
+{
+    public int Id { get; set; }
+    public int AnswerId { get; set; }
+    public ScenarioAnswer Answer { get; set; } = null!;
+    public int RubricPointId { get; set; }
+    public ScenarioRubricPoint RubricPoint { get; set; } = null!;
+    /// <summary>What the coach reported. Null on a purely self-scored answer.</summary>
+    public CoverageVerdict? LlmVerdict { get; set; }
+    /// <summary>Your own call, which wins. Effective verdict is UserVerdict ?? LlmVerdict ?? Miss.</summary>
+    public CoverageVerdict? UserVerdict { get; set; }
+    /// <summary>The verbatim quote the coach used to justify a hit.</summary>
+    public string Evidence { get; set; } = "";
+    /// <summary>The coach claimed a hit but its quote was not actually in the answer, so it was
+    /// downgraded to partial. A model that must quote cannot reward hand-waving.</summary>
+    public bool QuoteUnverified { get; set; }
+}
+
+// -------------------------------------------------------------------- coach
+// The Anthropic key that grades scenario answers. Deliberately its own entity and NOT a field
+// on AppSettings: AppSettings is round-tripped whole by the settings screen, and a secret on
+// that object is one careless DTO field away from being echoed back to the client.
+
+public class CoachSettings
+{
+    public int Id { get; set; }
+    /// <summary>DPAPI ciphertext, base64. Never leaves the API, never logged, never returned.</summary>
+    public string? ApiKeyProtected { get; set; }
+    /// <summary>Last four characters, so the UI can show which key is stored without decrypting.</summary>
+    public string? KeyHint { get; set; }
+    public string Model { get; set; } = "claude-opus-5";
+    public string? LastError { get; set; }
+    public DateTime? LastCallAt { get; set; }
+    /// <summary>Grading calls made on CallsDate. The API binds localhost with no authentication
+    /// and now fronts a billable endpoint, so this cap is the only real spend control there is.</summary>
+    public int CallsToday { get; set; }
+    public DateOnly? CallsDate { get; set; }
+}

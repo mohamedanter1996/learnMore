@@ -73,6 +73,51 @@ A sync also notices which lectures you finished since last time and adds up thei
 
 Two honest limits: the number is **content minutes, not wall-clock** (rewatching and pausing don't count; skipping to the end of a lecture counts in full), and if Udemy won't hand over lecture durations the app estimates from the completion percentage instead and labels the suggestion `estimated`. The first sync after connecting only records where you stand — it never proposes your whole backlog as one giant session.
 
+## 🧠 Scenarios — an AI coach that tests how you think (v1.9)
+
+Everything else in this app tests **recall**: pick the right option out of four. The 🧠 Scenarios
+screen tests **judgment**, and it does it the way real work does — with a situation, incomplete
+information, and someone waiting on you.
+
+A scenario is a business situation from a .NET / Angular / SQL Server shop: the invoice report times
+out for your biggest client and the PM wants it fixed today; "it's just one field" on a multi-tenant
+schema; last night's deploy wrote bad data to 4,000 rows. It unfolds in stages, and at each one you
+type **what you would actually do** — in your own words, no multiple choice.
+
+Then it grades you. Not on writing, on judgment: did you ask before building, measure before
+optimizing, name what the fix costs, plan the rollback, tell the account manager the one thing they
+needed to hear. Each stage has an authored rubric, and the coach reports which points your answer
+covered — **quoting your own words back as evidence**. A "hit" it cannot quote is marked down
+automatically, so it cannot reward hand-waving.
+
+It also pushes back. When an answer is vague, the coach asks one follow-up in the voice of someone
+in the room — *"Which query? You haven't seen the report yet."* — and re-grades once you answer.
+Feedback comes in English with a short **ملخص بالمصري** underneath.
+
+Nothing is revealed until you answer: not the rubric, not the model answer, and not what happens
+next. After you submit, the stage opens up — including **what a senior would have written**, and the
+thing you didn't know when you decided ("Delta runs it for a full year; their invoice table went
+from 90,000 rows to 2.1 million in February").
+
+The real payoff is the card at the top of the screen: **where you keep losing points**, across every
+scenario you have ever run. Not "you scored 61%" — *"you have skipped rollback planning in six of
+your last seven runs."* No quiz in this app can tell you that.
+
+**Two things it will not do.** It will not spend your money behind your back: at most two calls per
+stage, a hard daily cap, and roughly $0.03 per graded answer. And it will not overrule you — every
+verdict is one click away from being flipped, and your call wins, which also feeds the weakness view
+more honestly than a grade you disagreed with.
+
+### Connecting the coach
+
+`⚙️ Settings → 🤖 AI coach` — paste an Anthropic API key. It is checked against the API before it is
+stored, encrypted with your Windows account (DPAPI), and never shown again by any screen or
+endpoint. That protects a copied database file; it does not protect against software already running
+as you.
+
+**Without a key the module still works.** You answer the same stages and then score yourself against
+the same rubric, honestly. That is a rule, not a fallback — the app stays usable offline.
+
 ## Rich Egyptian-Arabic explanations (v1.6)
 
 The 🇪🇬 button shows one of two things per lesson:

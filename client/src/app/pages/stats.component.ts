@@ -3,7 +3,8 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { CoursePlanRow, StudyPlanSummary } from '../core/models';
+import { CoursePlanRow, ScenarioListRow, StudyPlanSummary, WeaknessRow } from '../core/models';
+import { skillTagLabel } from '../core/skill-tags';
 
 @Component({
   selector: 'app-stats',
@@ -92,6 +93,32 @@ import { CoursePlanRow, StudyPlanSummary } from '../core/models';
       </div>
     }
 
+    @if (scenariosRun() > 0) {
+      <div class="card">
+        <h3>🧠 Scenarios</h3>
+        <div class="strip text-dim">
+          <span><b>{{ scenariosRun() }}</b> {{ scenariosRun() === 1 ? 'run' : 'runs' }}</span>
+          <span><b>{{ averageGrade() }}%</b> average</span>
+          <span><b>{{ scenariosTried() }} / {{ scenarios().length }}</b> scenarios tried</span>
+        </div>
+
+        @if (weakest().length > 0) {
+          <p class="note text-dim">Habits you cover least often:</p>
+          @for (w of weakest(); track w.tag) {
+            <div class="weak-row">
+              <span class="name">{{ tagLabel(w.tag) }}</span>
+              <div class="progress" [title]="w.covered + ' of ' + w.seen + ' covered'">
+                <div class="bar weak" [style.width.%]="w.percent"></div>
+              </div>
+              <span class="count text-dim">{{ w.covered }}/{{ w.seen }}</span>
+            </div>
+          }
+        }
+
+        <a class="more text-dim" routerLink="/scenarios">Open scenarios →</a>
+      </div>
+    }
+
     <div class="card">
       <h3>🧭 Study plans</h3>
 
@@ -165,6 +192,14 @@ import { CoursePlanRow, StudyPlanSummary } from '../core/models';
       gap: 14px;
       margin-bottom: 12px;
     }
+    .weak-row {
+      display: grid;
+      grid-template-columns: 240px 1fr 60px;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .bar.weak { background: var(--warning); }
     .course-row.locked, .plan-row.locked { opacity: 0.45; }
 
     .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -214,6 +249,22 @@ export class StatsComponent {
     ...this.activePlans(),
     ...this.plans().filter(p => p.daysRemaining <= 0)
   ]);
+  // Composed client-side from endpoints that already exist, so StatsDto stays about the
+  // daily-lesson engine and there is no second aggregation to keep in step.
+  readonly scenarios = toSignal(this.api.getScenarios(), { initialValue: [] as ScenarioListRow[] });
+  readonly weaknesses = toSignal(this.api.getScenarioWeaknesses(), { initialValue: [] as WeaknessRow[] });
+
+  readonly scenariosRun = computed(() => this.scenarios().reduce((sum, s) => sum + s.runs, 0));
+  readonly scenariosTried = computed(() => this.scenarios().filter(s => s.runs > 0).length);
+  readonly averageGrade = computed(() => {
+    const scored = this.scenarios().filter(s => s.bestPercent !== null);
+    if (scored.length === 0) return 0;
+    return Math.round(scored.reduce((sum, s) => sum + (s.bestPercent ?? 0), 0) / scored.length);
+  });
+  readonly weakest = computed(() => this.weaknesses().slice(0, 3));
+
+  tagLabel(tag: string) { return skillTagLabel(tag); }
+
   readonly goalsDone = computed(() => this.plans().reduce((sum, p) => sum + p.goalsDone, 0));
   readonly goalsTotal = computed(() => this.plans().reduce((sum, p) => sum + p.goalsTotal, 0));
   readonly studiedDays = computed(() => this.plans().reduce((sum, p) => sum + p.studiedDays, 0));

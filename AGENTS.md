@@ -1,4 +1,4 @@
-# LearnMore — notes for Claude
+# LearnMore — notes for Codex
 
 Electron shell + Angular 19 (standalone, signals) + ASP.NET Core 8 minimal API + EF Core on SQL Server
 LocalDB. One origin in production (the API serves the Angular build from `wwwroot`). See `README.md`

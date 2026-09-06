@@ -61,5 +61,13 @@ export const routes: Routes = [
     path: 'settings',
     loadComponent: () => import('./pages/settings.component').then(m => m.SettingsComponent)
   },
+  {
+    path: 'scenarios',
+    loadComponent: () => import('./pages/scenarios.component').then(m => m.ScenariosComponent)
+  },
+  {
+    path: 'scenarios/:slug',
+    loadComponent: () => import('./pages/scenario-run.component').then(m => m.ScenarioRunComponent)
+  },
   { path: '**', redirectTo: '' }
 ];

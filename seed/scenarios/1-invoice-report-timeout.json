@@ -1,0 +1,66 @@
+{
+  "scenarios": [
+    {
+      "slug": "invoice-report-timeout",
+      "title": "The invoice report times out",
+      "domain": "Performance",
+      "difficulty": 2,
+      "estimatedMinutes": 20,
+      "sortOrder": 1,
+      "contextMarkdown": "You are the senior .NET developer on a billing system used by 14 client companies. One ASP.NET Core API, one SQL Server database, one schema with a `ClientId` column on every table. Angular front end. You and one other backend developer maintain all of it.\n\nIt is 10:40 on a Tuesday. Your team lead forwards you an email and adds one line: *\"Can you look at this today?\"*\n\n> The invoice report is not working for Delta Foods. It just spins and then shows an error. They need it for a meeting tomorrow morning.\n\nDelta Foods is your largest client — roughly 40% of revenue. You have not touched the invoice report in four months. It worked then.",
+      "stakeholdersMarkdown": "- **Your team lead** — forwarded the email, has not looked at it. Will accept whatever you tell them if you tell them clearly.\n- **The account manager** — talks to Delta Foods every day, is the only person who can ask Delta a question, and does not know what a query is.\n- **The other backend dev** — mid-level, available, currently on a different client's feature.\n- There is **no DBA**.",
+      "constraintsMarkdown": "- Production is a single SQL Server VM. You have **read access** to it.\n- Deploys go out through a manual release at **18:00**. Nothing ships outside that window without your team lead approving it.\n- There is **no APM**, no dashboards, no Query Store set up. What you want to know, you have to go and measure.\n- Staging has a copy of production data from three months ago.",
+      "stages": [
+        {
+          "order": 1,
+          "label": "The first 30 minutes",
+          "prompt": "It is 10:45. Nobody asked you to explain the problem — they asked you to fix it. Write what you actually do in the next 30 minutes, in order.",
+          "inputHint": "Concrete actions, in the order you would really do them. Not a methodology.",
+          "modelAnswerMarkdown": "Before touching anything, turn one sentence of hearsay into a reproducible fact.\n\n1. **Reproduce it.** Open the app as Delta Foods and run the report yourself. \"Not working\" could be a timeout, a 500, an empty grid, or a frozen browser tab — those are four different bugs with four different fixes.\n2. **Ask the account manager three questions** and let them ask Delta: *which* report, *what filters and date range*, and *when did it last work?* \"The invoice report\" is not a query. A date range is.\n3. **Check whether it is only Delta.** Run the same report as two other clients. If it is only Delta, the difference is their data or their parameters — and that tells you more than any profiler.\n4. **Establish what changed.** You have not touched this code in four months, so the code is probably not what changed. Data volume, an index that got dropped, statistics, or the parameters someone types in.\n5. **Ask what \"needed for tomorrow morning\" means.** Does Delta need the report working, or do they need the numbers? Those have very different costs, and one of them you can do by hand at 17:00 if the real fix does not land.\n\nWhat you do **not** do in the first 30 minutes: open the query and start adding indexes. You do not yet know which query.",
+          "revealMarkdown": "You reproduce it. The request dies at exactly 30 seconds — the API's configured timeout.\n\nThe account manager comes back: Delta runs the report for a **full year**, 1 January to today. Every other client runs it a month at a time. It worked in January.\n\nAnd one more thing nobody thought to mention: Delta onboarded their retail arm in February. Their `Invoices` table has gone from about 90,000 rows to **2.1 million**.",
+          "rubricPoints": [
+            { "text": "Reproduces or directly observes the failure before changing anything", "weight": 3, "tag": "measures-first", "sortOrder": 1 },
+            { "text": "Asks which report, which date range, and which user — treats \"the invoice report\" as not yet a query", "weight": 3, "tag": "asks-before-building", "sortOrder": 2 },
+            { "text": "Checks whether it is broken for other clients or only for Delta Foods", "weight": 2, "tag": "scopes-blast-radius", "sortOrder": 3 },
+            { "text": "Asks what changed, given the code has been untouched for four months", "weight": 2, "tag": "reads-the-evidence", "sortOrder": 4 },
+            { "text": "Does not start indexing, rewriting or caching before seeing any evidence", "weight": 3, "tag": "avoids-trap", "sortOrder": 5 },
+            { "text": "Finds out what \"needed for tomorrow morning\" actually requires — the report working, or the numbers in hand", "weight": 1, "tag": "checks-with-humans", "sortOrder": 6 }
+          ]
+        },
+        {
+          "order": 2,
+          "label": "You have the evidence",
+          "prompt": "You run the report's query in SSMS against production with Delta's real parameters. It returns in **48 seconds**.\n\nThe plan shows a **Clustered Index Scan** on `Invoices` (2.1M rows), a Key Lookup, and a Hash Match. The query filters `WHERE i.ClientId = @clientId AND i.InvoiceDate >= @from AND i.InvoiceDate < @to`. The only index on `Invoices` is the clustered primary key on `Id`.\n\nThe C# then loads every row into a `List<InvoiceDto>` and formats them in a loop. Delta's year is **380,000 rows**.\n\nIt is 11:30. What do you do — and what do you deliberately not do?",
+          "inputHint": "Say what you change, what it costs, and how you will know it worked.",
+          "modelAnswerMarkdown": "**The fix is the index.** A nonclustered index on `(ClientId, InvoiceDate)` — `ClientId` first, because it is the equality predicate — with the columns the report actually selects included. That turns the scan of 2.1M rows into a seek over Delta's slice.\n\n**Name what the index costs.** Building it on a 2.1M-row table in production is not free: it takes time, it consumes log space, and without `ONLINE = ON` it blocks writes while it builds. Every insert into `Invoices` gets slightly more expensive forever after. That is a fine trade here — it is one index, and reads of this table vastly outnumber writes — but it is a trade, and you should be the one who says so out loud rather than the person who discovers it at 18:30.\n\n**Notice the second problem and do not fix it today.** Loading 380,000 rows into memory to format them in a loop is a separate defect from the missing index. The index makes the *database* fast. It does nothing about the API materialising 380,000 objects, serialising them, and shipping them to a browser.\n\n**And ask the question underneath both:** should this report return 380,000 rows at all? Nobody reads 380,000 lines. Either they want a summary, or they are exporting it — and if they are exporting it, the honest fix is a proper export, not a faster grid. That question is worth more than either code change, but it is a conversation, not a hotfix.\n\n**Verify the same way you measured.** Restore the index onto a staging copy with production-shaped data, run the identical query with Delta's identical parameters, and compare. \"It feels faster\" is not a measurement.",
+          "revealMarkdown": "You add the index on a restored copy in staging. The query drops from **48 seconds to 1.9 seconds**.\n\nThen you open the report screen properly for the first time in four months. It renders all 380,000 rows into a single Angular table. No paging, no virtual scroll. The browser tab climbs to 2.3 GB and the fans spin up.\n\nYou ask the account manager one more question. Delta's finance lead has been running the report and immediately clicking **Export to Excel**. Every single time. She has never scrolled the grid.",
+          "rubricPoints": [
+            { "text": "Adds an index on (ClientId, InvoiceDate) with the equality column leading, matching the actual predicate", "weight": 3, "tag": "reads-the-evidence", "sortOrder": 1 },
+            { "text": "Names what the index costs — build time, blocking or ONLINE, log space, slower writes forever", "weight": 3, "tag": "names-tradeoff", "sortOrder": 2 },
+            { "text": "Separates the database problem from the 380,000-rows-into-memory problem", "weight": 2, "tag": "reads-the-evidence", "sortOrder": 3 },
+            { "text": "Questions whether the report should return 380,000 rows at all", "weight": 3, "tag": "asks-before-building", "sortOrder": 4 },
+            { "text": "Does not rewrite the query, add caching or swap the ORM before the index has been tried", "weight": 2, "tag": "avoids-trap", "sortOrder": 5 },
+            { "text": "States how the fix will be verified — same query, same parameters, measured, not eyeballed", "weight": 2, "tag": "measures-first", "sortOrder": 6 }
+          ]
+        },
+        {
+          "order": 3,
+          "label": "Ship it, and say so",
+          "prompt": "It is 15:20. The release window is 18:00. Delta's meeting is tomorrow at 09:00.\n\nWrite the message you send to your team lead and the account manager — and say exactly what you are deploying tonight and what you are not.",
+          "inputHint": "Write the actual message. Then the deploy plan underneath it.",
+          "modelAnswerMarkdown": "**The message, in language the account manager can forward:**\n\n> The report was reading Delta's whole invoice history every time instead of jumping straight to the dates asked for. That was fine when they had 90,000 invoices; since the retail arm came on in February they have 2.1 million, so it ran past the 30-second limit and gave up.\n>\n> Tonight's release adds the missing lookup. In testing the same report went from 48 seconds to about 2 seconds. It will be ready well before the 09:00 meeting.\n>\n> Two things I am **not** changing tonight: the report still returns every invoice line — around 380,000 for a full year — which is slow in the browser and is why it feels heavy even after this fix. And Delta's finance lead exports to Excel every time, so what she actually needs is an export, not a grid. Both are worth a proper conversation this week; neither is worth a rushed change tonight.\n\n**The deploy plan:**\n\n- Create the index with `ONLINE = ON` so it does not block writes while it builds, in the 18:00 window, and watch it finish rather than starting it and going home.\n- **Rollback is one statement:** `DROP INDEX` puts the database back exactly as it is now. Nothing else in the release depends on it. If overnight writes degrade, it gets dropped, and the person who makes that call is the team lead — tell them that before you leave, not at 23:00.\n- Re-run Delta's exact report against production after the deploy and confirm the timing yourself. Do not find out from Delta at 09:05.\n- Tell the account manager one specific thing: the report will work tomorrow morning. If you are not confident of that, say *that* instead, and pull the numbers by hand as a backup.\n\nWhat makes this a senior message is not the index. It is that it separates what is fixed from what is merely survivable, and it puts both in front of the people who get to decide.",
+          "revealMarkdown": "The index goes out at 18:04 and builds in 90 seconds. Delta's report runs in 2.1 seconds in production.\n\nThe next morning the account manager forwards a thank-you. Two days later your team lead asks, in passing: *\"So can we close the ticket, or is there more?\"*\n\nWhat you wrote on Tuesday afternoon is the only reason that question has an answer.",
+          "rubricPoints": [
+            { "text": "States what was actually wrong in one sentence a non-engineer can forward", "weight": 2, "tag": "writes-it-down", "sortOrder": 1 },
+            { "text": "Ships the index tonight and says explicitly what is being deferred", "weight": 3, "tag": "scopes-blast-radius", "sortOrder": 2 },
+            { "text": "Names the rollback — how the index is undone, and who decides", "weight": 3, "tag": "considers-rollback", "sortOrder": 3 },
+            { "text": "Says how the index is created and what it costs while it builds", "weight": 2, "tag": "names-tradeoff", "sortOrder": 4 },
+            { "text": "Answers the one thing the account manager needs: will it work tomorrow morning", "weight": 3, "tag": "checks-with-humans", "sortOrder": 5 },
+            { "text": "Flags the 380,000-row export as the real product problem without fixing it tonight", "weight": 2, "tag": "writes-it-down", "sortOrder": 6 },
+            { "text": "Does not claim the whole problem is solved", "weight": 2, "tag": "avoids-trap", "sortOrder": 7 }
+          ]
+        }
+      ]
+    }
+  ]
+}

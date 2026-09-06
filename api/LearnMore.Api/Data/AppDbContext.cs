@@ -21,6 +21,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StudySession> StudySessions => Set<StudySession>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
     public DbSet<UdemyProgress> UdemyProgress => Set<UdemyProgress>();
+    public DbSet<Scenario> Scenarios => Set<Scenario>();
+    public DbSet<ScenarioStage> ScenarioStages => Set<ScenarioStage>();
+    public DbSet<ScenarioRubricPoint> ScenarioRubricPoints => Set<ScenarioRubricPoint>();
+    public DbSet<ScenarioRun> ScenarioRuns => Set<ScenarioRun>();
+    public DbSet<ScenarioAnswer> ScenarioAnswers => Set<ScenarioAnswer>();
+    public DbSet<ScenarioCoverage> ScenarioCoverage => Set<ScenarioCoverage>();
+    public DbSet<CoachSettings> CoachSettings => Set<CoachSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -119,6 +126,64 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(s => s.UdemyAccount).HasMaxLength(200);
             e.Property(s => s.UdemyLastError).HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<CoachSettings>(e =>
+        {
+            e.Property(c => c.KeyHint).HasMaxLength(20);
+            e.Property(c => c.Model).HasMaxLength(60);
+            e.Property(c => c.LastError).HasMaxLength(300);
+        });
+
+        modelBuilder.Entity<Scenario>(e =>
+        {
+            e.Property(s => s.Slug).HasMaxLength(100);
+            e.Property(s => s.Title).HasMaxLength(200);
+            e.Property(s => s.Domain).HasMaxLength(100);
+            e.HasIndex(s => s.Slug).IsUnique();
+        });
+
+        modelBuilder.Entity<ScenarioStage>(e =>
+        {
+            e.Property(s => s.Label).HasMaxLength(200);
+            e.HasOne(s => s.Scenario).WithMany(x => x.Stages).HasForeignKey(s => s.ScenarioId);
+            e.HasIndex(s => new { s.ScenarioId, s.Order }).IsUnique();
+        });
+
+        modelBuilder.Entity<ScenarioRubricPoint>(e =>
+        {
+            e.Property(p => p.Text).HasMaxLength(500);
+            e.Property(p => p.Tag).HasMaxLength(60);
+            e.HasOne(p => p.Stage).WithMany(s => s.RubricPoints).HasForeignKey(p => p.StageId);
+            e.HasIndex(p => p.Tag); // the weakness view groups by this
+        });
+
+        modelBuilder.Entity<ScenarioRun>(e =>
+        {
+            e.HasOne(r => r.Scenario).WithMany().HasForeignKey(r => r.ScenarioId);
+            // "At most one run in progress per scenario" backed by the database, so Start can
+            // resume instead of quietly forking a second run. Same trick as IX_PlanCourses_Status.
+            e.HasIndex(r => new { r.ScenarioId, r.Status }).IsUnique().HasFilter("[Status] = 0");
+        });
+
+        modelBuilder.Entity<ScenarioAnswer>(e =>
+        {
+            e.Property(a => a.Model).HasMaxLength(60);
+            e.Property(a => a.GradeError).HasMaxLength(300);
+            e.HasOne(a => a.Run).WithMany(r => r.Answers).HasForeignKey(a => a.RunId);
+            // Restrict: Scenario reaches this row through Run and through Stage both.
+            e.HasOne(a => a.Stage).WithMany().HasForeignKey(a => a.StageId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(a => new { a.RunId, a.StageId }).IsUnique(); // one row per stage, upserted
+        });
+
+        modelBuilder.Entity<ScenarioCoverage>(e =>
+        {
+            e.Property(c => c.Evidence).HasMaxLength(1000);
+            e.HasOne(c => c.Answer).WithMany(a => a.Coverage).HasForeignKey(c => c.AnswerId);
+            e.HasOne(c => c.RubricPoint).WithMany().HasForeignKey(c => c.RubricPointId)
+                .OnDelete(DeleteBehavior.Restrict); // same multiple-cascade-path problem
+            e.HasIndex(c => new { c.AnswerId, c.RubricPointId }).IsUnique();
         });
     }
 }

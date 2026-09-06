@@ -4,6 +4,7 @@ using LearnMore.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LearnMore.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260906195359_AddScenarios")]
+    partial class AddScenarios
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -161,44 +164,6 @@ namespace LearnMore.Api.Migrations
                     b.HasIndex("TopicId", "TakenAt");
 
                     b.ToTable("AssessmentAttempts");
-                });
-
-            modelBuilder.Entity("LearnMore.Api.Models.CoachSettings", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ApiKeyProtected")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateOnly?>("CallsDate")
-                        .HasColumnType("date");
-
-                    b.Property<int>("CallsToday")
-                        .HasColumnType("int");
-
-                    b.Property<string>("KeyHint")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<DateTime?>("LastCallAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("nvarchar(60)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("CoachSettings");
                 });
 
             modelBuilder.Entity("LearnMore.Api.Models.DailyAssignment", b =>

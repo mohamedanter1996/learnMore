@@ -1,0 +1,67 @@
+{
+  "scenarios": [
+    {
+      "slug": "just-one-more-field",
+      "title": "It is just one field",
+      "domain": "Requirements",
+      "difficulty": 2,
+      "estimatedMinutes": 20,
+      "sortOrder": 2,
+      "contextMarkdown": "Same billing system, same 14 clients, same shared schema. It is Monday morning.\n\nThe account manager catches you before standup:\n\n> Delta Foods want a **Cost Center** on invoice lines. Their finance team needs it to split costs between departments. It is just one field — can we get it in Thursday's release?\n\nThey are already halfway out the door when they add: *\"I told them it should be fine.\"*\n\nYou have not seen a written requirement. There is no ticket yet.",
+      "stakeholdersMarkdown": "- **The account manager** — has effectively already promised it. Means well, does not know what a schema is, and will repeat whatever you say next to the client word for word.\n- **Delta Foods finance team** — the people who actually want it. You have never spoken to them directly.\n- **The other 13 clients** — did not ask for this and will get whatever you build.\n- **Your team lead** — will ask you on Wednesday whether it is going out Thursday.",
+      "constraintsMarkdown": "- **One schema, one deployment.** Every client runs the same tables and the same build. There is a `ClientId` on every table; there is no per-client branch and there never will be.\n- EF Core migrations run **automatically on startup**, against every client database, in order.\n- Thursday's release already has two other things in it.\n- Invoices are **exported to the client accounting systems** by a nightly job, and printed on PDFs that Delta send to their own customers.",
+      "stages": [
+        {
+          "order": 1,
+          "label": "Before you say yes",
+          "prompt": "The account manager is waiting for an answer, and they have already told Delta it should be fine.\n\nWhat do you need to know before you commit to anything — and what do you say to them right now?",
+          "inputHint": "The questions you would actually ask, and the sentence you would say this morning.",
+          "modelAnswerMarkdown": "**Say the honest thing first, in one sentence:** *\"I can probably do it, but I can't promise Thursday until I know what the field has to do — give me until this afternoon.\"* That costs nothing and it stops a promise hardening into a commitment while you are not in the room.\n\n**Then find out what \"one field\" means.** Almost none of the real cost is the column:\n\n- **Who enters it, and when?** Typed per line, picked from a list, defaulted from the product, or imported? A free-text box and a validated lookup are completely different features.\n- **Is it a fixed list?** If Delta have a list of cost centers, that is a second table, a maintenance screen and someone to own the data — not a field.\n- **Where does it have to come out?** The nightly export and the printed PDF are the expensive ends. Changing an export format that Delta's accounting system reads is a bigger deal than any migration.\n- **What about existing invoices?** Nullable and blank on history, or does it need backfilling? Backfill is a data project with its own approval.\n- **Is it required?** A required field breaks every existing flow that creates an invoice without it, including the import.\n- **What happens for the other 13 clients?** They get this column too. Hidden by default, or visible and confusing?\n\n**And the question underneath all of them:** what is Delta actually trying to do? If the goal is splitting costs between departments for reporting, a field on the line might not even be the right shape — that may be a dimension on the export, or something their own accounting system already does.\n\nWhat you do **not** do is open a migration this morning.",
+          "revealMarkdown": "You get twenty minutes with Delta's finance lead that afternoon. It is not one field.\n\nCost centers are a **fixed list of about 40**, maintained by Delta, and they change a few times a year. Every invoice line needs one — finance will not accept blanks, because their own system rejects the import if the column is empty.\n\nThey want it **on the printed PDF**, and in the nightly export, in a new column.\n\nAnd the thing nobody mentioned: two other clients have asked the account manager for \"something like that\" in the last year. Both times the answer was no.",
+          "rubricPoints": [
+            { "text": "Buys time without refusing — does not let the promise harden while absent from the room", "weight": 3, "tag": "checks-with-humans", "sortOrder": 1 },
+            { "text": "Asks who enters the value and how it is validated, rather than assuming a free-text box", "weight": 3, "tag": "asks-before-building", "sortOrder": 2 },
+            { "text": "Asks what happens to existing invoices — nullable, backfilled, or required", "weight": 2, "tag": "asks-before-building", "sortOrder": 3 },
+            { "text": "Notices the field has to leave the system — the nightly export and the printed PDF", "weight": 3, "tag": "scopes-blast-radius", "sortOrder": 4 },
+            { "text": "Asks what it means for the other 13 clients who share the schema", "weight": 3, "tag": "scopes-blast-radius", "sortOrder": 5 },
+            { "text": "Asks what Delta is actually trying to achieve, not just what they asked for", "weight": 2, "tag": "asks-before-building", "sortOrder": 6 },
+            { "text": "Does not start writing a migration or designing the schema this morning", "weight": 2, "tag": "avoids-trap", "sortOrder": 7 }
+          ]
+        },
+        {
+          "order": 2,
+          "label": "Where it lives",
+          "prompt": "So: a maintained list of ~40 values, required on every line for Delta, invisible and irrelevant to 13 other clients, and it has to reach the PDF and the nightly export. Two other clients have wanted something similar.\n\nHow do you build it? Say what you would do and what you are choosing **against**.",
+          "inputHint": "The shape you would build, and the option you are rejecting and why.",
+          "modelAnswerMarkdown": "There are three honest options and the interesting work is choosing between them out loud.\n\n**A named column plus a lookup table, scoped by client.** `CostCenters` keyed by `ClientId`, and a nullable `CostCenterId` on the invoice line. Simple, queryable, indexable, and it reads like the domain. \"Required\" becomes a per-client rule enforced in the service, not a `NOT NULL` — because it is only required for Delta, and a `NOT NULL` column would break every other client immediately.\n\n**A generic custom-fields mechanism.** Tempting, because two other clients wanted \"something like that\". Resist it today. Generic attribute systems are the classic trap here: they are quick to add and permanently expensive — unqueryable, untypable, impossible to validate, and they turn every future report into string parsing. If a third client asks, you will have built the wrong abstraction from two data points.\n\n**Client-specific tables or a fork.** Not available. One schema, one build. That is a constraint, not a preference.\n\n**Take the named column.** It is the boring option and it is right: this is a real domain concept with a maintained list, not an arbitrary blob.\n\n**The parts that are not the schema, which is most of the work:**\n- A screen for Delta to maintain the 40 values, and a rule for what happens when they retire one that historical invoices point at (deactivate, never delete).\n- Validation that only applies to clients who have the feature switched on.\n- The export format change — coordinate with Delta's accounting system before you ship, because that is the end that can silently break their month-end.\n- The PDF template.\n- The import path, which also creates invoice lines and will now fail Delta's validation if it does not supply a cost center.\n\nThe column is an afternoon. Everything above is the actual feature.",
+          "revealMarkdown": "You scope it properly and it comes to about **nine days**, most of it in the export, the PDF, the maintenance screen and the import path.\n\nThursday was two days away.\n\nYou also find something while tracing the import: it creates invoice lines through a **different code path** than the UI does. Whatever validation you add in the service, you have to add it in two places — or move it somewhere both go through.",
+          "rubricPoints": [
+            { "text": "Chooses a real named column plus a lookup table over a generic custom-field mechanism", "weight": 3, "tag": "names-tradeoff", "sortOrder": 1 },
+            { "text": "Explicitly rejects the generic or EAV approach and says why", "weight": 3, "tag": "avoids-trap", "sortOrder": 2 },
+            { "text": "Keeps the column nullable and makes required a per-client rule, so 13 other clients do not break", "weight": 3, "tag": "scopes-blast-radius", "sortOrder": 3 },
+            { "text": "Names the export and PDF as the expensive part, not the migration", "weight": 3, "tag": "reads-the-evidence", "sortOrder": 4 },
+            { "text": "Handles retiring a value that historical invoices still reference", "weight": 2, "tag": "considers-rollback", "sortOrder": 5 },
+            { "text": "Does not build a general-purpose feature for two hypothetical clients", "weight": 2, "tag": "avoids-trap", "sortOrder": 6 }
+          ]
+        },
+        {
+          "order": 3,
+          "label": "The number nobody wants",
+          "prompt": "It is about nine days of work. The account manager already implied Thursday. Your team lead will ask on Wednesday.\n\nWrite what you send the account manager — and say what, if anything, you would offer to ship on Thursday instead.",
+          "inputHint": "Write the actual message. Then what goes out Thursday, if anything.",
+          "modelAnswerMarkdown": "**The message:**\n\n> I spoke to Delta's finance team — it is bigger than a field, and I would rather tell you now than on Wednesday.\n>\n> What they need is a maintained list of about 40 cost centers, required on every line, appearing on the printed invoice and in the nightly export their accounting system reads. The database column is half a day. The list-maintenance screen, the validation, the PDF, the export format and the invoice import are the other eight days.\n>\n> The export is the part I would not rush. If we change the file Delta's accounting system reads and get it slightly wrong, we break their month-end, and that is a much worse week than waiting.\n>\n> I can have it ready for the release on the **[date about two weeks out]**. If Delta need something before then, tell me what the finance team is doing manually today — there may be a smaller thing that unblocks them that is not this.\n\n**What ships Thursday: nothing of this.** Thursday already has two other things in it. Adding a half-finished schema change to a shared database, on the same night as unrelated work, to hit a date nobody actually validated, is how you end up debugging two features at once at 19:00.\n\n**What makes this a senior message:** it does not argue, it does not blame the account manager for pre-promising, and it does not pad. It says what the work is, names the one part that is genuinely risky and why, gives a real date, and then leaves a door open — *what are they doing manually today?* — because that question sometimes turns nine days into one.\n\nSay it Monday, not Wednesday. The cost of a slipped date is small when there are ten days of warning and large when there is one.",
+          "revealMarkdown": "You send it Monday afternoon.\n\nDelta's finance lead reads the last paragraph and replies directly: right now they export the invoices to Excel and tag the cost centers by hand, about two hours a month. It is annoying, not urgent.\n\nThey take the two-week date without a complaint. What they actually wanted was to know it was being taken seriously.\n\nThe account manager, on the other hand, is quietly relieved — they had been dreading having to ask you on Wednesday.",
+          "rubricPoints": [
+            { "text": "Tells them on Monday rather than waiting to be asked on Wednesday", "weight": 3, "tag": "checks-with-humans", "sortOrder": 1 },
+            { "text": "Explains the size in terms of what the work is, not just a number of days", "weight": 2, "tag": "writes-it-down", "sortOrder": 2 },
+            { "text": "Names the export as the genuinely risky part and says what breaking it would cost", "weight": 3, "tag": "talks-cost", "sortOrder": 3 },
+            { "text": "Refuses to bolt a partial schema change onto a release that already has other work in it", "weight": 3, "tag": "scopes-blast-radius", "sortOrder": 4 },
+            { "text": "Gives a real date instead of a hedge", "weight": 2, "tag": "writes-it-down", "sortOrder": 5 },
+            { "text": "Asks what they are doing manually today — the question that can shrink the whole job", "weight": 3, "tag": "asks-before-building", "sortOrder": 6 },
+            { "text": "Does not blame the account manager for having pre-promised it", "weight": 1, "tag": "checks-with-humans", "sortOrder": 7 }
+          ]
+        }
+      ]
+    }
+  ]
+}

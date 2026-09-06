@@ -18,3 +18,6 @@ build/
 
 # Scheduled-task logs (daily Arabic page / weekly release)
 .local-logs/
+
+# Local verification only — the packaged build serves wwwroot from build/api.
+api/LearnMore.Api/wwwroot/

@@ -322,3 +322,118 @@ export interface UdemyStatus {
   totalCourses: number;
   unmatchedCourses: string[];
 }
+
+// ----------------------------------------------------------------- scenarios
+
+export type Verdict = 'hit' | 'partial' | 'miss' | '';
+
+export interface ScenarioListRow {
+  id: number;
+  slug: string;
+  title: string;
+  domain: string;
+  difficulty: number;
+  estimatedMinutes: number;
+  stageCount: number;
+  hasActiveRun: boolean;
+  runs: number;
+  lastPercent: number | null;
+  bestPercent: number | null;
+  lastRunAt: string | null;
+}
+
+export interface ScenarioStage {
+  id: number;
+  order: number;
+  label: string | null;
+  prompt: string;
+  inputHint: string;
+}
+
+export interface Coverage {
+  rubricPointId: number;
+  text: string;
+  tag: string;
+  weight: number;
+  verdict: Verdict;
+  llmVerdict: Verdict | null;
+  evidence: string;
+  quoteUnverified: boolean;
+}
+
+export interface CoachFeedback {
+  strengths: string[];
+  gaps: string[];
+  seniorMove: string;
+  arabicSummary: string;
+}
+
+export interface StageResult {
+  stageId: number;
+  order: number;
+  label: string | null;
+  prompt: string;
+  answerText: string;
+  submittedAt: string;
+  graded: boolean;
+  gradeError: string | null;
+  probeQuestion: string | null;
+  probeAnswerText: string | null;
+  coverage: Coverage[];
+  feedback: CoachFeedback | null;
+  modelAnswerMarkdown: string;
+  revealMarkdown: string;
+  score: number;
+  maxScore: number;
+  covered: number;
+  points: number;
+}
+
+export interface ScenarioRun {
+  id: number;
+  scenarioId: number;
+  slug: string;
+  title: string;
+  status: 'inprogress' | 'completed' | 'abandoned';
+  startedAt: string;
+  completedAt: string | null;
+  stageCount: number;
+  currentStage: ScenarioStage | null;
+  history: StageResult[];
+  percent: number;
+  covered: number;
+  points: number;
+  canFinishEarly: boolean;
+  skippedStages: ScenarioStage[];
+}
+
+export interface ScenarioDetail {
+  id: number;
+  slug: string;
+  title: string;
+  domain: string;
+  difficulty: number;
+  estimatedMinutes: number;
+  contextMarkdown: string;
+  stakeholdersMarkdown: string;
+  constraintsMarkdown: string;
+  stageCount: number;
+  activeRun: ScenarioRun | null;
+}
+
+export interface WeaknessRow {
+  tag: string;
+  seen: number;
+  covered: number;
+  percent: number;
+}
+
+export interface CoachStatus {
+  connected: boolean;
+  keyHint: string | null;
+  model: string;
+  lastError: string | null;
+  lastCallAt: string | null;
+  callsToday: number;
+  dailyLimit: number;
+}

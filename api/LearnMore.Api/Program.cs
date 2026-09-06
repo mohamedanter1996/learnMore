@@ -6,7 +6,9 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.WebHost.UseUrls("http://localhost:5199");
+// 5199 is the contract with the client and the Electron shell. The override exists only so a
+// throwaway instance can be run against a scratch database while the real app is open.
+builder.WebHost.UseUrls(builder.Configuration["Urls"] ?? "http://localhost:5199");
 
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
@@ -16,6 +18,9 @@ builder.Services.AddScoped<AssessmentService>();
 builder.Services.AddScoped<StudyPlanService>();
 builder.Services.AddScoped<CoursePlanService>();
 builder.Services.AddScoped<UdemySyncService>();
+builder.Services.AddScoped<ScenarioService>();
+builder.Services.AddScoped<ScenarioGradingService>();
+builder.Services.AddScoped<CoachService>();
 builder.Services.AddSingleton<CourseCatalogService>();
 builder.Services.AddSingleton<RichExplanationService>();
 builder.Services.AddSingleton<WhatsNewService>();
@@ -318,6 +323,86 @@ app.MapPost("/api/udemy/progress", async (UdemySyncRequest req, UdemySyncService
 
 app.MapPost("/api/udemy/disconnect", async (UdemySyncService svc) =>
     Results.Ok(await svc.DisconnectAsync()));
+
+// ----------------------------------------------------------------- scenarios
+// Business situations answered in free text and graded against an authored rubric.
+// The score is computed in ScenarioService; the coach only ever reports coverage.
+
+app.MapGet("/api/scenarios", async (ScenarioService svc) => await svc.GetListAsync());
+
+app.MapGet("/api/scenarios/weaknesses", async (ScenarioService svc) => await svc.GetWeaknessesAsync());
+
+app.MapGet("/api/scenarios/{slug}", async (string slug, ScenarioService svc) =>
+{
+    var detail = await svc.GetDetailAsync(slug);
+    return detail is null ? Results.NotFound() : Results.Ok(detail);
+});
+
+app.MapPost("/api/scenarios/{slug}/start", async (string slug, ScenarioService svc) =>
+{
+    var run = await svc.StartAsync(slug);
+    return run is null ? Results.NotFound() : Results.Ok(run);
+});
+
+app.MapGet("/api/scenarios/runs/{id:int}", async (int id, ScenarioService svc) =>
+{
+    var run = await svc.GetRunAsync(id);
+    return run is null ? Results.NotFound() : Results.Ok(run);
+});
+
+app.MapPost("/api/scenarios/runs/{id:int}/answer", async (int id, SubmitAnswerDto dto, ScenarioService svc) =>
+{
+    var (ok, error, run) = await svc.SubmitAnswerAsync(id, dto);
+    return ok ? Results.Ok(run) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/scenarios/runs/{id:int}/regrade", async (int id, SubmitAnswerDto dto, ScenarioService svc) =>
+{
+    var (ok, error, run) = await svc.RegradeAsync(id, dto.StageId);
+    return ok ? Results.Ok(run) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/scenarios/runs/{id:int}/probe", async (int id, ProbeReplyDto dto, ScenarioService svc) =>
+{
+    var (ok, error, run) = await svc.SubmitProbeAsync(id, dto);
+    return ok ? Results.Ok(run) : Results.BadRequest(new { error });
+});
+
+// Both the no-key self-scoring path and the one-click "I disagree with that grade" path.
+app.MapPost("/api/scenarios/runs/{id:int}/verdicts", async (int id, SetVerdictsDto dto, ScenarioService svc) =>
+{
+    var (ok, error, run) = await svc.SetVerdictsAsync(id, dto);
+    return ok ? Results.Ok(run) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/scenarios/runs/{id:int}/finish", async (int id, ScenarioService svc) =>
+{
+    var (ok, error, run) = await svc.FinishAsync(id);
+    return ok ? Results.Ok(run) : Results.BadRequest(new { error });
+});
+
+app.MapPost("/api/scenarios/runs/{id:int}/abandon", async (int id, ScenarioService svc) =>
+    await svc.AbandonAsync(id) ? Results.NoContent() : Results.NotFound());
+
+// --------------------------------------------------------------------- coach
+// The Anthropic key that grades scenario answers. No endpoint here ever returns the key —
+// only whether one is stored, and its last four characters.
+
+app.MapGet("/api/coach/status", async (CoachService svc) => await svc.GetStatusAsync());
+
+app.MapPut("/api/coach/key", async (SaveKeyDto dto, CoachService svc) =>
+{
+    var (ok, error, status) = await svc.SaveKeyAsync(dto);
+    return ok ? Results.Ok(status) : Results.BadRequest(new { error });
+});
+
+app.MapDelete("/api/coach/key", async (CoachService svc) => Results.Ok(await svc.DisconnectAsync()));
+
+app.MapPut("/api/coach/model", async (SetModelDto dto, CoachService svc) =>
+{
+    var (ok, error, status) = await svc.SetModelAsync(dto);
+    return ok ? Results.Ok(status) : Results.BadRequest(new { error });
+});
 
 app.MapGet("/api/settings", async (AppDbContext db) =>
 {

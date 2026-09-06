@@ -59,6 +59,44 @@ public class InterviewSeedItem
     public string? RelatedLessonTitle { get; set; }
 }
 
+public class ScenarioSeedFile
+{
+    public List<ScenarioSeed> Scenarios { get; set; } = [];
+}
+
+public class ScenarioSeed
+{
+    public string Slug { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Domain { get; set; } = "";
+    public int Difficulty { get; set; } = 2;
+    public int EstimatedMinutes { get; set; } = 20;
+    public int SortOrder { get; set; }
+    public string ContextMarkdown { get; set; } = "";
+    public string StakeholdersMarkdown { get; set; } = "";
+    public string ConstraintsMarkdown { get; set; } = "";
+    public List<ScenarioStageSeed> Stages { get; set; } = [];
+}
+
+public class ScenarioStageSeed
+{
+    public int Order { get; set; }
+    public string? Label { get; set; }
+    public string Prompt { get; set; } = "";
+    public string InputHint { get; set; } = "";
+    public string ModelAnswerMarkdown { get; set; } = "";
+    public string RevealMarkdown { get; set; } = "";
+    public List<ScenarioRubricSeed> RubricPoints { get; set; } = [];
+}
+
+public class ScenarioRubricSeed
+{
+    public string Text { get; set; } = "";
+    public int Weight { get; set; } = 1;
+    public string Tag { get; set; } = "";
+    public int SortOrder { get; set; }
+}
+
 public class SeedService(AppDbContext db, IConfiguration config, ILogger<SeedService> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -130,6 +168,124 @@ public class SeedService(AppDbContext db, IConfiguration config, ILogger<SeedSer
 
         await SeedArabicAsync(seedDir);
         await SeedInterviewAsync(seedDir);
+        await SeedScenariosAsync(seedDir);
+    }
+
+    /// <summary>
+    /// Seeds business scenarios from seed/scenarios/*.json, keyed by Slug.
+    /// Structure is insert-only: stages and rubric points are never added, removed or reordered
+    /// for a scenario that already exists, because a past run has to stay meaningful against the
+    /// rubric it was actually graded on. Display text is refreshed in place so wording can be
+    /// tuned freely. To change a scenario materially, ship it under a new slug.
+    /// </summary>
+    private async Task SeedScenariosAsync(string seedDir)
+    {
+        var dir = Path.Combine(seedDir, "scenarios");
+        if (!Directory.Exists(dir)) return;
+
+        var added = 0;
+
+        foreach (var file in Directory.EnumerateFiles(dir, "*.json").OrderBy(f => f))
+        {
+            ScenarioSeedFile? seed;
+            try
+            {
+                seed = JsonSerializer.Deserialize<ScenarioSeedFile>(await File.ReadAllTextAsync(file), JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogError(ex, "Invalid scenario seed file {File}; skipping.", file);
+                continue;
+            }
+            if (seed is null) continue;
+
+            foreach (var s in seed.Scenarios)
+            {
+                if (string.IsNullOrWhiteSpace(s.Slug) || s.Stages.Count == 0) continue;
+
+                var existing = await db.Scenarios
+                    .Include(x => x.Stages).ThenInclude(st => st.RubricPoints)
+                    .FirstOrDefaultAsync(x => x.Slug == s.Slug);
+
+                if (existing is null)
+                {
+                    db.Scenarios.Add(ToEntity(s));
+                    added++;
+                    continue;
+                }
+
+                RefreshDisplayText(existing, s);
+            }
+        }
+
+        var saved = await db.SaveChangesAsync();
+        if (saved > 0)
+            logger.LogInformation("Scenarios: {Added} new, {Saved} rows written.", added, saved);
+    }
+
+    private static Scenario ToEntity(ScenarioSeed s) => new()
+    {
+        Slug = s.Slug,
+        Title = s.Title,
+        Domain = s.Domain,
+        Difficulty = Math.Clamp(s.Difficulty, 1, 3),
+        EstimatedMinutes = s.EstimatedMinutes,
+        SortOrder = s.SortOrder,
+        ContextMarkdown = s.ContextMarkdown,
+        StakeholdersMarkdown = s.StakeholdersMarkdown,
+        ConstraintsMarkdown = s.ConstraintsMarkdown,
+        Stages = s.Stages.OrderBy(st => st.Order).Select(st => new ScenarioStage
+        {
+            Order = st.Order,
+            Label = st.Label,
+            Prompt = st.Prompt,
+            InputHint = st.InputHint,
+            ModelAnswerMarkdown = st.ModelAnswerMarkdown,
+            RevealMarkdown = st.RevealMarkdown,
+            RubricPoints = st.RubricPoints.OrderBy(p => p.SortOrder).Select(p => new ScenarioRubricPoint
+            {
+                Text = p.Text,
+                Weight = Math.Clamp(p.Weight, 1, 3),
+                Tag = p.Tag,
+                SortOrder = p.SortOrder
+            }).ToList()
+        }).ToList()
+    };
+
+    /// <summary>Text-only refresh. Matches stages by Order and rubric points by SortOrder, and
+    /// silently ignores anything that would change the shape of a scenario people have run.</summary>
+    private static void RefreshDisplayText(Scenario target, ScenarioSeed s)
+    {
+        target.Title = s.Title;
+        target.Domain = s.Domain;
+        target.Difficulty = Math.Clamp(s.Difficulty, 1, 3);
+        target.EstimatedMinutes = s.EstimatedMinutes;
+        target.SortOrder = s.SortOrder;
+        target.ContextMarkdown = s.ContextMarkdown;
+        target.StakeholdersMarkdown = s.StakeholdersMarkdown;
+        target.ConstraintsMarkdown = s.ConstraintsMarkdown;
+
+        foreach (var stageSeed in s.Stages)
+        {
+            var stage = target.Stages.FirstOrDefault(x => x.Order == stageSeed.Order);
+            if (stage is null) continue;
+
+            stage.Label = stageSeed.Label;
+            stage.Prompt = stageSeed.Prompt;
+            stage.InputHint = stageSeed.InputHint;
+            stage.ModelAnswerMarkdown = stageSeed.ModelAnswerMarkdown;
+            stage.RevealMarkdown = stageSeed.RevealMarkdown;
+
+            foreach (var pointSeed in stageSeed.RubricPoints)
+            {
+                var point = stage.RubricPoints.FirstOrDefault(x => x.SortOrder == pointSeed.SortOrder);
+                if (point is null) continue;
+
+                point.Text = pointSeed.Text;
+                point.Weight = Math.Clamp(pointSeed.Weight, 1, 3);
+                point.Tag = pointSeed.Tag;
+            }
+        }
     }
 
     /// <summary>

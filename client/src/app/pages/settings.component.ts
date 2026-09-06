@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { DesktopService } from '../core/desktop.service';
-import { AppSettings, UdemyStatus } from '../core/models';
+import { AppSettings, CoachStatus, UdemyStatus } from '../core/models';
 
 @Component({
   selector: 'app-settings',
@@ -101,10 +101,67 @@ import { AppSettings, UdemyStatus } from '../core/models';
         <p class="warn">{{ e }}</p>
       }
     </div>
+
+    <div class="card form coach">
+      <h3>🤖 AI coach</h3>
+
+      @if (coach(); as c) {
+        @if (c.connected) {
+          <div class="row">
+            <span>Key stored {{ c.keyHint }}</span>
+            <span class="text-dim small">{{ c.callsToday }}/{{ c.dailyLimit }} graded today</span>
+          </div>
+
+          <label class="row">
+            <span>Grading model</span>
+            <select [disabled]="coachBusy()"
+                    (change)="setModel($any($event.target).value)">
+              @for (m of models; track m.id) {
+                <option [value]="m.id" [selected]="c.model === m.id">{{ m.label }}</option>
+              }
+            </select>
+          </label>
+
+          @if (c.lastError) { <p class="warn">⚠️ {{ c.lastError }}</p> }
+
+          <div class="actions">
+            <button class="btn btn-ghost" [disabled]="coachBusy()" (click)="disconnectCoach()">
+              {{ coachBusy() ? 'Working…' : 'Remove key' }}
+            </button>
+          </div>
+        } @else {
+          <p class="text-dim hint">
+            Paste an Anthropic API key and 🧠 Scenarios will grade what you write, push back when
+            you hand-wave, and show what a senior would have added. Without a key the scenarios
+            still work — you score yourself against the same rubric.
+          </p>
+          <input type="password" placeholder="sk-ant-…" autocomplete="off"
+                 [disabled]="coachBusy()" [(ngModel)]="keyInput" />
+          <div class="actions">
+            <button class="btn" [disabled]="coachBusy() || keyInput.trim().length < 20"
+                    (click)="saveKey()">
+              {{ coachBusy() ? 'Checking…' : 'Check and save' }}
+            </button>
+          </div>
+          @if (coachError(); as e) { <p class="warn">{{ e }}</p> }
+          <p class="text-dim small">
+            The key is encrypted with your Windows account before it is stored, and no screen or
+            endpoint ever shows it again. That protects a copied database file — it does not
+            protect against software already running as you. Roughly $0.03 per graded answer.
+          </p>
+        }
+      } @else {
+        <p class="text-dim">Loading…</p>
+      }
+    </div>
   `,
   styles: `
     .form { max-width: 460px; display: flex; flex-direction: column; gap: 16px; }
-    .udemy { margin-top: 18px; gap: 12px; h3 { margin: 0; } }
+    .udemy, .coach { margin-top: 18px; gap: 12px; h3 { margin: 0; } }
+    .coach input[type="password"] {
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; font: inherit;
+    }
     .warn { color: var(--warning); font-size: 13px; margin: 0; }
     .small { font-size: 12px; }
     .row {
@@ -133,9 +190,54 @@ export class SettingsComponent {
   readonly busy = signal<'connect' | 'sync' | 'disconnect' | null>(null);
   readonly udemyError = signal<string | null>(null);
 
+  readonly models = [
+    { id: 'claude-opus-5', label: 'Claude Opus 5 — best judgment' },
+    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — cheaper' },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — cheapest' }
+  ];
+
+  readonly coach = signal<CoachStatus | null>(null);
+  readonly coachBusy = signal(false);
+  readonly coachError = signal<string | null>(null);
+  keyInput = '';
+
   constructor() {
     this.api.getSettings().subscribe(s => this.settings.set(s));
     this.api.getUdemyStatus().subscribe(u => this.udemy.set(u));
+    this.api.getCoachStatus().subscribe(c => this.coach.set(c));
+  }
+
+  saveKey() {
+    const key = this.keyInput.trim();
+    if (this.coachBusy() || key.length < 20) return;
+    this.coachBusy.set(true);
+    this.coachError.set(null);
+    this.api.saveCoachKey(key).subscribe({
+      // Cleared the moment it is accepted — it never needs to sit in a component field again.
+      next: c => { this.keyInput = ''; this.coach.set(c); this.coachBusy.set(false); },
+      error: e => this.coachFail(e)
+    });
+  }
+
+  disconnectCoach() {
+    this.coachBusy.set(true);
+    this.api.disconnectCoach().subscribe({
+      next: c => { this.coach.set(c); this.coachBusy.set(false); },
+      error: e => this.coachFail(e)
+    });
+  }
+
+  setModel(model: string) {
+    this.coachBusy.set(true);
+    this.api.saveCoachModel(model).subscribe({
+      next: c => { this.coach.set(c); this.coachBusy.set(false); },
+      error: e => this.coachFail(e)
+    });
+  }
+
+  private coachFail(e: { error?: { error?: string } }) {
+    this.coachError.set(e?.error?.error ?? 'Something went wrong.');
+    this.coachBusy.set(false);
   }
 
   connectUdemy() {
