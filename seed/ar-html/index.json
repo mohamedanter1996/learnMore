@@ -64,6 +64,11 @@
       "topic": "SQL Server Optimization",
       "title": "SARGability: Don't Wrap Columns in Functions",
       "file": "3-sql-optimization/sargability-don-t-wrap-columns-in-functions.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Caching II: Invalidation, Stampedes, Hot Keys",
+      "file": "4-system-design/caching-ii-invalidation-stampedes-hot-keys.html"
     }
   ]
 }
