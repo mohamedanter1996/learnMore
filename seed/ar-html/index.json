@@ -69,6 +69,11 @@
       "topic": "System Design",
       "title": "Caching II: Invalidation, Stampedes, Hot Keys",
       "file": "4-system-design/caching-ii-invalidation-stampedes-hot-keys.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "RxJS Foundations: Observables, Subscriptions, Laziness",
+      "file": "5-frontend/rxjs-foundations-observables-subscriptions-laz.html"
     }
   ]
 }

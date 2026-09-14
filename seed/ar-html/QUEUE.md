@@ -33,8 +33,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — Caching II: Invalidation, Stampedes, Hot Keys → `4-system-design/caching-ii-invalidation-stampedes-hot-keys.html`
 
-## Queue (139)
-- [ ] 10. `Frontend Engineering` — RxJS Foundations: Observables, Subscriptions, Laziness → `5-frontend/rxjs-foundations-observables-subscriptions-laz.html`
+- [x] `Frontend Engineering` — RxJS Foundations: Observables, Subscriptions, Laziness → `5-frontend/rxjs-foundations-observables-subscriptions-laz.html`
+
+## Queue (138)
 - [ ] 11. `Frontend Engineering` — RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap → `5-frontend/rxjs-flattening-switchmap-vs-mergemap-vs-conca.html`
 - [ ] 12. `Data Structures & Algorithms` — Big-O Notation: Measuring Algorithm Efficiency → `1-dsa/big-o-notation-measuring-algorithm-efficiency.html`
 - [ ] 13. `Design Patterns` — SOLID I: Single Responsibility Principle → `2-design-patterns/solid-i-single-responsibility-principle.html`
