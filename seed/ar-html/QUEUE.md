@@ -35,8 +35,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Frontend Engineering` — RxJS Foundations: Observables, Subscriptions, Laziness → `5-frontend/rxjs-foundations-observables-subscriptions-laz.html`
 
-## Queue (138)
-- [ ] 11. `Frontend Engineering` — RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap → `5-frontend/rxjs-flattening-switchmap-vs-mergemap-vs-conca.html`
+- [x] `Frontend Engineering` — RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap → `5-frontend/rxjs-flattening-switchmap-vs-mergemap-vs-conca.html`
+
+## Queue (137)
 - [ ] 12. `Data Structures & Algorithms` — Big-O Notation: Measuring Algorithm Efficiency → `1-dsa/big-o-notation-measuring-algorithm-efficiency.html`
 - [ ] 13. `Design Patterns` — SOLID I: Single Responsibility Principle → `2-design-patterns/solid-i-single-responsibility-principle.html`
 - [ ] 14. `SQL Server Optimization` — How SQL Server Stores Data: Pages, Extents, Heaps → `3-sql-optimization/how-sql-server-stores-data-pages-extents-heaps.html`

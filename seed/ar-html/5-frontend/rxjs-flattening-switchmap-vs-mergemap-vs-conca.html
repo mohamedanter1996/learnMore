@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .flow { width: 100%; height: 210px; }
+  .marble { animation: flow 3.6s linear infinite; }
+  .m2 { animation-delay: 1.2s; }
+  .m3 { animation-delay: 2.4s; }
+  @keyframes flow {
+    0%   { transform: translate(0, 0);        opacity: 0; }
+    8%   { transform: translate(28px, 0);     opacity: 1; }
+    35%  { transform: translate(180px, 0);    opacity: 1; }
+    50%  { transform: translate(180px, 60px); opacity: 1; }
+    65%  { transform: translate(180px, 130px);opacity: 1; }
+    95%  { transform: translate(400px, 130px);opacity: 1; }
+    100% { transform: translate(400px, 130px);opacity: 0; }
+  }
+  .paused .marble { animation-play-state: paused; }
+
+  .tl { direction: ltr; min-width: 660px; }
+  .trow { display: grid; grid-template-columns: 132px repeat(18, 26px); gap: 2px; align-items: center; margin-bottom: 4px; }
+  .tlabel { direction: rtl; text-align: right; font-size: 12px; color: var(--text-dim); padding-left: 8px; }
+  .cell {
+    height: 26px; border-radius: 4px; background: #0f1a2b;
+    display: flex; align-items: center; justify-content: center;
+    font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim);
+    transition: background .2s, color .2s;
+  }
+  .cell.dim { opacity: .22; }
+  .cell.run  { background: #14384d; color: #bae6fd; }
+  .cell.trig { background: var(--primary); color: #0c2431; }
+  .cell.ok   { background: var(--success); color: #06281c; }
+  .cell.cut  { background: var(--danger);  color: #2b0a0a; }
+  .cell.skip { background: var(--surface-2); color: var(--warning); }
+  .cell.cursor { box-shadow: inset 0 0 0 2px var(--warning); }
+  .axis .cell { background: transparent; font-size: 10px; height: 18px; }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 92px; }
+  .step-box .op-note { display: block; margin-top: 6px; color: #bae6fd; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🎨 Frontend Engineering · درس مصري مفصّل</div>
+  <h1>السؤال الوحيد: جه trigger جديد والشغل القديم لسه شغّال — تعمل إيه؟</h1>
+  <div class="en">RxJS Flattening: switchMap vs mergeMap vs concatMap vs exhaustMap</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك في Angular خانة بحث بتنادي <code>/api/orders/search</code>. المستخدم كتب <span class="mono">"ahmed"</span> —
+    ٥ حروف = ٥ طلبات. رد الحرف التالت رجع في ٩٠٠ ملي ثانية ورد الحرف الخامس رجع في ٢٠٠. النتيجة اللي
+    قاعدة على الشاشة في الآخر بتاعة <span class="mono">"ahm"</span> والمستخدم كاتب <span class="mono">"ahmed"</span>.
+  </p>
+  <p>
+    وفي نفس التطبيق زرار «احفظ الأوردر» متوصّل بـ <code>mergeMap</code>. في لوج أسبوع واحد:
+    <b>١٤١٢</b> دوسة على الزرار طلّعت <b>١٧٣١</b> طلب <code>POST</code> — يعني <b>٣١٩</b> أوردر مكرر
+    في الداتابيز، كلهم من ناس دوست مرتين لأن الزرار «مردّش بسرعة».
+  </p>
+  <div class="callout info">
+    الأربع operators دول بيعملوا نفس الحاجة بالظبط: بياخدوا قيمة من stream خارجي، بيحوّلوها لـ observable
+    جوّاني (طلب HTTP مثلاً)، وبيفرّدوا نتايجه في الـ stream الخارجي. الاختلاف الوحيد بينهم هو
+    <strong>سياسة التعامل مع التزامن</strong> — إيه اللي يحصل لما trigger جديد يوصل والجوّاني لسه شغّال.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتكتب bugs مبتظهرش على جهازك أبداً — لأن الـ API عندك بيرد في
+    ٢٠ ملي ثانية فمفيش تداخل أصلاً. هتظهر بس في الإنتاج على شبكة بطيئة: نتايج بحث قديمة بتكتب فوق
+    الجديدة، أوردرات مكررة، وطلبات بتتكدّس على المتصفح لحد ما يقف.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: يعني إيه «flattening» أصلاً؟</h2></div>
+  <div class="stage" id="flowStage">
+    <svg class="flow" viewBox="0 0 460 210">
+      <line x1="20" y1="40" x2="440" y2="40" stroke="#334155" stroke-width="2"/>
+      <text x="20" y="26" fill="#94a3b8" font-size="11" font-family="Segoe UI">outer$ — triggers</text>
+
+      <rect x="170" y="85" width="120" height="40" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="230" y="110" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Consolas">xxxMap(fn)</text>
+      <text x="230" y="146" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">inner$ = fn(value)</text>
+
+      <line x1="20" y1="170" x2="440" y2="170" stroke="#334155" stroke-width="2"/>
+      <text x="20" y="196" fill="#94a3b8" font-size="11" font-family="Segoe UI">result$ — flattened output</text>
+
+      <g class="marble m1"><circle cx="20" cy="40" r="9" fill="#38bdf8"/></g>
+      <g class="marble m2"><circle cx="20" cy="40" r="9" fill="#34d399"/></g>
+      <g class="marble m3"><circle cx="20" cy="40" r="9" fill="#fbbf24"/></g>
+    </svg>
+    <div class="controls" style="margin-bottom:0">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    كل كورة في الأعلى = قيمة من الـ stream الخارجي (دوسة زرار، حرف اتكتب، تغيّر في route param).
+    الـ <code>fn</code> بتحوّلها لـ <b>observable جوّاني</b> — فلو سِبتها كده هيبقى عندك
+    <code>Observable&lt;Observable&lt;T&gt;&gt;</code>، وده اللي الـ flattening بيحلّه: بيعمل subscribe
+    على الجوّاني وبيطلّع قيمه على الشريط اللي تحت مباشرةً.
+  </p>
+  <div class="callout">
+    <strong>الحتة المهمة:</strong> «flattening» مش بس فرد — هو كمان <b>إدارة الـ subscriptions الجوّانية</b>.
+    والأربعة بيختلفوا في نقطة واحدة: لما كورة جديدة تنزل والجوّاني القديم لسه مفتوح، مين يعيش ومين يموت.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة على نفس الشريط الزمني</h2></div>
+  <p class="note">
+    نفس السيناريو للأربعة: ٤ دوسات عند <span class="mono">t = 0, 2, 3, 8</span>، وكل طلب بياخد
+    <b>٤</b> وحدات زمن. بدّل الـ operator وشوف الشريط بيتغيّر.
+  </p>
+
+  <div class="controls">
+    <button class="btn" data-op="switchMap">switchMap</button>
+    <button class="btn ghost" data-op="mergeMap">mergeMap</button>
+    <button class="btn ghost" data-op="concatMap">concatMap</button>
+    <button class="btn ghost" data-op="exhaustMap">exhaustMap</button>
+  </div>
+
+  <div class="stage">
+    <div class="tl" id="grid"></div>
+    <div class="counters">
+      <span>🎯 الـ operator: <b id="opName">switchMap</b></span>
+      <span>✅ نتايج خرجت: <b id="emitted">0</b></span>
+      <span>✂️ اتلغى: <b id="cancelled">0</b></span>
+      <span>⊘ اتطنش: <b id="ignored">0</b></span>
+      <span>⇉ أقصى تزامن: <b id="conc">0</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#38bdf8"></i> دوسة (trigger)</span>
+      <span><i class="swatch" style="background:#14384d"></i> طلب شغّال</span>
+      <span><i class="swatch" style="background:#34d399"></i> نتيجة خرجت</span>
+      <span><i class="swatch" style="background:#f87171"></i> اتلغى</span>
+      <span><i class="swatch" style="background:#283548"></i> اتطنش</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="playBtn">▶ شغّل الزمن</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. البحث أثناء الكتابة — <code>switchMap</code></h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ nested subscribe</strong></div>
+<pre><code>this.search.valueChanges.subscribe(q =&gt; {
+  this.api.search(q).subscribe(r =&gt; {
+    this.results = r;   <span class="c">// مين رد الأخير؟ مش إنت</span>
+  });
+});
+<span class="c">// 5 حروف = 5 طلبات، والنتيجة النهائية</span>
+<span class="c">// بتاعة أبطأ رد مش أحدث حرف</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ switchMap</strong></div>
+<pre><code>this.results$ = this.search.valueChanges.pipe(
+  debounceTime(300),
+  distinctUntilChanged(),
+  switchMap(q =&gt; this.api.search(q))
+);
+<span class="c">// 5 حروف ≈ طلب واحد بعد الـ debounce،</span>
+<span class="c">// وأي طلب سابق بيتعمله unsubscribe → XHR abort</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    في قياس على شبكة <span class="mono">Fast 3G</span>: من <b>٥ طلبات</b> و<b>٩٠٠ ms</b> لآخر رسم صحيح،
+    لـ <b>١ طلب</b> و<b>٣٢٠ ms</b> — والأهم إن الرد القديم بقى <u>مستحيل</u> يكتب فوق الجديد.
+  </p>
+
+  <h3>ب. زرار الحفظ — <code>exhaustMap</code> مش <code>switchMap</code></h3>
+<pre><code><span class="c">// ❌ switchMap على كتابة: الدوسة التانية بتعمل abort للأولى —</span>
+<span class="c">// بس الإلغاء client-side! الطلب ممكن يكون وصل السيرفر واتنفّذ،</span>
+<span class="c">// وإنت بس رميت الرد. أوردر اتعمل والمستخدم شايف إنه فشل.</span>
+this.save$ = this.clicks$.pipe(switchMap(() =&gt; this.api.save(order)));
+
+<span class="c">// ✅ exhaustMap: الأول بيكمّل، وأي دوسة وهو شغّال بتتطنش</span>
+this.save$ = this.clicks$.pipe(
+  exhaustMap(() =&gt; this.api.save(order)),
+  takeUntilDestroyed(this.destroyRef)
+);
+<span class="c">// نفس أسبوع اللوج: 1412 دوسة → 1412 POST، صفر تكرار</span></code></pre>
+
+  <h3>ج. رفع ملفات — <code>mergeMap</code> بسقف</h3>
+<pre><code><span class="c">// ❌ من غير سقف: 50 ملف = 50 طلب مرة واحدة.</span>
+<span class="c">// المتصفح بيسمح بـ ~6 اتصالات للـ host الواحد → الباقي في طابور</span>
+<span class="c">// جوّه المتصفح، وبيزحم أي طلب تاني في الصفحة كلها.</span>
+from(files).pipe(mergeMap(f =&gt; this.api.upload(f)));
+
+<span class="c">// ✅ سقف صريح — 4 بالتوازي وبس</span>
+from(files).pipe(mergeMap(f =&gt; this.api.upload(f), 4));</code></pre>
+
+  <h3>د. كتابات لازم تتنفّذ بالترتيب — <code>concatMap</code></h3>
+<pre><code><span class="c">// ترتيب العناصر بالسحب: كل حركة PATCH لازم توصل بترتيبها،</span>
+<span class="c">// وإلا الترتيب النهائي في السيرفر غير اللي على الشاشة</span>
+this.reorder$.pipe(
+  concatMap(move =&gt; this.api.patchOrder(move))
+);
+<span class="c">// التمن: لو الشبكة بطيئة الطابور بيطوّل — concatMap بيأخّر، مبيرميش</span></code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«switchMap هو الافتراضي في كل حاجة»</b> — صح للقراءات، كارثة للكتابات. الإلغاء
+      <u>client-side</u>: الـ XHR بيتقفل عندك، لكن السيرفر ممكن يكون نفّذ الطلب خلاص. يبقى عندك كتابة
+      حصلت وإنت رميت ردّها.</li>
+    <li><b><code>mergeMap</code> من غير سقف</b> — ١٠٠ عنصر = ١٠٠ طلب في نفس اللحظة. حد الـ ٦ اتصالات
+      لكل host بيحوّلها لطابور مخفي بيعطّل الصفحة كلها. اكتب الرقم: <code>mergeMap(fn, 4)</code>.</li>
+    <li><b>subscribe جوّه subscribe</b> — مش بس شكل وحش: الجوّاني ملوش أي علاقة بالخارجي، فلا بيتلغي
+      ولا بيترتّب ولا الأخطاء بتوصل للـ pipe. ده بالظبط اللي الـ flattening اخترع عشانه.</li>
+    <li><b><code>concatMap</code> على البحث</b> — بيحافظ على الترتيب فعلاً، بس بيحط كل حرف في طابور.
+      المستخدم خلّص كتابة والنتايج لسه بتوصل واحدة ورا التانية من حروف قديمة.</li>
+    <li><b><code>exhaustMap</code> من غير <code>timeout</code></b> — لو الطلب الأول علّق ومرجعش أبداً،
+      الباب فضل مقفول والزرار مات لحد ما المستخدم يعمل refresh. حط
+      <code>timeout(15000)</code> و<code>catchError</code> جوّه الـ observable الجوّاني عشان الـ pipe
+      الخارجي ميموتش.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. ليه <code>switchMap</code> هو الصح في البحث أثناء الكتابة؟</div>
+    <button class="opt">لأنه أسرع operator من ناحية الأداء</button>
+    <button class="opt">لأن كل استعلام جديد بيلغي اللي قبله — فمستحيل رد قديم يكتب فوق نتيجة أحدث</button>
+    <button class="opt">لأنه بيعيد المحاولة لما الطلب يفشل</button>
+    <button class="opt">لأنه بيعمل cache للردود</button>
+    <div class="feedback">
+      الـ bug الأزلي في الـ typeahead هو وصول الردود بترتيب مقلوب. سياسة «الأحدث بس» بتحل ده
+      هيكلياً مش بشرط <code>if</code> على آخر قيمة.
+    </div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. زرار submit متوصّل بـ <code>mergeMap</code>. المستخدم المستعجل يقدر يعمل إيه؟</div>
+    <button class="opt">يلغي الأوردر</button>
+    <button class="opt">يبعت أكتر من <code>POST</code> متطابق بالتوازي = أوردرات مكررة</button>
+    <button class="opt">يحط الأوردرات في طابور آمن</button>
+    <button class="opt">ولا حاجة — الـ HTTP بيمنع التكرار</button>
+    <div class="feedback">
+      <code>merge</code> بيشغّل كل trigger بالتوازي. في كتابة مش idempotent ده تكرار بالتصميم.
+      <code>exhaustMap</code> هو الحل في الفرونت، و idempotency key في السيرفر هو الحزام التاني.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الأربعة بيعملوا نفس التحويل، والفرق الوحيد سياسة التزامن: <b>switchMap يلغي</b>،
+      <b>mergeMap يوازي</b>، <b>concatMap يطوّر في طابور</b>، <b>exhaustMap يطنش</b>.</li>
+    <li>قاعدة الجيب: <b>قراءات → switchMap</b> (الرد القديم أخطر من الإلغاء)، <b>كتابات → exhaustMap</b>
+      للأزرار أو <b>concatMap</b> لما كله لازم يحصل بترتيبه، و<b>mergeMap بسقف</b> للفان-أوت المستقل.</li>
+    <li>إلغاء الـ switchMap بيقفل الـ subscription عندك بس — مش ضمان إن السيرفر ما نفّذش،
+      فخلي الكتابات محمية من ناحيتين: الـ operator الصح + idempotency في الـ API.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- flow animation toggle
+  var flowStage = document.getElementById('flowStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = flowStage.classList.toggle('paused');
+    flowToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- simulation
+  var TICKS = 18, DUR = 4, TRIGGERS = [0, 2, 3, 8];
+
+  // كل operator بيرجع نفس الشكل: صف لكل دوسة، فيه بداية ونهاية وحالة
+  function simulate(op) {
+    var rows = TRIGGERS.map(function (t) {
+      return { t: t, start: t, end: t + DUR, status: 'done' };
+    });
+    if (op === 'switchMap') {
+      for (var i = 1; i < rows.length; i++) {
+        var prev = rows[i - 1];
+        if (prev.status === 'done' && prev.end > rows[i].t) {
+          prev.status = 'cancelled';
+          prev.end = rows[i].t;          // اتقفل في لحظة الدوسة الجديدة
+        }
+      }
+    } else if (op === 'concatMap') {
+      var free = 0;
+      rows.forEach(function (r) {
+        r.start = Math.max(r.t, free);
+        r.end = r.start + DUR;
+        free = r.end;
+      });
+    } else if (op === 'exhaustMap') {
+      var busyUntil = -1;
+      rows.forEach(function (r) {
+        if (r.t < busyUntil) { r.status = 'ignored'; r.start = r.t; r.end = r.t; }
+        else { busyUntil = r.end; }
+      });
+    }
+    return rows;
+  }
+
+  // ---------------------------------------------------------------- rendering
+  var grid = document.getElementById('grid');
+  var opNameEl = document.getElementById('opName');
+  var emittedEl = document.getElementById('emitted');
+  var cancelledEl = document.getElementById('cancelled');
+  var ignoredEl = document.getElementById('ignored');
+  var concEl = document.getElementById('conc');
+  var currentOp = 'switchMap', reveal = 0, timer = null;
+
+  function makeRow(label, cls) {
+    var row = document.createElement('div');
+    row.className = 'trow' + (cls ? ' ' + cls : '');
+    var lab = document.createElement('div');
+    lab.className = 'tlabel';
+    lab.textContent = label;
+    row.appendChild(lab);
+    for (var t = 0; t < TICKS; t++) {
+      var c = document.createElement('div');
+      c.className = 'cell';
+      row.appendChild(c);
+    }
+    grid.appendChild(row);
+    return row;
+  }
+
+  function paint(row, t, cls, text) {
+    var cell = row.children[t + 1];
+    cell.className = 'cell' + (cls ? ' ' + cls : '');
+    cell.textContent = text || '';
+  }
+
+  function render() {
+    grid.innerHTML = '';
+    var rows = simulate(currentOp);
+
+    var trigRow = makeRow('الدوسات (outer$)');
+    TRIGGERS.forEach(function (t, i) { paint(trigRow, t, 'trig', String(i + 1)); });
+
+    rows.forEach(function (r, i) {
+      var label = 'الطلب ' + (i + 1);
+      var el = makeRow(label);
+      if (r.status === 'ignored') {
+        paint(el, r.start, 'skip', '⊘');
+      } else {
+        for (var t = r.start; t < r.end; t++) paint(el, t, 'run', '·');
+        if (r.end < TICKS) {
+          paint(el, r.end, r.status === 'done' ? 'ok' : 'cut', r.status === 'done' ? '✓' : '✗');
+        }
+      }
+    });
+
+    var outRow = makeRow('الناتج (result$)');
+    rows.forEach(function (r, i) {
+      if (r.status === 'done' && r.end < TICKS) paint(outRow, r.end, 'ok', String(i + 1));
+    });
+
+    var axis = makeRow('t', 'axis');
+    for (var t = 0; t < TICKS; t++) paint(axis, t, '', String(t));
+
+    // تعتيم أي عمود بعد المؤشر + إطار على العمود الحالي
+    Array.prototype.forEach.call(grid.children, function (row) {
+      for (var t = 0; t < TICKS; t++) {
+        var cell = row.children[t + 1];
+        if (t > reveal) cell.classList.add('dim');
+        if (t === reveal) cell.classList.add('cursor');
+      }
+    });
+
+    // العدادات محسوبة لحد المؤشر بس
+    var emitted = 0, cancelled = 0, ignored = 0, maxConc = 0;
+    rows.forEach(function (r) {
+      if (r.status === 'done' && r.end <= reveal) emitted++;
+      if (r.status === 'cancelled' && r.end <= reveal) cancelled++;
+      if (r.status === 'ignored' && r.start <= reveal) ignored++;
+    });
+    for (var t = 0; t <= reveal; t++) {
+      var n = 0;
+      rows.forEach(function (r) { if (r.status !== 'ignored' && r.start <= t && t < r.end) n++; });
+      if (n > maxConc) maxConc = n;
+    }
+    opNameEl.textContent = currentOp;
+    emittedEl.textContent = emitted;
+    cancelledEl.textContent = cancelled;
+    ignoredEl.textContent = ignored;
+    concEl.textContent = maxConc;
+
+    renderStep();
+  }
+
+  // ---------------------------------------------------------------- operator switcher
+  var opBtns = document.querySelectorAll('[data-op]');
+  Array.prototype.forEach.call(opBtns, function (b) {
+    b.addEventListener('click', function () {
+      currentOp = b.getAttribute('data-op');
+      Array.prototype.forEach.call(opBtns, function (o) {
+        o.className = 'btn' + (o === b ? '' : ' ghost');
+      });
+      render();
+    });
+  });
+
+  // ---------------------------------------------------------------- play / reset
+  var playBtn = document.getElementById('playBtn');
+  function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+  playBtn.addEventListener('click', function () {
+    stopTimer();
+    reveal = 0; render();
+    timer = setInterval(function () {
+      if (reveal >= TICKS - 1) { stopTimer(); return; }
+      reveal++; render();
+    }, 320);
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    stopTimer(); reveal = 0; render();
+  });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      reveal: 0,
+      text: 't = 0 — أول دوسة. الـ operator عمل subscribe على الـ observable الجوّاني (الطلب)، وهياخد ٤ وحدات زمن.',
+      notes: {
+        switchMap: 'مفيش حاجة شغالة قبله → بدأ عادي.',
+        mergeMap: 'أول اشتراك جوّاني اتفتح.',
+        concatMap: 'الطابور فاضي → بدأ فوراً.',
+        exhaustMap: 'مش مشغول → بدأ، والباب اتقفل ورا نفسه.'
+      }
+    },
+    {
+      reveal: 2,
+      text: 't = 2 — دوسة تانية والأول لسه شغّال (فاضل له وحدتين). هنا بالظبط الأربعة بيفترقوا.',
+      notes: {
+        switchMap: 'ألغى الأول (unsubscribe ⇒ abort للـ XHR) وبدأ واحد جديد. الأول مش هيطلّع أي قيمة.',
+        mergeMap: 'بدأ التاني جنب الأول — بقى فيه اتنين شغالين بالتوازي.',
+        concatMap: 'حطّ التاني في الطابور. مش هيبدأ غير لما الأول يخلص عند t = 4.',
+        exhaustMap: 'مشغول → الدوسة اتطنشت خالص، ومش هترجع تاني.'
+      }
+    },
+    {
+      reveal: 3,
+      text: 't = 3 — دوسة تالتة بعد وحدة واحدة بس. المستخدم بيدوس بسرعة (أو بيكتب بسرعة).',
+      notes: {
+        switchMap: 'ألغى التاني كمان. لحد دلوقتي: صفر نتايج واتنين اتلغوا.',
+        mergeMap: 'تلات طلبات شغالين في نفس اللحظة — ده الرقم اللي المتصفح بيحاسبك عليه.',
+        concatMap: 'الطابور بقى فيه اتنين مستنيين دورهم.',
+        exhaustMap: 'اتطنشت برضه — الباب لسه مقفول لحد t = 4.'
+      }
+    },
+    {
+      reveal: 4,
+      text: 't = 4 — أول لحظة ممكن تنزل فيها نتيجة على الـ output. بس مش لكل الـ operators.',
+      notes: {
+        switchMap: 'لسه ولا نتيجة: اللي شغال دلوقتي بدأ عند t = 3 وهيخلص عند t = 7.',
+        mergeMap: 'نتيجة رقم ١ نزلت.',
+        concatMap: 'الأول خلّص وطلّع نتيجة، والتاني ابتدى دلوقتي من الطابور.',
+        exhaustMap: 'الأول خلّص وطلّع نتيجة، والباب فتح تاني.'
+      }
+    },
+    {
+      reveal: 8,
+      text: 't = 8 — المستخدم هدي، وبعد فترة داس الدوسة الرابعة على هدوء.',
+      notes: {
+        switchMap: 'النتيجة الأولى نزلت عند t = 7 (من آخر دوسة سريعة)، ودلوقتي الرابع بدأ.',
+        mergeMap: 'التلاتة الأوائل خلصوا كلهم، والرابع بدأ لوحده.',
+        concatMap: 'الطابور لسه بيفضّي — الرابع هيستنى دوره مش هيبدأ دلوقتي.',
+        exhaustMap: 'مفيش حاجة شغالة → بدأ عادي.'
+      }
+    },
+    {
+      reveal: TICKS - 1,
+      text: 'نهاية الشريط. ٤ دوسات دخلت — بصّ على العدادات: كام قيمة طلعت فعلاً، وإمتى نزلت آخر واحدة؟',
+      notes: {
+        switchMap: 'نتيجتين + اتنين اتلغوا. سياسة «الأحدث بس هو المهم».',
+        mergeMap: '٤ نتايج، والترتيب حسب اللي يخلص الأول — مش ترتيب الدوسات.',
+        concatMap: '٤ نتايج بترتيبها بالظبط، بس آخر واحدة نزلت عند t = 16. الترتيب تمنه تأخير.',
+        exhaustMap: 'نتيجتين + اتنين اتطنشوا — والمستخدم مبعتش أوردر مكرر.'
+      }
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    var note = document.createElement('b');
+    note.className = 'op-note';
+    note.textContent = currentOp + ': ' + s.notes[currentOp];
+    stepBox.appendChild(note);
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  function goTo(n) {
+    stopTimer();
+    step = n;
+    reveal = steps[step].reveal;   // الحالة بتتبني من الخطوة نفسها، فالرجوع بيرسم صح
+    render();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) goTo(step - 1); });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) goTo(step + 1); });
+  goTo(0);
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
