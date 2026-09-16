@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big-O Notation: Measuring Algorithm Efficiency — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .chart { width: 100%; min-width: 600px; height: 330px; }
+  .curve { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+  .curve.dim { opacity: .28; }
+  .curve.on { stroke-width: 4; }
+  .drawing .curve { stroke-dasharray: 2400; animation: draw 3.4s ease-in-out infinite; }
+  @keyframes draw { 0% { stroke-dashoffset: 2400; } 55% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+  .grid { stroke: #334155; stroke-width: 1; }
+  .grid.soft { stroke-dasharray: 3 5; }
+  .axis-t { fill: #94a3b8; font-size: 11px; font-family: Segoe UI, sans-serif; }
+
+  .rows { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .row { display: grid; grid-template-columns: 130px 1fr 1fr; gap: 8px; padding: 7px 10px; font-size: 14px; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row.head { background: var(--surface-2); color: var(--text-dim); font-size: 12px; }
+  .row .nm { display: flex; align-items: center; gap: 7px; font-family: Consolas, monospace; direction: ltr; }
+  .row .v { font-family: Consolas, monospace; direction: ltr; }
+  .row.hot { background: rgba(251, 191, 36, .12); }
+  .row.doom { background: rgba(248, 113, 113, .14); }
+
+  .slider-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .slider-wrap input[type=range] { flex: 1; min-width: 220px; accent-color: #38bdf8; }
+  .nbig { font-family: Consolas, monospace; font-size: 18px; color: #bae6fd; direction: ltr; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .demo-out { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 720px) { .demo-out { grid-template-columns: 1fr; } }
+  .demo-box { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .demo-box .t { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+  .demo-box .big { font-family: Consolas, monospace; font-size: 20px; direction: ltr; }
+  .demo-box.win { border-color: var(--success); }
+  .demo-box.lose { border-color: var(--danger); }
+  select.picker {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures &amp; Algorithms · درس مصري مفصّل</div>
+  <h1>Big-O مش بتقيس السرعة — بتقيس إنت هتتعور إمتى</h1>
+  <div class="en">Big-O Notation: Measuring Algorithm Efficiency</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك endpoint في ASP.NET Core بيطابق الأوردرات بالشحنات: <code>8,000</code> أوردر و<code>8,000</code> شحنة.
+    كتبتها كده:
+  </p>
+<pre><code><span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders)
+    o.Shipment = shipments.FirstOrDefault(s =&gt; s.OrderId == o.Id);</code></pre>
+  <p>
+    على بيئة الـ dev عندك ٢٠٠ أوردر — الصفحة بتفتح في <b>٣٠ ملي ثانية</b>، تمام. على الـ production بـ ٨٠٠٠
+    أوردر بقت <b>٤.٢ ثانية</b>. الداتا كبرت <b>٤٠ مرة</b> بس عدد المقارنات كبر <b>١٦٠٠ مرة</b>:
+    من <span class="mono">200 × 200 = 40,000</span> لـ <span class="mono">8,000 × 8,000 = 64,000,000</span>.
+    السبب إن <code>FirstOrDefault</code> جوه <code>foreach</code> بيلف على الليست من أولها لكل أوردر.
+  </p>
+  <div class="callout info">
+    الـ Big-O بتجاوب على سؤال واحد بس: <strong>لو الداتا بقت الضعف، الشغل هيزيد أد إيه؟</strong>
+    مش بنقيس بالثواني — الثواني بتختلف من جهاز لجهاز. بنقيس <strong>شكل النمو</strong>، والشكل ده هو اللي
+    بيحدد هل الكود هيعيش لما الداتا تكبر ولا هيموت.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتسلّم كود شغّال تمام على الـ dev وبيقع على الـ production،
+    وهتقعد تحسّن حاجات مش مهمة (تشيل <code>if</code> من جوه loop) وسايب الـ <span class="mono">O(n²)</span>
+    اللي هو السبب الحقيقي، وهتفضل تقول «السيرفر ضعيف» والمشكلة في ٣ سطور كود.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: شكل النمو</h2></div>
+  <p class="note">
+    المحور الأفقي = حجم الداتا <code>n</code>. المحور الرأسي = عدد العمليات، و<b>لوغاريتمي</b> —
+    كل خطوة لفوق معناها <span class="mono">×1000</span>، وإلا الـ <span class="mono">O(n²)</span> كانت
+    هتطلع بره الشاشة من بدري. حرّك الشريط وشوف الأرقام بتتغير.
+  </p>
+
+  <div class="stage drawing" id="chartStage">
+    <svg class="chart" viewBox="0 0 620 330" role="img" aria-label="منحنيات نمو Big-O">
+      <line class="grid" x1="60" y1="30" x2="60" y2="270"></line>
+      <line class="grid" x1="60" y1="270" x2="600" y2="270"></line>
+
+      <line class="grid soft" x1="60" y1="210" x2="600" y2="210"></line>
+      <line class="grid soft" x1="60" y1="150" x2="600" y2="150"></line>
+      <line class="grid soft" x1="60" y1="90"  x2="600" y2="90"></line>
+      <line class="grid soft" x1="60" y1="30"  x2="600" y2="30"></line>
+
+      <text class="axis-t" x="54" y="274" text-anchor="end">1</text>
+      <text class="axis-t" x="54" y="214" text-anchor="end">ألف</text>
+      <text class="axis-t" x="54" y="154" text-anchor="end">مليون</text>
+      <text class="axis-t" x="54" y="94"  text-anchor="end">مليار</text>
+      <text class="axis-t" x="54" y="34"  text-anchor="end">تريليون</text>
+
+      <polyline class="curve" id="cConst" stroke="#34d399" points=""></polyline>
+      <polyline class="curve" id="cLog"   stroke="#38bdf8" points=""></polyline>
+      <polyline class="curve" id="cLin"   stroke="#c084fc" points=""></polyline>
+      <polyline class="curve" id="cNLog"  stroke="#94a3b8" points=""></polyline>
+      <polyline class="curve" id="cSq"    stroke="#fbbf24" points=""></polyline>
+      <polyline class="curve" id="cExp"   stroke="#f87171" points=""></polyline>
+
+      <text class="axis-t" x="60"  y="290" text-anchor="middle">1</text>
+      <text class="axis-t" x="330" y="290" text-anchor="middle" id="xMid">500</text>
+      <text class="axis-t" x="600" y="290" text-anchor="middle" id="xEnd">1000</text>
+      <text class="axis-t" x="330" y="312" text-anchor="middle">حجم الداتا n ←</text>
+    </svg>
+
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> O(1)</span>
+      <span><i class="swatch" style="background:#38bdf8"></i> O(log n)</span>
+      <span><i class="swatch" style="background:#c084fc"></i> O(n)</span>
+      <span><i class="swatch" style="background:#94a3b8"></i> O(n log n)</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> O(n²)</span>
+      <span><i class="swatch" style="background:#f87171"></i> O(2ⁿ)</span>
+    </div>
+
+    <div class="controls">
+      <button class="btn ghost" id="chartToggle">⏸ وقف الرسم</button>
+    </div>
+
+    <div class="slider-wrap">
+      <span>n =</span>
+      <span class="nbig" id="nLabel">1,000</span>
+      <input type="range" id="nSlider" min="10" max="50" step="1" value="30" aria-label="حجم الداتا">
+    </div>
+
+    <div class="rows" id="rows">
+      <div class="row head"><span>الترتيب</span><span>عدد العمليات</span><span>الوقت التقريبي</span></div>
+    </div>
+    <p class="note">الوقت محسوب على ١٠٠ مليون عملية بسيطة في الثانية — رقم معقول لـ .NET على جهاز عادي.</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إمتى بالظبط الفرق بيبان؟</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">كل خطوة بتحرّك نفس الرسمة اللي فوق وبتغيّر الأرقام — ارجع لفوق وإنت بتضغط «التالي».</p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. المطابقة بين ليستين — الغلطة الأشهر</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ O(n²)</strong> — بحث جوه لفّة</div>
+<pre><code><span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders)          <span class="c">// n</span>
+    o.Shipment = shipments
+        .FirstOrDefault(s =&gt; s.OrderId == o.Id);  <span class="c">// n</span>
+
+<span class="c">// n = 8,000 → 64,000,000 مقارنة ≈ 4,200 ms</span>
+<span class="c">// (المقارنة عبر delegate في LINQ أغلى بكتير من عملية بسيطة)</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ O(n)</strong> — فهرس مرة واحدة</div>
+<pre><code><span class="k">var</span> byOrder = shipments
+    .ToDictionary(s =&gt; s.OrderId);        <span class="c">// n مرة واحدة</span>
+
+<span class="k">foreach</span> (<span class="k">var</span> o <span class="k">in</span> orders)              <span class="c">// n</span>
+    <span class="k">if</span> (byOrder.TryGetValue(o.Id, <span class="k">out</span> <span class="k">var</span> s))  <span class="c">// O(1)</span>
+        o.Shipment = s;
+
+<span class="c">// n = 8,000 → 16,000 عملية ≈ 3 ms</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    <b>١٤٠٠ ضعف</b> من غير ما تلمس السيرفر ولا الداتابيز. ده الـ rewrite اللي هتعمله أكتر من أي حاجة تانية:
+    <span class="mono">loop جوه loop → Dictionary/HashSet</span>.
+  </p>
+
+  <h3>ب. جرّبها بنفسك دلوقتي</h3>
+  <p class="note">
+    الزرار ده بيشغّل الاتنين فعلاً في المتصفح على أرقام مختلفة ويقيس بـ <code>performance.now()</code>.
+    مش أرقام مكتوبة — القياس بيحصل على جهازك إنت.
+  </p>
+  <div class="stage">
+    <div class="controls">
+      <label for="demoN" class="note">حجم الداتا:</label>
+      <select class="picker" id="demoN">
+        <option value="2000">2,000</option>
+        <option value="5000" selected>5,000</option>
+        <option value="10000">10,000</option>
+      </select>
+      <button class="btn" id="runDemo">▶ شغّل الاتنين وقارن</button>
+      <button class="btn ghost" id="resetDemo">↺ إعادة</button>
+    </div>
+    <div class="demo-out">
+      <div class="demo-box" id="boxSlow">
+        <div class="t">❌ <code>List.Contains</code> جوه loop — O(n²)</div>
+        <div class="big" id="slowMs">—</div>
+        <div class="note" id="slowOps">لسه متشغّلش</div>
+      </div>
+      <div class="demo-box" id="boxFast">
+        <div class="t">✅ <code>HashSet.Add</code> — O(n)</div>
+        <div class="big" id="fastMs">—</div>
+        <div class="note" id="fastOps">لسه متشغّلش</div>
+      </div>
+    </div>
+    <div class="callout" id="demoVerdict" style="display:none"></div>
+  </div>
+
+  <h3>ج. قواعد الحساب — تلاتة بس</h3>
+<pre><code><span class="c">// 1) حاجات ورا بعضها → خد الأكبر</span>
+Sort(arr);                     <span class="c">// O(n log n)</span>
+<span class="k">foreach</span> (<span class="k">var</span> x <span class="k">in</span> arr) Print(x);  <span class="c">// O(n)</span>
+<span class="c">// الإجمالي = O(n log n)  مش O(n log n + n)</span>
+
+<span class="c">// 2) حاجة جوه حاجة → اضرب</span>
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; n; i++)
+    <span class="k">for</span> (<span class="k">int</span> j = i + 1; j &lt; n; j++)  <span class="c">// نص المصفوفة بس… برضه O(n²)</span>
+        Compare(arr[i], arr[j]);
+
+<span class="c">// 3) الثوابت بتتشال</span>
+<span class="c">// 3n + 100  →  O(n)        نفس الشكل، بس مزحلق لفوق</span>
+<span class="c">// n² / 2    →  O(n²)       القسمة على 2 مبتغيّرش الشكل</span></code></pre>
+  <div class="callout">
+    <strong>ومعاها الـ space complexity:</strong> الـ <code>ToDictionary</code> فوق كلّفتك
+    <span class="mono">O(n)</span> ذاكرة زيادة. ده اسمه <b>space-time trade-off</b>، وهو اختيار صريح —
+    بتدفع رام عشان تكسب وقت. بنحسب الذاكرة <u>الزيادة</u> بس، مش الداتا الداخلة نفسها.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>‏<code>Contains</code> / <code>Any</code> / <code>FirstOrDefault</code> جوه loop</b> — الـ
+      <span class="mono">O(n²)</span> المخفية. مفيش loop تانية ظاهرة فبتعدّي في الـ review. لو الليست
+      اللي بتدوّر فيها ثابتة، حوّلها <code>HashSet</code> أو <code>Dictionary</code> <u>قبل</u> اللفّة.</li>
+    <li><b>‏<code>list.Insert(0, x)</code> أو <code>string +=</code> جوه loop</b> — كل عملية
+      <span class="mono">O(n)</span> لوحدها لأنها بتنسخ كل حاجة، فاللفّة كلها <span class="mono">O(n²)</span>
+      وإنت شايف سطر واحد. استخدم <code>Add</code> + <code>Reverse</code> أو <code>StringBuilder</code>.</li>
+    <li><b>نسيان إن مش كل «عملية» زي التانية</b> — <span class="mono">O(n)</span> فيها استعلام داتابيز لكل
+      عنصر (مشكلة N+1 في EF Core) أبطأ بكتير من <span class="mono">O(n²)</span> في الرام. الـ Big-O بتعد
+      العمليات، مش بتقول إن العملية تمنها كام.</li>
+    <li><b>تحسين الـ Big-O و<code>n</code> بتاعتك ٢٠</b> — على أرقام صغيرة الثوابت هي اللي بتحكم، ولفّة بسيطة
+      على array بتكسب <code>Dictionary</code> بكل الـ hashing اللي فيه. قيس الأول، وبعدين حسّن.</li>
+    <li><b>الحكم بالحالة المتوسطة</b> — احسب الأسوأ إلا لو قلت غير كده صراحةً. قيمة
+      <span class="mono">O(1)</span> بتاعة الـ <code>Dictionary</code> دي <em>متوسط</em>؛ لو الـ
+      <code>GetHashCode</code> وحش بتبقى <span class="mono">O(n)</span> فعلاً.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">1. ميثود فيها لفّة <span class="mono">O(n)</span>، وبعدها لفّة متداخلة <span class="mono">O(n²)</span>. التعقيد الإجمالي؟</div>
+    <button class="opt">O(n³)</button>
+    <button class="opt">O(n² + n)</button>
+    <button class="opt">O(n²)</button>
+    <div class="feedback">الحاجات اللي ورا بعضها بناخد الحد المسيطر بس: O(n) + O(n²) = O(n²). الضرب بيحصل في التداخل، مش في التتابع.</div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. <code>foreach (var x in a) if (b.Contains(x)) …</code> والاتنين <code>List&lt;int&gt;</code> بحجم n. التعقيد وإزاي تصلّحه؟</div>
+    <button class="opt">O(n) — ‏<code>Contains</code> عملية واحدة</button>
+    <button class="opt">O(n²) — ‏<code>Contains</code> على List بيلف على العناصر؛ الحل <code>new HashSet&lt;int&gt;(b)</code> قبل اللفّة</button>
+    <button class="opt">O(n log n) — الـ List مترتبة جوّه</button>
+    <div class="feedback">‏<code>List.Contains</code> بحث خطي = O(n)، وجوه لفّة O(n) يبقى O(n²). تحويل b لـ HashSet مرة واحدة تكلفته O(n) وبيخلي كل بحث O(1) → الإجمالي O(n).</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>Big-O بتوصف <b>شكل النمو</b> لما <code>n</code> تكبر — بترمي الثوابت والحدود الصغيرة، عشان دي هي الحاجة الوحيدة اللي بتفضل صح مهما اتغيّر الجهاز.</li>
+    <li>ورا بعضها = خد الأكبر، جوه بعضها = اضرب، والأسوأ هو المقياس إلا لو قلت غير كده.</li>
+    <li>بحث جوه لفّة هو الـ <span class="mono">O(n²)</span> اللي هتقابلها أكتر من أي حاجة — و<code>Dictionary</code>/<code>HashSet</code> قبل اللفّة بتحوّلها <span class="mono">O(n)</span> مقابل ذاكرة زيادة.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- chart plumbing
+  var X0 = 60, X1 = 600, Y0 = 270, Y1 = 30, DECADES = 12;  // المحور الرأسي من 1 لـ 10^12
+
+  var CURVES = [
+    { id: 'cConst', key: 'const', name: 'O(1)',       color: '#34d399', f: function () { return 1; } },
+    { id: 'cLog',   key: 'log',   name: 'O(log n)',   color: '#38bdf8', f: function (n) { return Math.max(1, Math.log(n) / Math.LN2); } },
+    { id: 'cLin',   key: 'lin',   name: 'O(n)',       color: '#c084fc', f: function (n) { return n; } },
+    { id: 'cNLog',  key: 'nlog',  name: 'O(n log n)', color: '#94a3b8', f: function (n) { return n * Math.max(1, Math.log(n) / Math.LN2); } },
+    { id: 'cSq',    key: 'sq',    name: 'O(n²)',      color: '#fbbf24', f: function (n) { return n * n; } },
+    { id: 'cExp',   key: 'exp',   name: 'O(2ⁿ)',      color: '#f87171', f: function (n) { return n <= 1023 ? Math.pow(2, n) : Infinity; } }
+  ];
+
+  var stage = document.getElementById('chartStage');
+  var toggle = document.getElementById('chartToggle');
+  var slider = document.getElementById('nSlider');
+  var nLabel = document.getElementById('nLabel');
+  var xMid = document.getElementById('xMid'), xEnd = document.getElementById('xEnd');
+  var rowsEl = document.getElementById('rows');
+
+  function yFor(v) {
+    if (!isFinite(v)) return Y1;
+    var l = Math.log(Math.max(1, v)) / Math.LN10;
+    if (l > DECADES) l = DECADES;
+    return Y0 - (l / DECADES) * (Y0 - Y1);
+  }
+  function xFor(n, nMax) { return X0 + (Math.max(1, n) - 1) / Math.max(1, nMax - 1) * (X1 - X0); }
+
+  function group(v) {                      // 1234567 → 1,234,567
+    var s = String(Math.round(v)), out = '', c = 0;
+    for (var i = s.length - 1; i >= 0; i--) {
+      out = s.charAt(i) + out;
+      if (++c % 3 === 0 && i > 0) out = ',' + out;
+    }
+    return out;
+  }
+  function fmtOps(v) {
+    if (!isFinite(v)) return '∞';
+    if (v >= 1e15) return group(v / 1e12) + ' تريليون';
+    if (v >= 1e12) return (v / 1e12).toFixed(1) + ' تريليون';
+    if (v >= 1e9)  return (v / 1e9).toFixed(1) + ' مليار';
+    if (v >= 1e6)  return (v / 1e6).toFixed(1) + ' مليون';
+    if (v >= 1e4)  return group(v);
+    return group(v);
+  }
+  function fmtTime(ops) {
+    if (!isFinite(ops)) return 'أطول من عمر الكون';
+    var s = ops / 1e8;                                  // ~100 مليون عملية/ثانية
+    if (s < 0.001) return 'أقل من 1 ms';
+    if (s < 1)     return Math.round(s * 1000) + ' ms';
+    if (s < 60)    return s.toFixed(1) + ' ثانية';
+    if (s < 3600)  return (s / 60).toFixed(1) + ' دقيقة';
+    if (s < 86400) return (s / 3600).toFixed(1) + ' ساعة';
+    if (s < 3.15e7) return (s / 86400).toFixed(1) + ' يوم';
+    var years = s / 3.15e7;
+    if (years > 1.4e10) return 'أطول من عمر الكون';
+    return fmtOps(years) + ' سنة';
+  }
+
+  var focusKey = null;
+
+  function draw(nMax) {
+    // المنحنيات
+    CURVES.forEach(function (c) {
+      var pts = [], SAMPLES = 110;
+      for (var i = 0; i <= SAMPLES; i++) {
+        var n = 1 + (nMax - 1) * (i / SAMPLES);
+        pts.push(xFor(n, nMax).toFixed(1) + ',' + yFor(c.f(n)).toFixed(1));
+      }
+      var el = document.getElementById(c.id);
+      el.setAttribute('points', pts.join(' '));
+      el.classList.remove('dim', 'on');
+      if (focusKey) el.classList.add(c.key === focusKey ? 'on' : 'dim');
+    });
+
+    // محور n
+    xMid.textContent = group(Math.round(nMax / 2));
+    xEnd.textContent = group(nMax);
+    nLabel.textContent = group(nMax);
+
+    // جدول الأرقام عند n الحالية
+    while (rowsEl.children.length > 1) rowsEl.removeChild(rowsEl.lastChild);
+    CURVES.forEach(function (c) {
+      var ops = c.f(nMax);
+      var row = document.createElement('div');
+      row.className = 'row' + (!isFinite(ops) || ops > 1e11 ? ' doom' : (ops > 1e8 ? ' hot' : ''));
+      var nm = document.createElement('span');
+      nm.className = 'nm';
+      var sw = document.createElement('i');
+      sw.className = 'swatch';
+      sw.style.background = c.color;
+      nm.appendChild(sw);
+      nm.appendChild(document.createTextNode(c.name));
+      var v1 = document.createElement('span');
+      v1.className = 'v';
+      v1.textContent = fmtOps(ops);
+      var v2 = document.createElement('span');
+      v2.className = 'v';
+      v2.textContent = fmtTime(ops);
+      row.appendChild(nm); row.appendChild(v1); row.appendChild(v2);
+      rowsEl.appendChild(row);
+    });
+  }
+
+  function sliderToN(v) { return Math.round(Math.pow(10, v / 10)); }   // 10 → n=10، 50 → n=100,000
+  function nToSlider(n) { return Math.round(10 * Math.log(n) / Math.LN10); }
+
+  slider.addEventListener('input', function () {
+    focusKey = null;
+    draw(sliderToN(parseInt(slider.value, 10)));
+    postHeight();
+  });
+
+  toggle.addEventListener('click', function () {
+    var on = stage.classList.toggle('drawing');
+    toggle.textContent = on ? '⏸ وقف الرسم' : '▶ شغّل الرسم';
+  });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    { n: 10, focus: null,
+      text: 'n = 10. بصّ على الجدول: كل الترتيبات تحت الملي ثانية، حتى O(n²) و O(2ⁿ). على أرقام صغيرة الـ Big-O مش بتفرق — والكود بتاعك على الـ dev بيشتغل تمام. هنا بالظبط بتتولد المشكلة.' },
+    { n: 100, focus: 'sq',
+      text: 'n = 100. الداتا كبرت 10 أضعاف. O(n) بقت 100 عملية، لكن O(n²) بقت 10,000 — كبرت 100 ضعف. ده معنى «الشكل»: كل ما تضاعف n، الـ O(n²) بتتضاعف أربع مرات.' },
+    { n: 1000, focus: 'sq',
+      text: 'n = 1,000 — الأوردرات بتاعتك. O(n log n) ≈ 10,000 عملية، O(n²) = مليون. لسه الاتنين سريعين، فالكود عدّى الـ code review وراح production. المنحنى الأصفر بدأ يفصل عن الباقي.' },
+    { n: 100000, focus: 'sq',
+      text: 'n = 100,000. هنا القصة بتخلص: O(n log n) ≈ 1.7 مليون عملية (جزء من الثانية)، و O(n²) = 10 مليار = دقايق. نفس الكود اللي كان بيرجع في 30 ملي ثانية بقى timeout.' },
+    { n: 50, focus: 'exp',
+      text: 'رجّعنا n لـ 50 عشان نشوف الأحمر. O(2ⁿ) عند n = 50 يعني أكتر من ألف تريليون عملية — يعني شهور شغل متواصل، وكل +1 في n بيضاعف الرقم ده. ده Fibonacci بالـ recursion من غير memoization: الفرق بين «بطيء» و«مستحيل».' },
+    { n: 1000, focus: 'lin',
+      text: 'القاعدة الأخيرة: الثوابت بتتشال. 3n + 100 و n/2 و 5n كلهم O(n) — نفس الخط البنفسجي، بس مزحلق لفوق أو لتحت شوية. اللي بيفرق هو الشكل، مش المعامل.' }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // الحالة كلها مشتقة من رقم الخطوة، فالرجوع بيبني نفس الصورة بالظبط
+    focusKey = s.focus;
+    slider.value = String(nToSlider(s.n));
+    draw(s.n);
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- live O(n²) vs O(n)
+  var demoN = document.getElementById('demoN');
+  var slowMs = document.getElementById('slowMs'), fastMs = document.getElementById('fastMs');
+  var slowOps = document.getElementById('slowOps'), fastOps = document.getElementById('fastOps');
+  var boxSlow = document.getElementById('boxSlow'), boxFast = document.getElementById('boxFast');
+  var verdict = document.getElementById('demoVerdict');
+
+  function now() { return (window.performance && performance.now) ? performance.now() : 0; }
+
+  function resetDemo() {
+    slowMs.textContent = '—'; fastMs.textContent = '—';
+    slowOps.textContent = 'لسه متشغّلش'; fastOps.textContent = 'لسه متشغّلش';
+    boxSlow.classList.remove('lose'); boxFast.classList.remove('win');
+    verdict.style.display = 'none';
+  }
+
+  document.getElementById('runDemo').addEventListener('click', function () {
+    var n = parseInt(demoN.value, 10);
+    var data = [];
+    for (var i = 0; i < n; i++) data.push(i * 7 + 1);   // كلهم مختلفين → الشغل كامل في الحالتين
+
+    var t0 = now(), comparisons = 0, dupA = false;      // O(n²): بحث خطي لكل عنصر
+    for (var i2 = 0; i2 < n && !dupA; i2++) {
+      for (var j = 0; j < i2; j++) { comparisons++; if (data[j] === data[i2]) { dupA = true; break; } }
+    }
+    var slow = now() - t0;
+
+    var t1 = now(), seen = {}, lookups = 0, dupB = false;  // O(n): hash table
+    for (var k = 0; k < n; k++) {
+      lookups++;
+      var key = 'k' + data[k];
+      if (seen[key]) { dupB = true; break; }
+      seen[key] = true;
+    }
+    var fast = now() - t1;
+
+    slowMs.textContent = slow.toFixed(1) + ' ms';
+    fastMs.textContent = fast.toFixed(2) + ' ms';
+    slowOps.textContent = group(comparisons) + ' مقارنة';
+    fastOps.textContent = group(lookups) + ' عملية hash';
+    boxSlow.classList.add('lose'); boxFast.classList.add('win');
+
+    var ratio = fast > 0.01 ? (slow / fast) : (slow / 0.01);
+    verdict.className = 'callout good';
+    verdict.style.display = '';
+    verdict.innerHTML = 'على n = <b>' + group(n) + '</b> الفرق حوالي <b>' + Math.round(ratio) +
+      ' ضعف</b>. غيّر الحجم وشغّل تاني: لما تدبّل n، الأحمر بيتضاعف <b>أربع مرات</b> والأخضر بيتضاعف مرة واحدة بس.';
+    postHeight();
+  });
+  document.getElementById('resetDemo').addEventListener('click', resetDemo);
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
