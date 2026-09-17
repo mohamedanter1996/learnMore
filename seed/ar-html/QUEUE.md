@@ -39,8 +39,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Data Structures & Algorithms` — Big-O Notation: Measuring Algorithm Efficiency → `1-dsa/big-o-notation-measuring-algorithm-efficiency.html`
 
-## Queue (136)
-- [ ] 13. `Design Patterns` — SOLID I: Single Responsibility Principle → `2-design-patterns/solid-i-single-responsibility-principle.html`
+- [x] `Design Patterns` — SOLID I: Single Responsibility Principle → `2-design-patterns/solid-i-single-responsibility-principle.html`
+
+## Queue (135)
 - [ ] 14. `SQL Server Optimization` — How SQL Server Stores Data: Pages, Extents, Heaps → `3-sql-optimization/how-sql-server-stores-data-pages-extents-heaps.html`
 - [ ] 15. `System Design` — Scaling Basics: Vertical vs Horizontal → `4-system-design/scaling-basics-vertical-vs-horizontal.html`
 - [ ] 16. `Frontend Engineering` — The JavaScript Event Loop: Tasks and Microtasks → `5-frontend/the-javascript-event-loop-tasks-and-microtasks.html`

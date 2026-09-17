@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLID I: Single Responsibility Principle — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .axes { width: 100%; height: 235px; min-width: 470px; }
+  .packet { animation: travel 2.6s ease-in-out infinite; }
+  .packet.p2 { animation-delay: .65s; }
+  .packet.p3 { animation-delay: 1.3s; }
+  .packet.p4 { animation-delay: 1.95s; }
+  @keyframes travel {
+    0%   { transform: translateX(0); opacity: 0; }
+    12%  { transform: translateX(0); opacity: 1; }
+    85%  { transform: translateX(116px); opacity: 1; }
+    100% { transform: translateX(116px); opacity: 0; }
+  }
+  .paused .packet { animation-play-state: paused; }
+
+  .classes { display: flex; flex-wrap: wrap; gap: 10px; direction: ltr; min-width: 560px; }
+  .klass {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; min-width: 168px; font-family: Consolas, monospace; font-size: 12px;
+    color: var(--text-dim); transition: border-color .25s, background .25s, transform .2s;
+  }
+  .klass .kname { color: var(--text); font-size: 13px; display: block; margin-bottom: 6px; }
+  .klass.touched { border-color: var(--primary); background: #14384d; transform: translateY(-3px); }
+  .klass.danger { border-color: var(--danger); }
+  .klass.fresh { animation: pop .4s ease; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .band {
+    background: #0b1220; border-left: 3px solid var(--border); border-radius: 5px;
+    padding: 3px 7px; margin-bottom: 4px; font-size: 11px;
+  }
+  .band.rules { border-left-color: var(--warning); }
+  .band.store { border-left-color: var(--primary); }
+  .band.mail  { border-left-color: var(--success); }
+  .band.log   { border-left-color: var(--danger); }
+  .band.orch  { border-left-color: #c084fc; }
+  .band.hit   { background: rgba(56,189,248,.18); color: #bae6fd; }
+  .band.risk  { background: rgba(248,113,113,.14); color: #fecaca; }
+  .band .why { color: #64748b; }
+
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .verdict { margin-top: 10px; font-size: 14px; color: var(--text-dim); min-height: 22px; }
+  .btn.on { outline: 2px solid var(--primary); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧩 Design Patterns · درس مصري مفصّل</div>
+  <h1>المسؤولية مش «بيعمل إيه» — المسؤولية هي «مين بيطلب منه يتغير»</h1>
+  <div class="en">SOLID I: Single Responsibility Principle</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>OrderService.cs</code> في ASP.NET Core، بقى ٦٤٠ سطر. جواه قواعد الأوردر، وحفظ بـ
+    EF Core، وإرسال إيميل تأكيد، وlogging. الأسبوع اللي فات طلبوا منك تغيّر مزوّد الإيميل بس —
+    الـ pull request طلع فيه تعديل في الملف ده، والاختبارات وقعت في حتة الـ validation
+    اللي إنت أصلاً ملمستهاش. ملف الاختبار بتاعه ١٦٠ سطر، وكل اختبار واحد بياخد ١٫٢ ثانية
+    لأنه بيفتح <code>DbContext</code> حقيقي و<code>SmtpClient</code> بيستنى timeout.
+  </p>
+  <div class="callout info">
+    الكلام المشهور «الكلاس يعمل حاجة واحدة» تعريف ناقص. التعريف الشغّال:
+    <strong>الكلاس يبقى ليه سبب واحد بس يخليك تفتحه وتعدّله</strong> — يعني محور تغيير واحد،
+    وصاحب طلب واحد. الـ <code>OrderService</code> اللي فوق ليه أربع أصحاب طلبات مختلفين تماماً:
+    البيزنس، الـ DBA، الماركتنج، والـ ops.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> كل تعديل صغير هيبقى مخاطرة في كود ملهوش علاقة،
+    والاختبارات هتحتاج تزوّر الدنيا كلها عشان تجرب سطر واحد، والـ merge conflicts هتعيش في نفس
+    الملف على طول. وعلى الناحية التانية — لو فهمته غلط — هتطلّع ٤٠ كلاس كل واحد فيه method واحدة
+    لشاشة CRUD عادية، وده أسوأ من اللي كنت فيه.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: أربع جهات بتدق على نفس الباب</h2></div>
+  <div class="stage" id="axesStage">
+    <svg class="axes" viewBox="0 0 470 235">
+      <rect x="14" y="14" width="112" height="34" rx="7" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="70" y="36" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Business rules</text>
+
+      <rect x="14" y="66" width="112" height="34" rx="7" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="70" y="88" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Storage / EF</text>
+
+      <rect x="14" y="118" width="112" height="34" rx="7" fill="#1e293b" stroke="#34d399"/>
+      <text x="70" y="140" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Notifications</text>
+
+      <rect x="14" y="170" width="112" height="34" rx="7" fill="#1e293b" stroke="#f87171"/>
+      <text x="70" y="192" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Ops / logging</text>
+
+      <line x1="126" y1="31"  x2="252" y2="70"  stroke="#334155" stroke-width="2"/>
+      <line x1="126" y1="83"  x2="252" y2="96"  stroke="#334155" stroke-width="2"/>
+      <line x1="126" y1="135" x2="252" y2="122" stroke="#334155" stroke-width="2"/>
+      <line x1="126" y1="187" x2="252" y2="148" stroke="#334155" stroke-width="2"/>
+
+      <rect x="252" y="46" width="200" height="126" rx="10" fill="#0b1220" stroke="#38bdf8"/>
+      <text x="352" y="78" fill="#e2e8f0" font-size="14" text-anchor="middle" font-family="Consolas">OrderService.cs</text>
+      <text x="352" y="104" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">٦٤٠ سطر</text>
+      <text x="352" y="128" fill="#f87171" font-size="12" text-anchor="middle" font-family="Segoe UI">٤ أسباب للتغيير</text>
+      <text x="352" y="152" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">= ٤ طرق للكسر</text>
+
+      <g class="packet"><circle cx="134" cy="34" r="6" fill="#fbbf24"/></g>
+      <g class="packet p2"><circle cx="134" cy="85" r="6" fill="#38bdf8"/></g>
+      <g class="packet p3"><circle cx="134" cy="132" r="6" fill="#34d399"/></g>
+      <g class="packet p4"><circle cx="134" cy="180" r="6" fill="#f87171"/></g>
+
+      <text x="235" y="223" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        كل طلب تغيير بيوصل لنفس الملف — فكل تعديل بيلمس كود التلاتة التانيين
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="axesToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الرسمة دي هي الـ SRP كله. مش مهم الكلاس فيه كام method ولا كام سطر — المهم <b>كام سهم داخل عليه</b>.
+    سهم واحد = مسؤولية واحدة. أربع سهام من أربع جهات مختلفة = أربع مسؤوليات متشابكة في ملف واحد.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: نفكّ التشابك</h2></div>
+
+  <div class="stage">
+    <div class="classes" id="diagram"></div>
+    <div class="counters">
+      <span>🧩 عدد الكلاسات: <b id="classCount">1</b></span>
+      <span>🔁 أسباب التغيير في <code>OrderService</code>: <b id="axisCount">4</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <h3 style="margin-top:20px">جرّب بنفسك: اطلب تغيير وشوف بيلمس كام كلاس</h3>
+  <p class="note">
+    اختار شكل الكود، وبعدين دوس على طلب تغيير. بصّ على «مسؤوليات تانية في خطر» — دي التكلفة الحقيقية.
+  </p>
+  <div class="controls">
+    <button class="btn ghost mode on" data-mode="before">🧱 كلاس واحد كبير</button>
+    <button class="btn ghost mode" data-mode="solid">🧩 مقسّم على محاور التغيير</button>
+    <button class="btn ghost mode" data-mode="over">🔬 مقسّم زيادة</button>
+  </div>
+  <div class="stage">
+    <div class="classes" id="simDiagram"></div>
+    <div class="counters">
+      <span>📂 كلاسات هتفتحها: <b id="touched">0</b></span>
+      <span>💥 مسؤوليات تانية في خطر: <b id="collateral">0</b></span>
+    </div>
+    <div class="verdict" id="verdict">اختار طلب تغيير من تحت.</div>
+  </div>
+  <div class="controls">
+    <button class="btn" data-axis="rules">📏 قاعدة بيزنس اتغيرت</button>
+    <button class="btn" data-axis="store">🗄️ التخزين اتغير</button>
+    <button class="btn" data-axis="mail">✉️ مزوّد الإيميل اتغير</button>
+    <button class="btn" data-axis="log">📝 متطلب logging جديد</button>
+    <button class="btn ghost" id="resetSim">↺ إعادة</button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. الكلاس قبل الفصل</h3>
+<pre><code><span class="k">public class</span> OrderService
+{
+    <span class="k">private readonly</span> AppDbContext _db;
+    <span class="k">private readonly</span> ILogger&lt;OrderService&gt; _log;
+
+    <span class="k">public async Task</span> PlaceOrderAsync(Order o)
+    {
+        <span class="k">if</span> (o.Total &lt;= 0) <span class="k">throw new</span> InvalidOperationException(<span class="s">"Total"</span>);
+        <span class="k">if</span> (o.Lines.Count == 0) <span class="k">throw new</span> InvalidOperationException(<span class="s">"Empty"</span>);  <span class="c">// ← البيزنس</span>
+
+        _db.Orders.Add(o);
+        <span class="k">await</span> _db.SaveChangesAsync();                                     <span class="c">// ← التخزين</span>
+
+        <span class="k">using var</span> smtp = <span class="k">new</span> SmtpClient(<span class="s">"smtp.internal"</span>);
+        <span class="k">await</span> smtp.SendMailAsync(BuildConfirmation(o));                    <span class="c">// ← الإشعارات</span>
+
+        _log.LogInformation(<span class="s">"Order {Id} placed"</span>, o.Id);                     <span class="c">// ← الـ ops</span>
+    }
+}</code></pre>
+
+  <h3>ب. بعد الفصل — كل محور تغيير في مكانه</h3>
+<pre><code><span class="k">public class</span> OrderService(
+    IOrderValidator validator,
+    IOrderRepository repository,
+    IOrderNotifier notifier)
+{
+    <span class="k">public async Task</span> PlaceOrderAsync(Order o)
+    {
+        validator.Validate(o);
+        <span class="k">await</span> repository.AddAsync(o);
+        <span class="k">await</span> notifier.OrderPlacedAsync(o);
+    }
+}
+
+<span class="c">// Program.cs — كل واحد يتبدّل لوحده من غير ما تلمس OrderService</span>
+builder.Services.AddScoped&lt;IOrderValidator, OrderValidator&gt;();
+builder.Services.AddScoped&lt;IOrderRepository, EfOrderRepository&gt;();
+builder.Services.AddScoped&lt;IOrderNotifier, SendGridOrderNotifier&gt;();
+<span class="c">// والـ logging اتنقل لـ middleware في الـ pipeline، مش جوّه كود الأوردر</span></code></pre>
+  <p class="note">
+    <code>OrderService</code> بقى <b>منسّق</b> (orchestrator): بيقول الترتيب، مش بيعرف تفاصيل حد.
+    ده بالظبط سبب التغيير الوحيد بتاعه — لو خطوات عملية الأوردر نفسها اتغيرت.
+  </p>
+
+  <h3>ج. الفرق اللي تقدر تقيسه</h3>
+<pre><code><span class="c">// قبل: الاختبار لازم يشغّل الدنيا كلها</span>
+<span class="c">// OrderServiceTests.cs — 160 سطر، 1,200 ms للاختبار الواحد (LocalDB + SMTP timeout)</span>
+
+<span class="c">// بعد: mock واحد لكل محور، مفيش I/O خالص</span>
+[Fact]
+<span class="k">public async Task</span> PlaceOrder_SavesThenNotifies()
+{
+    <span class="k">var</span> repo = <span class="k">new</span> Mock&lt;IOrderRepository&gt;();
+    <span class="k">var</span> notifier = <span class="k">new</span> Mock&lt;IOrderNotifier&gt;();
+    <span class="k">var</span> sut = <span class="k">new</span> OrderService(<span class="k">new</span> Mock&lt;IOrderValidator&gt;().Object, repo.Object, notifier.Object);
+
+    <span class="k">await</span> sut.PlaceOrderAsync(<span class="k">new</span> Order { Total = 50 });
+
+    repo.Verify(r =&gt; r.AddAsync(It.IsAny&lt;Order&gt;()), Times.Once);
+}
+<span class="c">// 22 سطر، 3 ms. وتبديل SMTP بـ SendGrid لمس ملف واحد جديد + سطر في Program.cs</span></code></pre>
+  <div class="callout good">
+    <strong>المقياس اللي تحكم بيه:</strong> لما المتطلب X يتغير، بتفتح كام كلاس؟ <b>واحد = ممتاز</b>.
+    كلاس واحد بيتغير لأسباب ملهاش علاقة ببعض → قسّمه. متطلب واحد بيلمس خمس كلاسات دايماً → إنت قسّمت زيادة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«الكلاس يعمل حاجة واحدة»</b> — دي ترجمة ضايعة. المقياس هو محور التغيير مش عدد الأفعال.
+      كلاس فيه ٨ methods كلهم بيخدموا نفس صاحب الطلب = SRP سليم.</li>
+    <li><b>التقسيم بعدد السطور</b> — «أي كلاس فوق ١٠٠ سطر يتقسّم». ده بيقطع الكلاس في نص مسؤولية
+      واحدة وينتج <code>OrderServicePart2</code> اللي محدش فاهم هو ليه موجود.</li>
+    <li><b>فصلت الكلاس بس نادتيه بـ <code>new</code></b> — <code>new OrderValidator()</code> جوّه
+      <code>PlaceOrderAsync</code> بيخلي الفصل شكلي: لسه مستحيل تختبره لوحده ولسه التغيير بيلمس ملفين.
+      الفصل يتم بـ interface + DI.</li>
+    <li><b>كلاسات اسمها <code>OrderManager</code> أو <code>Helpers</code></b> — اسم من غير مسؤولية
+      محددة معناه إنك متعرفش محور التغيير، فالملف ده هيبقى مكب لأي كود مش لاقي مكان.</li>
+    <li><b>SRP على شاشة CRUD بسيطة</b> — ٤٠ كلاس بـ method واحدة لفورم فيه ٦ حقول. التعقيد اللي زوّدته
+      أكبر من التعقيد اللي شلته.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. أدق صياغة لمبدأ الـ SRP هي:</div>
+    <button class="opt">الكلاس يبقى فيه method واحدة بس</button>
+    <button class="opt">الكلاس يبقى ليه سبب واحد يخليك تعدّله</button>
+    <button class="opt">الكلاس يبقى أقل من ١٠٠ سطر</button>
+    <button class="opt">كل كلاس في ملف لوحده</button>
+    <div class="feedback">
+      المبدأ عن محاور التغيير (مين بيطلب التعديل)، مش عن الحجم ولا عدد الـ methods.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">
+      2. طلبوا يغيّروا نسبة خصم واحدة، فاضطريت تفتح ٦ كلاسات صغيرة عشان تنفّذ التغيير. ده معناه إيه؟
+    </div>
+    <button class="opt">الكود مطبّق SRP صح — كل كلاس صغير</button>
+    <button class="opt">لازم أرجّع كل حاجة لكلاس واحد كبير</button>
+    <button class="opt">قسّمت زيادة — المتطلب الواحد المفروض يلمس كلاس واحد</button>
+    <div class="feedback">
+      SRP مقياسه في الاتجاهين: كلاس بيتغير لأسباب مختلفة = قسّمه، ومتطلب واحد بيلمس كذا كلاس = لمّه.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>SRP = سبب واحد للتغيير، يعني صاحب طلب واحد — مش عدد methods ولا عدد سطور.</li>
+    <li>لما تفصل، افصل بـ interface وDI؛ الفصل من غير حقن هو نفس التشابك باسم جديد.</li>
+    <li>المقياس في الاتجاهين: كلاس بيتغير لأسباب مختلفة قسّمه، ومتطلب بيلمس خمس كلاسات لمّه.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram animation toggle
+  var axesStage = document.getElementById('axesStage');
+  var axesToggle = document.getElementById('axesToggle');
+  axesToggle.addEventListener('click', function () {
+    var paused = axesStage.classList.toggle('paused');
+    axesToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- shared model
+  var AXES = [
+    { id: 'rules', band: 'validation rules',  cls: 'OrderValidator',           why: 'البيزنس' },
+    { id: 'store', band: 'EF Core save',      cls: 'EfOrderRepository',        why: 'التخزين' },
+    { id: 'mail',  band: 'SmtpClient email',  cls: 'SendGridOrderNotifier',    why: 'الإشعارات' },
+    { id: 'log',   band: 'Serilog logging',   cls: 'RequestLoggingMiddleware', why: 'الـ ops' }
+  ];
+  var LABEL = { rules: 'validation rules', store: 'EF Core save', mail: 'email', log: 'logging', orch: 'orchestration' };
+
+  function makeClass(name, bands, fresh) {
+    var d = document.createElement('div');
+    d.className = 'klass' + (fresh ? ' fresh' : '');
+    var h = document.createElement('span');
+    h.className = 'kname';
+    h.textContent = name;
+    d.appendChild(h);
+    bands.forEach(function (b) {
+      var s = document.createElement('div');
+      s.className = 'band ' + b.id;
+      s.innerHTML = b.text + ' <span class="why">— ' + b.why + '</span>';
+      d.appendChild(s);
+    });
+    return d;
+  }
+
+  // ---------------------------------------------------------------- stepper
+  var diagram = document.getElementById('diagram');
+  var classCountEl = document.getElementById('classCount');
+  var axisCountEl = document.getElementById('axisCount');
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  var steps = [
+    'البداية: OrderService واحد فيه كل حاجة. قواعد + تخزين + إيميل + logging في ٦٤٠ سطر.',
+    'أول خطوة مش كود — تسمية. اكتب جنب كل حتة: مين اللي هيطلب تغييرها؟ طلعوا أربع جهات مختلفة.',
+    'استخرجنا قواعد البيزنس في IOrderValidator. دلوقتي تغيير قاعدة = ملف واحد، والباقي مايتلمسش.',
+    'استخرجنا الحفظ في IOrderRepository. تبديل EF Core بـ Dapper بقى تنفيذ جديد للـ interface بس.',
+    'استخرجنا الإشعارات في IOrderNotifier. SMTP → SendGrid = كلاس جديد + سطر في Program.cs.',
+    'الـ logging اتنقل لـ middleware في الـ pipeline. OrderService فضل معاه سبب تغيير واحد: ترتيب خطوات الأوردر.'
+  ];
+  var step = 0;
+
+  function renderStep() {
+    var extracted = step <= 1 ? 0 : Math.min(step - 1, 4);
+    var remaining = AXES.slice(extracted);
+    diagram.innerHTML = '';
+
+    var svcBands = remaining.map(function (a) {
+      return { id: a.id, text: a.band, why: step >= 1 ? a.why : '؟' };
+    });
+    svcBands.push({ id: 'orch', text: 'orchestration', why: 'خطوات الأوردر' });
+    diagram.appendChild(makeClass('OrderService', svcBands));
+
+    for (var i = 0; i < extracted; i++) {
+      diagram.appendChild(makeClass(
+        AXES[i].cls,
+        [{ id: AXES[i].id, text: AXES[i].band, why: AXES[i].why }],
+        i === extracted - 1
+      ));
+    }
+
+    classCountEl.textContent = extracted + 1;
+    axisCountEl.textContent = remaining.length + 1;
+    stepBox.textContent = steps[step];
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- change-request simulator
+  var MODES = {
+    before: [
+      { name: 'OrderService', owns: ['rules', 'store', 'mail', 'log', 'orch'] }
+    ],
+    solid: [
+      { name: 'OrderService', owns: ['orch'] },
+      { name: 'OrderValidator', owns: ['rules'] },
+      { name: 'EfOrderRepository', owns: ['store'] },
+      { name: 'SmtpOrderNotifier', owns: ['mail'] },
+      { name: 'RequestLoggingMiddleware', owns: ['log'] }
+    ],
+    over: [
+      { name: 'OrderService', owns: ['orch'] },
+      { name: 'MinTotalRule', owns: ['rules'] },
+      { name: 'StockRule', owns: ['rules'] },
+      { name: 'CreditLimitRule', owns: ['rules'] },
+      { name: 'CurrencyRule', owns: ['rules'] },
+      { name: 'RuleRunner', owns: ['rules'] },
+      { name: 'EfOrderRepository', owns: ['store'] },
+      { name: 'SmtpOrderNotifier', owns: ['mail'] },
+      { name: 'RequestLoggingMiddleware', owns: ['log'] }
+    ]
+  };
+  var simDiagram = document.getElementById('simDiagram');
+  var touchedEl = document.getElementById('touched');
+  var collateralEl = document.getElementById('collateral');
+  var verdictEl = document.getElementById('verdict');
+  var mode = 'before';
+
+  function drawSim(axis) {
+    simDiagram.innerHTML = '';
+    var list = MODES[mode];
+    var touched = 0, collateral = 0;
+
+    list.forEach(function (k) {
+      var isTouched = axis !== null && k.owns.indexOf(axis) >= 0;
+      if (isTouched) {
+        touched++;
+        collateral += k.owns.filter(function (o) { return o !== axis; }).length;
+      }
+      var d = document.createElement('div');
+      d.className = 'klass' + (isTouched ? ' touched' : '') +
+                    (isTouched && k.owns.length > 1 ? ' danger' : '');
+      var h = document.createElement('span');
+      h.className = 'kname';
+      h.textContent = k.name;
+      d.appendChild(h);
+      k.owns.forEach(function (o) {
+        var s = document.createElement('div');
+        s.className = 'band ' + o + (isTouched ? (o === axis ? ' hit' : ' risk') : '');
+        s.textContent = LABEL[o];
+        d.appendChild(s);
+      });
+      simDiagram.appendChild(d);
+    });
+
+    touchedEl.textContent = touched;
+    collateralEl.textContent = collateral;
+    if (axis === null) verdictEl.textContent = 'اختار طلب تغيير من تحت.';
+    else if (touched > 1) verdictEl.textContent = '⚠️ المتطلب الواحد لمس ' + touched + ' كلاس — ده تقسيم زيادة، التغيير البسيط بقى جولة في المشروع.';
+    else if (collateral > 0) verdictEl.textContent = '⚠️ الملف اللي فتحته فيه كمان ' + collateral + ' مسؤولية تانية — أي غلطة هنا بتكسرهم، والاختبار لازم يزوّرهم كلهم.';
+    else verdictEl.textContent = '✅ مظبوط: كلاس واحد اتفتح، وماحدش تاني اتأثر.';
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.mode'), function (b) {
+    b.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.mode'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on');
+      mode = b.getAttribute('data-mode');
+      drawSim(null);
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-axis]'), function (b) {
+    b.addEventListener('click', function () { drawSim(b.getAttribute('data-axis')); });
+  });
+  document.getElementById('resetSim').addEventListener('click', function () { drawSim(null); });
+  drawSim(null);
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
