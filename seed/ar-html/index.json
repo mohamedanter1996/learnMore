@@ -89,6 +89,11 @@
       "topic": "Design Patterns",
       "title": "SOLID I: Single Responsibility Principle",
       "file": "2-design-patterns/solid-i-single-responsibility-principle.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "How SQL Server Stores Data: Pages, Extents, Heaps",
+      "file": "3-sql-optimization/how-sql-server-stores-data-pages-extents-heaps.html"
     }
   ]
 }
