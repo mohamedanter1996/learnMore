@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaling Basics: Vertical vs Horizontal — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .flow { width: 100%; height: 190px; }
+  .pk { opacity: 0; }
+  .pk1 { animation: pk1 3s ease-in-out infinite; }
+  .pk2 { animation: pk2 3s ease-in-out infinite .6s; }
+  .pk3 { animation: pk3 3s ease-in-out infinite 1.2s; }
+  @keyframes pk1 {
+    0% { transform: translate(0,0); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: translate(120px,0); opacity: 1; }
+    95% { transform: translate(250px,-48px); opacity: 1; }
+    100% { transform: translate(250px,-48px); opacity: 0; }
+  }
+  @keyframes pk2 {
+    0% { transform: translate(0,0); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: translate(120px,0); opacity: 1; }
+    95% { transform: translate(250px,0); opacity: 1; }
+    100% { transform: translate(250px,0); opacity: 0; }
+  }
+  @keyframes pk3 {
+    0% { transform: translate(0,0); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: translate(120px,0); opacity: 1; }
+    95% { transform: translate(250px,48px); opacity: 1; }
+    100% { transform: translate(250px,48px); opacity: 0; }
+  }
+  .paused .pk { animation-play-state: paused; }
+
+  .farm { display: flex; flex-wrap: wrap; gap: 10px; direction: ltr; }
+  .srv {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    background: var(--surface-2); min-width: 148px; transition: border-color .25s, opacity .25s;
+  }
+  .srv .name { font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim); }
+  .srv.hot { border-color: var(--warning); }
+  .srv.over { border-color: var(--danger); }
+  .srv.dead { opacity: .45; border-style: dashed; border-color: var(--danger); }
+  .bar { height: 12px; border-radius: 6px; background: var(--bg); margin-top: 7px; overflow: hidden; }
+  .fill { height: 100%; width: 0; background: var(--success); transition: width .3s ease, background .3s ease; }
+  .srv.hot .fill { background: var(--warning); }
+  .srv.over .fill { background: var(--danger); }
+  .srv .num { font-family: Consolas, monospace; font-size: 11px; color: var(--text-dim); margin-top: 5px; display: block; }
+  .metrics { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 15px; }
+  .metrics b { font-family: Consolas, monospace; }
+  .slider { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .slider input { flex: 1; direction: ltr; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🌐 System Design · درس مصري مفصّل</div>
+  <h1>السعة بتتشترى بفلوس، بس التوزيع بتدفع تمنه تعقيد للأبد</h1>
+  <div class="en">Scaling Basics: Vertical vs Horizontal</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك API بـ ASP.NET Core شغال على VM واحدة ٤ كور. عادي بيشيل ٩٠٠ request في الثانية والـ p95
+    حوالي ١٤٠ ملي ثانية. جه يوم الحملة التسويقية فطلع الترافيك ٢٬٥٠٠ request/ثانية — الـ CPU ٩٩٪،
+    والـ timeouts بدأت. الاقتراح اللي بييجي على طول في الاجتماع: «نقسّم النظام microservices».
+  </p>
+  <div class="callout info">
+    قبل أي قرار معماري: ٦٥٪ من الـ CPU كان رايح لاستعلام واحد بيعمل
+    <code>WHERE CAST(CreatedOn AS date) = @d</code> — non-SARGable فبيعمل scan. index مظبوط +
+    كتابة الشرط صح رجّعه من <b>١٨٠ ms و41,882 logical reads</b> لـ <b>٣ ms و٤ قراءات</b>.
+    نفس الجهاز بقى يشيل <b>٣٬٦٠٠ request/ثانية</b>. صفر فلوس، صفر تعقيد.
+  </div>
+  <p>
+    الترتيب الهندسي الأمين: <b>حسّن → اطلع فوق (vertical) → اتوسع بالعرض (horizontal)</b>.
+    التحسين سعة ببلاش، والـ vertical سعة من غير تعقيد، والـ horizontal سعة بلا سقف بس بتعقيد
+    <b>بتدفعه كل يوم بعد كده</b>.
+  </p>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتشتري سيرفرات لمشكلة سببها استعلام واحد، أو هتقفز لمعمارية
+    موزّعة لضغط متخيّل — وأول ما يبقى عندك سيرفرين هتكتشف إن الـ session بيضيع، والملفات المرفوعة
+    بتختفي، والـ cache بيقول داتا قديمة، والـ job الليلي بيشتغل <b>مرتين</b>.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <p class="note">
+    Vertical = نفس الصندوق يكبر. Horizontal = صناديق أكتر ورا موزّع حِمل (load balancer) بيوزّع عليهم.
+  </p>
+  <div class="stage" id="flowStage">
+    <svg class="flow" viewBox="0 0 460 190">
+      <rect x="8" y="70" width="86" height="52" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="51" y="92" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Users</text>
+      <text x="51" y="110" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">5,000 rps</text>
+
+      <rect x="186" y="70" width="86" height="52" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="229" y="92" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Load</text>
+      <text x="229" y="110" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Balancer</text>
+
+      <rect x="350" y="12" width="100" height="42" rx="8" fill="#1e293b" stroke="#34d399"/>
+      <text x="400" y="38" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">app · srv-1</text>
+      <rect x="350" y="75" width="100" height="42" rx="8" fill="#1e293b" stroke="#34d399"/>
+      <text x="400" y="101" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">app · srv-2</text>
+      <rect x="350" y="138" width="100" height="42" rx="8" fill="#1e293b" stroke="#34d399"/>
+      <text x="400" y="164" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">app · srv-3</text>
+
+      <line x1="94" y1="96" x2="186" y2="96" stroke="#334155" stroke-width="2"/>
+      <line x1="272" y1="96" x2="350" y2="33" stroke="#334155" stroke-width="2"/>
+      <line x1="272" y1="96" x2="350" y2="96" stroke="#334155" stroke-width="2"/>
+      <line x1="272" y1="96" x2="350" y2="159" stroke="#334155" stroke-width="2"/>
+
+      <g class="pk pk1"><circle cx="104" cy="96" r="7" fill="#38bdf8"/></g>
+      <g class="pk pk2"><circle cx="104" cy="96" r="7" fill="#38bdf8"/></g>
+      <g class="pk pk3"><circle cx="104" cy="96" r="7" fill="#38bdf8"/></g>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <div class="callout">
+    الـ load balancer مش بيعرف أي سيرفر «بتاع مين» — بيوزّع على اللي رادّ على
+    <code>/health</code>. ومن اللحظة دي بالظبط، أي حاجة السيرفر فاكرها جوّه الذاكرة بقت كذبة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة على نفس المزرعة</h2></div>
+
+  <div class="stage">
+    <div class="farm" id="farm"></div>
+    <div class="metrics">
+      <span>📈 الطلب: <b id="mRps">900</b> rps</span>
+      <span>🧰 السعة: <b id="mCap">1,200</b> rps</span>
+      <span>❌ متسقّط: <b id="mDrop">0</b> rps</span>
+      <span>⏱ p95: <b id="mP95">—</b></span>
+      <span>💸 الفاتورة: <b id="mCost">$90</b>/شهر</span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> مرتاح</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> فوق ٧٥٪</span>
+      <span><i class="swatch" style="background:#f87171"></i> فوق السعة → timeouts</span>
+    </div>
+    <div class="slider">
+      <span class="note">الترافيك</span>
+      <input type="range" id="rpsRange" min="200" max="14000" step="100" value="900">
+      <b id="rpsVal" style="font-family:Consolas,monospace">900</b>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <p class="note" style="margin-top:14px">أو سوق السيناريو بإيدك:</p>
+  <div class="controls">
+    <button class="btn ghost" id="btnOpt">🔧 حسّن (index + cache)</button>
+    <button class="btn ghost" id="btnUp">⬆ اطلع فوق (cores ×2)</button>
+    <button class="btn ghost" id="btnOut">➕ ضيف سيرفر</button>
+    <button class="btn ghost" id="btnKill">💥 اقتل سيرفر</button>
+    <button class="btn ghost" id="btnReset">↺ إعادة</button>
+  </div>
+  <div id="simNote" class="callout">حرّك الترافيك وبصّ على «متسقّط» و«الفاتورة» — الاتنين هما القرار.</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: إيه اللي بيتكسر في ASP.NET Core</h2></div>
+
+  <h3>أ. الحالة (state) اللي جوّه الـ process</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ شغال على سيرفر واحد بس</strong></div>
+<pre><code><span class="c">// الـ session في ذاكرة الـ process</span>
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession();
+
+builder.Services.AddMemoryCache();   <span class="c">// cache محلي</span>
+
+app.MapPost(<span class="s">"/upload"</span>, <span class="k">async</span> (IFormFile f) =&gt;
+{
+    <span class="k">var</span> path = Path.Combine(env.WebRootPath, <span class="s">"uploads"</span>, f.FileName);
+    <span class="c">// اتكتب على قرص srv-1 بس</span>
+});</code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ يشتغل على N سيرفر</strong></div>
+<pre><code><span class="c">// حالة مشتركة برّه الـ process</span>
+builder.Services.AddStackExchangeRedisCache(o =&gt;
+    o.Configuration = cfg.GetConnectionString(<span class="s">"Redis"</span>));
+<span class="c">// أو من غير Redis، في نفس الـ SQL Server:</span>
+<span class="c">// builder.Services.AddDistributedSqlServerCache(o =&gt; { ... });</span>
+builder.Services.AddSession();
+
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext&lt;AppDbContext&gt;()
+    .SetApplicationName(<span class="s">"learnmore"</span>);
+
+<span class="c">// الملفات في object storage، مش على القرص</span></code></pre>
+    </div>
+  </div>
+  <div class="callout info">
+    <strong>السطر اللي بينسوه:</strong> <code>AddDataProtection()</code>. من غير مفاتيح مشتركة، الكوكي
+    اللي عملها srv-1 مش هيقدر srv-2 يفكها → المستخدم بيتسجل خروج «عشوائي»، و
+    <code>The antiforgery token could not be decrypted</code> في اللوج. الباج ده بيظهر في اليوم
+    الأول من الـ horizontal scaling وبياخد أيام تشخيص لو متعرفش سببه.
+  </div>
+
+  <h3>ب. الـ job اللي بقى بيشتغل مرتين</h3>
+<pre><code><span class="c">// IHostedService واحد × سيرفرين = تشغيلين لنفس الـ rollup</span>
+<span class="k">await</span> <span class="k">using</span> <span class="k">var</span> conn = <span class="k">new</span> SqlConnection(cs);
+<span class="k">await</span> conn.OpenAsync(ct);
+
+<span class="k">var</span> cmd = <span class="k">new</span> SqlCommand(<span class="s">"sp_getapplock"</span>, conn) { CommandType = CommandType.StoredProcedure };
+cmd.Parameters.AddWithValue(<span class="s">"@Resource"</span>, <span class="s">"nightly-rollup"</span>);
+cmd.Parameters.AddWithValue(<span class="s">"@LockMode"</span>, <span class="s">"Exclusive"</span>);
+cmd.Parameters.AddWithValue(<span class="s">"@LockOwner"</span>, <span class="s">"Session"</span>);
+cmd.Parameters.AddWithValue(<span class="s">"@LockTimeout"</span>, 0);
+<span class="k">var</span> rc = cmd.Parameters.Add(<span class="s">"@ret"</span>, SqlDbType.Int);
+rc.Direction = ParameterDirection.ReturnValue;
+
+<span class="k">await</span> cmd.ExecuteNonQueryAsync(ct);
+<span class="k">if</span> ((<span class="k">int</span>)rc.Value &lt; 0) <span class="k">return</span>;   <span class="c">// سيرفر تاني ماسك اللوك → اخرج بهدوء</span>
+
+<span class="k">await</span> RunRollupAsync(ct);      <span class="c">// واحد بس بيدخل هنا</span></code></pre>
+  <p class="note">
+    قبل الـ lock: جدول <code>DailySummary</code> كان بيتكتب مرتين كل ليلة → أرقام التقرير ×٢.
+    بعده: تشغيلة واحدة، والسيرفر التاني بيخرج في أقل من ١ ms.
+  </p>
+
+  <h3>ج. أرقام القرار</h3>
+<pre><code>4 cores   ≈ 1,200 rps    $90/شهر
+8 cores   ≈ 2,200 rps    $190/شهر     <span class="c">// ×1.8 سعة بـ ×2.1 سعر</span>
+16 cores  ≈ 4,000 rps    $450/شهر
+32 cores  ≈ 7,000 rps    $1,300/شهر   <span class="c">// ×5.8 سعة بـ ×14 سعر — وده آخر الجهاز</span>
+
+2 × 4 cores ≈ 2,340 rps  $180/شهر     <span class="c">// + يعيش لو واحد وقع</span></code></pre>
+  <div class="callout">
+    الـ vertical بيقف عند سقف الجهاز، والسعر بيطلع أسرع من السعة قبل ما توصل للسقف ده بكتير.
+    والأهم: <b>جهاز واحد = نقطة فشل واحدة</b>. أول سيرفرين مش بتشتريهم عشان السعة —
+    بتشتريهم عشان تقدر تعمل deploy أو reboot من غير downtime.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«هنتوسّع بالعرض عشان النظام بطيء»</b> — التوزيع بيحل <u>نقص السعة</u>، مش بطء الاستعلام.
+      request بياخد ٨٠٠ ms هيفضل ٨٠٠ ms على ٢٠ سيرفر — إنت بس دفعت أكتر عشان تستنى نفس المدة.</li>
+    <li><b><code>IMemoryCache</code> مع أكتر من instance</b> — بتمسح المفتاح على srv-1، وsrv-2 فاضل
+      مخزّن القديم لحد ما الـ TTL يخلص. المستخدم بيشوف سعر قديم أو جديد حسب أي سيرفر ردّ عليه.</li>
+    <li><b>ملفات مرفوعة على القرص المحلي</b> — الرفع نجح على srv-1، والتحميل بعدين وصل srv-2 →
+      <code>404</code> متقطّع مستحيل تعيد إنتاجه على جهازك.</li>
+    <li><b>Background job من غير قفل موزّع</b> — كل instance بيشغّل نفس الـ <code>IHostedService</code>،
+      فالإيميلات بتتبعت مرتين والتجميعات بتتضاعف.</li>
+    <li><b>اعتبار الـ sticky sessions حل</b> — بيخفي المشكلة: الحِمل بيبقى غير متوازن، وأول ما سيرفر
+      يقع كل مستخدمينه بيضيعوا. حل مؤقت للهجرة، مش معمارية.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. الترتيب الصح للهجوم على مشكلة سعة:</div>
+    <button class="opt">microservices الأول</button>
+    <button class="opt">حسّن ← اطلع فوق ← اتوسع بالعرض</button>
+    <button class="opt">اتوسع بالعرض ← اطلع فوق ← حسّن</button>
+    <button class="opt">اتوسع بالعرض دايماً — الهاردوير كلام قديم</button>
+    <div class="feedback">
+      التحسين سعة ببلاش، والـ vertical سعة من غير تعقيد، والـ horizontal سعة بلا سقف مقابل تعقيد دائم.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">
+      2. تطبيق ASP.NET Core بإعداداته الافتراضية طلع من instance لـ instance‑ين ورا load balancer.
+      إيه اللي بيتكسر <u>فوراً</u>؟
+    </div>
+    <button class="opt">الاستعلامات بتبقى أبطأ تلقائياً</button>
+    <button class="opt">الـ dependency injection بيقع</button>
+    <button class="opt">الحالة اللي جوّه الـ process: session في الذاكرة، IMemoryCache، الملفات المحلية، ومفاتيح Data Protection</button>
+    <div class="feedback">
+      كله من نوع واحد: حاجة السيرفر فاكرها لوحده. الحل المعياري: تطلّعها برّه الـ process
+      (distributed cache، object storage، مفاتيح مشتركة، قفل موزّع للـ jobs).
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>حسّن الأول: index أو cache بيدي سعة ببلاش، والتوزيع مش بيعالج استعلام بطيء أبداً.</li>
+    <li>Vertical = سعة من غير تعقيد لحد سقف الجهاز، وسعرها بيطلع أسرع من السعة نفسها.</li>
+    <li>Horizontal بتشتريه للـ availability قبل السعة — وتمنه إنك تطلّع كل حالة برّه الـ process.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- flow animation toggle
+  var flowStage = document.getElementById('flowStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = flowStage.classList.toggle('paused');
+    flowToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- farm simulator
+  var TIERS = [
+    { cores: 4,  cap: 1200, cost: 90 },
+    { cores: 8,  cap: 2200, cost: 190 },
+    { cores: 16, cap: 4000, cost: 450 },
+    { cores: 32, cap: 7000, cost: 1300 }
+  ];
+  var OPT_GAIN = 3;              // نفس الجهاز بعد التحسين
+  var EXTRA_NODE = 0.95;         // كل سيرفر زيادة بيضيع شوية في التنسيق
+
+  var sim;
+  function baseState() { return { tier: 0, servers: [true], optimized: false, rps: 900 }; }
+
+  var farmEl = document.getElementById('farm');
+  var mRps = document.getElementById('mRps'), mCap = document.getElementById('mCap');
+  var mDrop = document.getElementById('mDrop'), mP95 = document.getElementById('mP95');
+  var mCost = document.getElementById('mCost'), simNote = document.getElementById('simNote');
+  var rpsRange = document.getElementById('rpsRange'), rpsVal = document.getElementById('rpsVal');
+  var btnOpt = document.getElementById('btnOpt'), btnUp = document.getElementById('btnUp');
+  var btnOut = document.getElementById('btnOut'), btnKill = document.getElementById('btnKill');
+
+  function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function perServerCap() { return TIERS[sim.tier].cap * (sim.optimized ? OPT_GAIN : 1); }
+
+  function totalCap() {
+    var alive = 0, total = 0, per = perServerCap();
+    sim.servers.forEach(function (ok) {
+      if (!ok) return;
+      total += alive === 0 ? per : per * EXTRA_NODE;
+      alive++;
+    });
+    return total;
+  }
+
+  function aliveCount() {
+    var n = 0;
+    sim.servers.forEach(function (ok) { if (ok) n++; });
+    return n;
+  }
+
+  function render() {
+    var per = perServerCap(), cap = totalCap(), alive = aliveCount();
+    var share = alive ? sim.rps / alive : 0;
+    var drop = Math.max(0, sim.rps - cap);
+
+    farmEl.innerHTML = '';
+    sim.servers.forEach(function (ok, i) {
+      var util = ok ? share / per : 0;
+      var d = document.createElement('div');
+      d.className = 'srv' + (!ok ? ' dead' : util > 1 ? ' over' : util > 0.75 ? ' hot' : '');
+      d.innerHTML =
+        '<div class="name">srv-' + (i + 1) + ' · ' + TIERS[sim.tier].cores + ' cores' +
+        (ok ? '' : ' · DOWN') + '</div>' +
+        '<div class="bar"><div class="fill" style="width:' +
+        Math.min(100, Math.round(util * 100)) + '%"></div></div>' +
+        '<span class="num">' + (ok ? fmt(Math.min(share, per)) + ' / ' + fmt(per) + ' rps' : 'مش بيستقبل') + '</span>';
+      farmEl.appendChild(d);
+    });
+
+    mRps.textContent = fmt(sim.rps);
+    mCap.textContent = fmt(cap);
+    mDrop.textContent = fmt(drop);
+    mCost.textContent = '$' + fmt(sim.servers.length * TIERS[sim.tier].cost);
+
+    if (alive === 0) mP95.textContent = 'outage';
+    else if (drop > 0) mP95.textContent = 'timeouts';
+    else mP95.textContent = Math.round(90 + 70 * (sim.rps / cap)) + ' ms';
+
+    rpsRange.value = sim.rps;
+    rpsVal.textContent = fmt(sim.rps);
+    btnOpt.disabled = sim.optimized;
+    btnUp.disabled = sim.tier === TIERS.length - 1;
+    btnUp.textContent = btnUp.disabled ? '🚫 دي أكبر ماكينة' : '⬆ اطلع فوق (cores ×2)';
+    btnOut.disabled = sim.servers.length >= 6;
+    btnKill.disabled = alive === 0;
+
+    var cls = 'callout', msg;
+    if (alive === 0) {
+      cls += ' bad';
+      msg = 'كل السيرفرات واقعة — ١٠٠٪ من الطلبات ضاعت. ده اللي بيحصل بالظبط مع جهاز واحد وقت deploy أو reboot.';
+    } else if (drop > 0) {
+      cls += ' bad';
+      msg = 'الطلب فوق السعة بـ ' + fmt(drop) + ' rps → الزيادة بتتسقّط. حسّن الأول، وبعدها اطلع فوق، وبعدها اتوسع بالعرض.';
+    } else if (sim.servers.length === 1) {
+      cls += ' info';
+      msg = 'السعة كفاية — بس سيرفر واحد = نقطة فشل واحدة. availability لسه صفر.';
+    } else {
+      cls += ' good';
+      msg = 'السعة كفاية والنظام بيعيش لو سيرفر وقع. التمن: كل حالة لازم تبقى برّه الـ process.';
+    }
+    simNote.className = cls;
+    simNote.textContent = msg;
+  }
+
+  rpsRange.addEventListener('input', function () {
+    sim.rps = parseInt(rpsRange.value, 10);
+    render();
+  });
+  btnOpt.addEventListener('click', function () { sim.optimized = true; render(); });
+  btnUp.addEventListener('click', function () {
+    if (sim.tier < TIERS.length - 1) sim.tier++;
+    render();
+  });
+  btnOut.addEventListener('click', function () {
+    if (sim.servers.length < 6) sim.servers.push(true);
+    render();
+  });
+  btnKill.addEventListener('click', function () {
+    for (var i = 0; i < sim.servers.length; i++) {
+      if (sim.servers[i]) { sim.servers[i] = false; break; }
+    }
+    render();
+  });
+  document.getElementById('btnReset').addEventListener('click', function () {
+    sim = baseState();
+    render();
+  });
+
+  // ---------------------------------------------------------------- stepper
+  // كل خطوة بتوصف الحالة كاملة، فالرجوع بيعيد البناء صح مش بيلغي آخر حركة بس
+  var steps = [
+    {
+      text: 'البداية: VM واحدة بـ 4 cores، الطلب 900 rps والسعة 1,200. كله مريح — ومحدش بيفكر في scaling.',
+      state: { tier: 0, servers: [true], optimized: false, rps: 900 }
+    },
+    {
+      text: 'الحملة التسويقية: الطلب بقى 2,500 rps. السعة 1,200 → أكتر من نص الطلبات بتتسقّط والـ CPU على 99٪.',
+      state: { tier: 0, servers: [true], optimized: false, rps: 2500 }
+    },
+    {
+      text: 'الخطوة الأولى مجانية: index + شرط SARGable + cache للاستعلام القاتل. نفس الجهاز بقى 3,600 rps. الأزمة خلصت بصفر فلوس.',
+      state: { tier: 0, servers: [true], optimized: true, rps: 2500 }
+    },
+    {
+      text: 'البيزنس كبر: 5,000 rps. مفيش تحسين تاني واضح → اطلع فوق لـ 16 cores. السعة 12,000، بس الفاتورة بقت خمس أضعاف.',
+      state: { tier: 2, servers: [true], optimized: true, rps: 5000 }
+    },
+    {
+      text: 'السيرفر وقع — deploy أو reboot أو عطل. سعة ضخمة… ومتاحية صفر. السقف مش المشكلة الوحيدة في الـ vertical.',
+      state: { tier: 2, servers: [false], optimized: true, rps: 5000 }
+    },
+    {
+      text: 'اتوسعنا بالعرض: سيرفرين ورا load balancer. واحد يقع والتاني شايل. التمن: session وcache وملفات وjobs كلهم لازم يخرجوا برّه الـ process.',
+      state: { tier: 2, servers: [false, true], optimized: true, rps: 5000 }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    sim = {
+      tier: s.state.tier,
+      servers: s.state.servers.slice(),
+      optimized: s.state.optimized,
+      rps: s.state.rps
+    };
+    render();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -94,6 +94,11 @@
       "topic": "SQL Server Optimization",
       "title": "How SQL Server Stores Data: Pages, Extents, Heaps",
       "file": "3-sql-optimization/how-sql-server-stores-data-pages-extents-heaps.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Scaling Basics: Vertical vs Horizontal",
+      "file": "4-system-design/scaling-basics-vertical-vs-horizontal.html"
     }
   ]
 }
