@@ -99,6 +99,11 @@
       "topic": "System Design",
       "title": "Scaling Basics: Vertical vs Horizontal",
       "file": "4-system-design/scaling-basics-vertical-vs-horizontal.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "The JavaScript Event Loop: Tasks and Microtasks",
+      "file": "5-frontend/the-javascript-event-loop-tasks-and-microtasks.html"
     }
   ]
 }

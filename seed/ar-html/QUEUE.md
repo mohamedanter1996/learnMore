@@ -45,8 +45,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — Scaling Basics: Vertical vs Horizontal → `4-system-design/scaling-basics-vertical-vs-horizontal.html`
 
-## Queue (133)
-- [ ] 16. `Frontend Engineering` — The JavaScript Event Loop: Tasks and Microtasks → `5-frontend/the-javascript-event-loop-tasks-and-microtasks.html`
+- [x] `Frontend Engineering` — The JavaScript Event Loop: Tasks and Microtasks → `5-frontend/the-javascript-event-loop-tasks-and-microtasks.html`
+
+## Queue (132)
 - [ ] 17. `Data Structures & Algorithms` — Stacks: LIFO and Its Surprising Uses → `1-dsa/stacks-lifo-and-its-surprising-uses.html`
 - [ ] 18. `Design Patterns` — SOLID IV: Interface Segregation Principle → `2-design-patterns/solid-iv-interface-segregation-principle.html`
 - [ ] 19. `SQL Server Optimization` — Nonclustered Indexes and the Key Lookup Tax → `3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html`

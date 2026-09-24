@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The JavaScript Event Loop: Tasks and Microtasks — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .loop { width: 100%; height: 230px; }
+  .spinner { animation: orbit 4s linear infinite; transform-origin: 230px 112px; }
+  @keyframes orbit { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .paused .spinner { animation-play-state: paused; }
+
+  .machine { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; min-width: 620px; }
+  .bay { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; min-height: 132px; }
+  .bay-label { color: var(--text-dim); font-size: 12px; text-align: center; margin-bottom: 8px; }
+  .bay.hot { border-style: solid; border-color: var(--primary); }
+  .bay.drained { border-style: solid; border-color: var(--success); }
+  .frame {
+    direction: ltr; font-family: Consolas, monospace; font-size: 12px;
+    background: var(--surface-2); color: var(--text-dim);
+    border-radius: 6px; padding: 5px 8px; margin-bottom: 6px;
+    animation: pop .28s ease;
+  }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  .frame.running { background: #14384d; color: #bae6fd; }
+  .frame.micro { border-right: 3px solid var(--success); }
+  .frame.task { border-right: 3px solid var(--warning); }
+  .console {
+    direction: ltr; text-align: left; font-family: Consolas, monospace; font-size: 13px;
+    background: #0b1220; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-top: 12px; min-height: 58px;
+  }
+  .console b { color: var(--success); }
+  .phase { color: var(--text-dim); font-size: 14px; margin-top: 10px; }
+  .phase span { color: var(--primary); font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  .meter { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 15px; }
+  .meter b { font-family: Consolas, monospace; }
+  .beat {
+    width: 16px; height: 16px; border-radius: 50%; background: var(--success);
+    animation: beat 1s ease-in-out infinite;
+  }
+  @keyframes beat { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.55); opacity: .5; } }
+  .bars { display: flex; gap: 3px; height: 46px; align-items: flex-end; margin-top: 12px; direction: ltr; }
+  .bar { width: 10px; background: var(--success); border-radius: 2px 2px 0 0; }
+  .bar.jank { background: var(--danger); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🎨 Frontend Engineering · درس مصري مفصّل</div>
+  <h1>خيط واحد بس — والتزامن كله ترتيب طوابير</h1>
+  <div class="en">The JavaScript Event Loop: Tasks and Microtasks</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    شاشة في Angular بتجيب ٥٠ ألف صف من <code>/api/orders</code> وبعدين بتفلترهم وبترتّبهم جوه
+    الـ component. الـ endpoint بيرجع في ١٢٠ ملي ثانية، بس المستخدم بيقولك «الصفحة بتهنج ثانية كاملة».
+    تفتح تبويب Performance تلاقي <b>كتلة صفرا واحدة طولها ٩٠٠ ملي ثانية</b> — task واحد طويل.
+    في التسعمية دول: مفيش render، الـ spinner واقف، الـ click مش بيوصل، وحتى الـ
+    <code>console.log</code> اللي جوه <code>setTimeout(fn, 0)</code> مستني في الطابور.
+  </p>
+  <div class="callout info">
+    JavaScript بيشتغل بـ <strong>thread واحد</strong>. الـ event loop بيعمل نفس اللفّة على طول:
+    نفّذ task <b>للآخر</b> ← فضّي طابور الـ <b>microtasks</b> كله ← يمكن render ← الـ task اللي بعده.
+    مفيش «خلفية» إلا لو إنت عملتها: تسيب الخيط (<code>await</code> / تقسيم على tasks) أو تطلع بره
+    (<code>Web Worker</code>).
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتـ«تصلّح» الهنج بإنك تلف الحسبة التقيلة في
+    <code>setTimeout(fn, 0)</code> — نفس الـ task الطويل بس اتأجل، والهنج زي ما هو. وهتستغرب ليه
+    <code>Promise.then</code> بيسبق <code>setTimeout(fn, 0)</code>، وليه الـ <code>await</code>
+    «مش بيستنى»، وليه Angular بيعمل change detection في لحظات غريبة (zone.js بيعمل patch
+    للـ APIs دي بالظبط).
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: اللفّة نفسها</h2></div>
+  <div class="stage" id="loopStage">
+    <svg class="loop" viewBox="0 0 460 230">
+      <circle cx="230" cy="112" r="74" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="5 6"/>
+
+      <rect x="176" y="92" width="108" height="40" rx="8" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="230" y="110" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Call Stack</text>
+      <text x="230" y="125" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">task واحد للآخر</text>
+
+      <rect x="10" y="16" width="132" height="44" rx="8" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="76" y="34" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Task queue</text>
+      <text x="76" y="50" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">setTimeout · events · I/O</text>
+
+      <rect x="318" y="16" width="132" height="44" rx="8" fill="#1e293b" stroke="#34d399"/>
+      <text x="384" y="34" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Microtask queue</text>
+      <text x="384" y="50" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">.then · await · queueMicrotask</text>
+
+      <rect x="318" y="170" width="132" height="42" rx="8" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="384" y="188" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Render</text>
+      <text x="384" y="203" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">بعد ما الطابور يفضى</text>
+
+      <line x1="142" y1="42" x2="182" y2="92" stroke="#334155" stroke-width="2"/>
+      <line x1="318" y1="42" x2="280" y2="92" stroke="#334155" stroke-width="2"/>
+      <line x1="318" y1="188" x2="280" y2="130" stroke="#334155" stroke-width="2"/>
+
+      <g class="spinner">
+        <circle cx="230" cy="38" r="9" fill="#38bdf8"/>
+      </g>
+
+      <text x="230" y="222" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        الطابور الأخضر بيتفضّى بالكامل بعد كل task — قبل أي رسم وقبل أي task جديد
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="loopToggle">⏸ وقف اللفّة</button>
+    </div>
+  </div>
+  <p>
+    الترتيب مش رأي — هو مواصفة. <code>setTimeout(fn, 0)</code> معناه «حطّ <code>fn</code> في طابور
+    الـ tasks بعد ٠ ملي ثانية <b>على الأقل</b>»، مش «نفّذه حالاً». وطابور الـ microtasks بيتفضّى
+    <b>كله</b> — لو microtask جابت microtask تانية، دي كمان بتتنفّذ في نفس الدورة قبل أي رسم.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة على الكود الكلاسيكي</h2></div>
+<pre><code>console.log(<span class="s">'1'</span>);
+setTimeout(() =&gt; console.log(<span class="s">'2'</span>), 0);
+Promise.resolve().then(() =&gt; console.log(<span class="s">'3'</span>));
+console.log(<span class="s">'4'</span>);</code></pre>
+
+  <div class="stage">
+    <div class="machine">
+      <div class="bay" id="bayTask">
+        <div class="bay-label">Task queue (macrotasks)</div>
+        <div id="taskList"></div>
+      </div>
+      <div class="bay" id="bayStack">
+        <div class="bay-label">Call stack</div>
+        <div id="stackList"></div>
+      </div>
+      <div class="bay" id="bayMicro">
+        <div class="bay-label">Microtask queue</div>
+        <div id="microList"></div>
+      </div>
+    </div>
+    <div class="console" id="outBox"></div>
+    <div class="phase">المرحلة: <span id="phaseEl">—</span></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#14384d"></i> بيشتغل دلوقتي</span>
+      <span><i class="swatch" style="background:#34d399"></i> microtask</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> task</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">
+    الناتج النهائي <code>1, 4, 3, 2</code> — الـ sync الأول، بعده كل الـ microtasks، وأخيراً أول task.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>جرّب بنفسك: احجز الخيط أو سيبه</h2></div>
+  <p class="note">
+    العداد اللي تحت بيعدّ إطارات حقيقية بـ <code>requestAnimationFrame</code>. دوس الأحمر تشوف
+    النبضة بتقف فعلاً، ودوس الأخضر تشوفها ماشية وإحنا بنعمل نفس الشغل بالظبط.
+  </p>
+  <div class="stage">
+    <div class="meter">
+      <span class="beat" id="beat"></span>
+      <span>🎞 إطارات آخر ثانية: <b id="fps">0</b></span>
+      <span>⛔ أطول task: <b id="worst">0</b> ms</span>
+      <span>✅ الشغل المنجز: <b id="done">0</b> / 60</span>
+    </div>
+    <div class="bars" id="bars"></div>
+    <div class="console" id="demoLog"></div>
+  </div>
+  <div class="controls">
+    <button class="btn ghost" id="blockBtn">🔴 نفّذ الـ ٦٠ دفعة sync (task واحد)</button>
+    <button class="btn ghost" id="chunkBtn">🟢 نفّس الـ ٦٠ دفعة (yield كل دفعة)</button>
+    <button class="btn ghost" id="demoReset">↺ إعادة</button>
+  </div>
+  <p class="note">
+    كل عمود = إطار. الأعمدة الحمرا = فترة اللي المتصفّح مرسمش فيها حاجة. نفس عدد العمليات في
+    الحالتين — الفرق إنك سيبت الخيط بين الدفعات.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. Angular: فلترة ٥٠ ألف صف جوه الـ component</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ task واحد طويل</strong> — هنج ٩٠٠ ms</div>
+<pre><code><span class="k">async</span> load() {
+  <span class="k">const</span> rows = <span class="k">await</span> firstValueFrom(
+      <span class="k">this</span>.api.orders());        <span class="c">// 120 ms شبكة</span>
+  <span class="k">const</span> out: Row[] = [];
+  <span class="k">for</span> (<span class="k">const</span> r <span class="k">of</span> rows) out.push(score(r));
+  <span class="k">this</span>.rows.set(out);
+  <span class="c">// أطول task = 900 ms → مفيش render ولا click</span>
+}</code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ مقسّم على tasks</strong> — أطول task ١٤ ms</div>
+<pre><code><span class="k">async</span> load() {
+  <span class="k">const</span> rows = <span class="k">await</span> firstValueFrom(
+      <span class="k">this</span>.api.orders());
+  <span class="k">const</span> out: Row[] = [];
+  <span class="k">for</span> (<span class="k">let</span> i = 0; i &lt; rows.length; i++) {
+    out.push(score(rows[i]));
+    <span class="k">if</span> (i % 500 === 0)
+      <span class="k">await</span> <span class="k">new</span> Promise(r =&gt; setTimeout(r));
+  }
+  <span class="k">this</span>.rows.set(out);
+  <span class="c">// نفس المدة الكلية ~950 ms، بس الشاشة حيّة</span>
+}</code></pre>
+    </div>
+  </div>
+  <div class="callout info">
+    خُد بالك: <code>await new Promise(r =&gt; setTimeout(r))</code> بيسيب <b>task</b> — وده اللي بيخلي
+    المتصفح يرسم. أما <code>await Promise.resolve()</code> فبيسيب <b>microtask</b> بس، والـ render
+    مش بيحصل بين الـ microtasks. غلطة شايعة جداً.
+  </div>
+
+  <h3>ب. الـ <code>await</code> مش بيوقف الخيط</h3>
+<pre><code><span class="k">async function</span> f() {
+  console.log(<span class="s">'a'</span>);
+  <span class="k">await</span> <span class="k">null</span>;            <span class="c">// كل اللي بعد ده = microtask continuation</span>
+  console.log(<span class="s">'c'</span>);
+}
+f();
+console.log(<span class="s">'b'</span>);
+<span class="c">// → a, b, c   الدالة رجّعت عند الـ await، والباقي اتجدول</span></code></pre>
+
+  <h3>ج. الشغل التقيل بجد: Web Worker</h3>
+<pre><code><span class="c">// worker.ts — thread تاني، مفيش DOM ومفيش window</span>
+addEventListener(<span class="s">'message'</span>, e =&gt; postMessage(heavy(e.data)));
+
+<span class="c">// الـ component</span>
+<span class="k">const</span> w = <span class="k">new</span> Worker(<span class="k">new</span> URL(<span class="s">'./worker'</span>, <span class="k">import</span>.meta.url), { type: <span class="s">'module'</span> });
+w.onmessage = e =&gt; <span class="k">this</span>.rows.set(e.data);   <span class="c">// الرسالة بترجع كـ task عادي</span>
+w.postMessage(rows);                        <span class="c">// النقل نفسه بيتكلف (structured clone)</span></code></pre>
+  <div class="callout">
+    <strong>قاعدة عملية:</strong> لو الشغل أقل من ~٥٠ ms سيبه زي ما هو. من ٥٠ لـ ٥٠٠ ms قسّمه على
+    tasks. فوق كده وبيتكرر — Worker. وفي Angular لو حسبة مالهاش لازمة تولّع change detection،
+    شغّلها بـ <code>NgZone.runOutsideAngular</code> وارجع بـ <code>run</code> لما تخلص.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«<code>setTimeout(fn, 0)</code> معناه فوراً»</b> — معناه «بعد ما الـ task الحالي يخلص وكل
+      الـ microtasks تتفضّى». وبعد ٥ مستويات متداخلة المتصفح بيثبّته على ٤ ms كحد أدنى.</li>
+    <li><b>لف الحسبة التقيلة في <code>setTimeout</code> وخلاص</b> — الـ task لسه طوله ٩٠٠ ms، بس
+      اتأخر شوية. التقسيم هو الحل، مش التأجيل.</li>
+    <li><b>«الـ <code>await</code> بيوقف التنفيذ»</b> — الدالة بترجع عند أول <code>await</code>،
+      والباقي بيتجدول كـ microtask. الكود اللي بعد نداء الدالة بيشتغل قبله.</li>
+    <li><b>تجويع الرسم بـ microtasks</b> — loop بتعمل <code>queueMicrotask</code> أو
+      <code>.then</code> جوه نفسها بتمنع الـ render <b>للأبد</b>، لأن الطابور لازم يفضى قبل الرسم.
+      لو محتاج loop مستمر استخدم <code>requestAnimationFrame</code> أو <code>setTimeout</code>.</li>
+    <li><b>قياس بالحس بدل DevTools</b> — تبويب Performance: أي كتلة فوق ٥٠ ms هي jank حقيقي.
+      وفي Angular، طول الـ task بيشمل الـ change detection اللي اتسببت منه.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">
+      1. <code>Promise.resolve().then(A); setTimeout(B, 0);</code> — مين يشتغل الأول بعد ما الـ script
+      الحالي يخلص؟
+    </div>
+    <button class="opt">B — الـ timers مضبوطة بالوقت</button>
+    <button class="opt">A — الـ microtasks بتتفضّى قبل أي task جديد</button>
+    <button class="opt">ترتيب عشوائي حسب المتصفح</button>
+    <div class="feedback">
+      طابور الـ microtasks بيتفضّى بالكامل بعد الـ task الحالي، و<code>setTimeout</code> مستني في
+      طابور الـ tasks وراه — مهما كان التأخير ٠.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. عايز المتصفح يرسم في نص لفّة طويلة. تسيب الخيط بإيه؟</div>
+    <button class="opt"><code>await Promise.resolve()</code></button>
+    <button class="opt"><code>queueMicrotask(() =&gt; {})</code></button>
+    <button class="opt"><code>await new Promise(r =&gt; setTimeout(r))</code></button>
+    <div class="feedback">
+      الأولانيين microtasks — بيتفضّوا في نفس الدورة والرسم مبيحصلش بينهم. الـ
+      <code>setTimeout</code> بيسيب task حقيقي، والـ render بيحصل بين الـ tasks.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>خيط واحد بينفّذ كل task للآخر — فأي كود sync طويل بيجمّد الرسم والأحداث كلها، مش شاشتك بس.</li>
+    <li>الـ microtasks (<code>.then</code> و<code>await</code>) بتتفضّى بالكامل بعد كل task وقبل الرسم،
+      فهي دايماً بتسبق <code>setTimeout(fn, 0)</code>.</li>
+    <li>تسيب الخيط بـ task (<code>setTimeout</code>) عشان يرسم، وتطلع بره بـ Web Worker لما الشغل
+      يبقى تقيل بجد.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- loop animation toggle
+  var loopStage = document.getElementById('loopStage');
+  var loopToggle = document.getElementById('loopToggle');
+  loopToggle.addEventListener('click', function () {
+    var paused = loopStage.classList.toggle('paused');
+    loopToggle.textContent = paused ? '▶ شغّل اللفّة' : '⏸ وقف اللفّة';
+  });
+
+  // ---------------------------------------------------------------- the machine model
+  var stackList = document.getElementById('stackList');
+  var microList = document.getElementById('microList');
+  var taskList = document.getElementById('taskList');
+  var bayStack = document.getElementById('bayStack');
+  var bayMicro = document.getElementById('bayMicro');
+  var bayTask = document.getElementById('bayTask');
+  var outBox = document.getElementById('outBox');
+  var phaseEl = document.getElementById('phaseEl');
+
+  var model;
+  function resetModel() {
+    model = { stack: [], micro: [], tasks: [], out: [], phase: '—', microDone: false };
+  }
+  function fill(host, items, cls) {
+    host.innerHTML = '';
+    items.forEach(function (it) {
+      var d = document.createElement('div');
+      d.className = 'frame ' + cls + (it.running ? ' running' : '');
+      d.textContent = it.label;
+      host.appendChild(d);
+    });
+  }
+  function draw() {
+    fill(stackList, model.stack, '');
+    fill(microList, model.micro, 'micro');
+    fill(taskList, model.tasks, 'task');
+    bayStack.className = 'bay' + (model.stack.length ? ' hot' : '');
+    bayMicro.className = 'bay' + (model.microDone ? ' drained' : '');
+    bayTask.className = 'bay';
+    outBox.innerHTML = model.out.length
+      ? 'console: <b>' + model.out.join(', ') + '</b>'
+      : 'console: <span style="color:#94a3b8">(فاضي)</span>';
+    phaseEl.textContent = model.phase;
+  }
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      text: 'البداية: الـ script نفسه task. بيتحطّ على الـ call stack وبيشتغل للآخر — الطابورين فاضيين.',
+      run: function () {
+        model.stack = [{ label: 'script (task)', running: true }];
+        model.phase = 'running task: الـ script';
+      }
+    },
+    {
+      text: 'السطر الأول console.log(\'1\') كود sync عادي — بيتنفّذ فوراً على الاستاك. الناتج: 1.',
+      run: function () { model.out.push('1'); }
+    },
+    {
+      text: 'setTimeout(cb2, 0) مش بينفّذ حاجة — بيسلّم cb2 للمتصفح، والمتصفح بيحطّه في طابور الـ tasks. وبعده Promise.resolve().then(cb3): الـ promise محلولة أصلاً، ومع ذلك cb3 بيروح لطابور الـ microtasks مش للاستاك.',
+      run: function () {
+        model.tasks.push({ label: 'cb2 → log("2")' });
+        model.micro.push({ label: 'cb3 → log("3")' });
+        model.phase = 'لسه في نفس الـ task — بنجدول بس';
+      }
+    },
+    {
+      text: 'console.log(\'4\') sync كمان → الناتج: 4. لاحظ إن 4 سبق 3 مع إن 3 اتجدول قبله، لأن الـ sync بيخلص الأول.',
+      run: function () { model.out.push('4'); }
+    },
+    {
+      text: 'الـ script خلص → الاستاك فضي. هنا بالظبط الـ event loop بيبص على طابور الـ microtasks الأول ويفضّيه بالكامل: cb3 بيشتغل → الناتج 3. لو cb3 جدول microtask تانية كانت هي كمان اتنفّذت دلوقتي.',
+      run: function () {
+        model.stack = [];
+        model.micro = [];
+        model.out.push('3');
+        model.microDone = true;
+        model.phase = 'drain microtasks → بعدها مسموح render';
+      }
+    },
+    {
+      text: 'الطابور الأخضر فضي → المتصفح يقدر يرسم. وبعد كده بس ياخد أول task من الطابور الأصفر: cb2 بيشتغل → الناتج 2. الترتيب النهائي 1, 4, 3, 2.',
+      run: function () {
+        model.stack = [];
+        model.micro = [];
+        model.tasks = [];
+        model.out.push('2');
+        model.microDone = true;
+        model.phase = 'render ثم next task: cb2';
+      }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev');
+  var nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من الصفر عشان الرجوع يبقى صح
+    resetModel();
+    for (var i = 0; i <= step; i++) steps[i].run();
+    draw();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- blocking vs yielding demo
+  var BATCHES = 60, BATCH_MS = 12;
+  var fpsEl = document.getElementById('fps');
+  var worstEl = document.getElementById('worst');
+  var doneEl = document.getElementById('done');
+  var barsEl = document.getElementById('bars');
+  var demoLog = document.getElementById('demoLog');
+
+  var frames = 0, worst = 0, doneCount = 0, running = false;
+  var lastFrame = 0, gaps = [];
+
+  function tick(now) {
+    frames++;
+    if (lastFrame) {
+      var gap = now - lastFrame;
+      gaps.push(gap);
+      if (gaps.length > 46) gaps.shift();
+      if (running && gap > worst) worst = Math.round(gap);
+    }
+    lastFrame = now;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  setInterval(function () {
+    fpsEl.textContent = frames;
+    frames = 0;
+    drawBars();
+  }, 1000);
+
+  function drawBars() {
+    barsEl.innerHTML = '';
+    gaps.forEach(function (g) {
+      var b = document.createElement('div');
+      b.className = 'bar' + (g > 50 ? ' jank' : '');
+      b.style.height = Math.max(4, Math.min(46, g * 1.4)) + 'px';
+      barsEl.appendChild(b);
+    });
+  }
+
+  function burn(ms) {                       // شغل sync حقيقي، مش setTimeout
+    var end = performance.now() + ms;
+    var x = 0;
+    while (performance.now() < end) x += Math.sqrt(x + 1);
+    return x;
+  }
+  function setDone(n) { doneCount = n; doneEl.textContent = n; }
+  function log(html) { demoLog.innerHTML = html; }
+
+  function resetDemo() {
+    running = false;
+    worst = 0; gaps = [];
+    worstEl.textContent = '0';
+    setDone(0);
+    log('اختار طريقة وشوف عدّاد الإطارات والأعمدة.');
+    drawBars();
+  }
+
+  document.getElementById('blockBtn').addEventListener('click', function () {
+    if (running) return;
+    running = true; worst = 0; setDone(0);
+    log('بشتغل sync… الصفحة مقفولة دلوقتي.');
+    setTimeout(function () {                // ندي المتصفح فرصة يرسم الرسالة الأول
+      var t0 = performance.now();
+      burn(BATCHES * BATCH_MS);
+      setDone(BATCHES);
+      var total = Math.round(performance.now() - t0);
+      running = false;
+      worst = Math.max(worst, total);
+      worstEl.textContent = worst;
+      log('task واحد طوله <b>' + total + ' ms</b> — صفر render، صفر click، النبضة كانت واقفة.');
+    }, 60);
+  });
+
+  document.getElementById('chunkBtn').addEventListener('click', function () {
+    if (running) return;
+    running = true; worst = 0; setDone(0);
+    log('بشتغل مقسّم… بسيب الخيط بعد كل دفعة.');
+    var i = 0, t0 = performance.now();
+    function next() {
+      if (i >= BATCHES) {
+        running = false;
+        worstEl.textContent = worst;
+        log('نفس الشغل في <b>' + Math.round(performance.now() - t0) +
+            ' ms</b>، أطول task <b>' + worst + ' ms</b> — الصفحة فضلت بترسم.');
+        postHeight();
+        return;
+      }
+      burn(BATCH_MS);
+      setDone(++i);
+      setTimeout(next);                     // yield task → فرصة render
+    }
+    setTimeout(next, 60);
+  });
+
+  document.getElementById('demoReset').addEventListener('click', resetDemo);
+  resetDemo();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
