@@ -109,6 +109,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Stacks: LIFO and Its Surprising Uses",
       "file": "1-dsa/stacks-lifo-and-its-surprising-uses.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "SOLID IV: Interface Segregation Principle",
+      "file": "2-design-patterns/solid-iv-interface-segregation-principle.html"
     }
   ]
 }
