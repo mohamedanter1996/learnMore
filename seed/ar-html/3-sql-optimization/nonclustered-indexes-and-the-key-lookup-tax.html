@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nonclustered Indexes and the Key Lookup Tax — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .payload { width: 100%; height: 190px; }
+  .packet { animation: hop 3s ease-in-out infinite; }
+  @keyframes hop {
+    0%   { transform: translateX(0); opacity: 0; }
+    12%  { opacity: 1; }
+    50%  { transform: translateX(118px); opacity: 1; }
+    72%  { transform: translateX(118px); opacity: 1; }
+    100% { transform: translateX(118px); opacity: 0; }
+  }
+  .paused .packet { animation-play-state: paused; }
+
+  .twin { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .tcol { flex: 1 1 280px; min-width: 260px; }
+  .tcol h4 {
+    margin: 0 0 10px; font-size: 13px; color: var(--text-dim); text-align: center;
+    border-bottom: 1px solid var(--border); padding-bottom: 6px;
+  }
+  .lvl-name { color: var(--text-dim); font-size: 11px; text-align: center; margin-bottom: 5px; }
+  .level { display: flex; justify-content: center; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .node {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 8px; font-family: Consolas, monospace; direction: ltr; font-size: 11px;
+    color: var(--text-dim); transition: background .25s, border-color .25s, color .25s, transform .18s;
+    text-align: center; min-width: 74px;
+  }
+  .node .tag { display: block; font-size: 9px; color: var(--text-dim); opacity: .75; }
+  .node.active { background: #14384d; border-color: var(--primary); color: #bae6fd; transform: translateY(-2px); }
+  .node.found { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .node.scanned { background: rgba(248,113,113,.16); border-color: var(--danger); color: #fecaca; }
+  .node.dim { opacity: .35; }
+  .tcol.off { opacity: .4; }
+
+  .counters { display: flex; gap: 18px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+  .btn.sel { border-color: var(--primary); color: #bae6fd; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .verdict {
+    margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 8px;
+    background: var(--surface-2); border: 1px solid var(--border); min-height: 20px;
+  }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>الفهرس لقى الصف… بس مش شايل بياناته — دي ضريبة الـ Key Lookup</h1>
+  <div class="en">Nonclustered Indexes and the Key Lookup Tax</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عملت فهرس على <code>Orders (CustomerId)</code> عشان الاستعلام
+    <code>WHERE CustomerId = 42</code>. الاستعلام اللي بيرجع ٥ أوردرات بقى فوري.
+    وبعد شهر نفس الاستعلام لعميل عنده <b>٨٠٠٠ أوردر</b> رجع في ٣ ثواني، والخطة بتقول
+    <code>Clustered Index Scan</code> — الفهرس اللي إنت عملته <b>متجاهَل تماماً</b>.
+  </p>
+  <div class="callout info">
+    السبب: ورقة الـ <strong>nonclustered index</strong> مش فيها الصف كله. فيها
+    <strong>أعمدة المفتاح + مفتاح الـ clustering</strong> بس. أي عمود تاني في الـ <code>SELECT</code>
+    لازم يتجاب برحلة كاملة جوّه الـ clustered index — لكل صف لوحده. الرحلة دي اسمها
+    <strong>Key Lookup</strong>، وتمنها ٣–٤ قراءات منطقية في المرة.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتفضل تعمل فهارس والـ optimizer يرميها، وتقول «الإحصائيات قديمة»
+    وتعمل <code>UPDATE STATISTICS</code> من غير فايدة، وتحاول تفرض
+    <code>WITH (INDEX(...))</code> فتبقى أبطأ من الـ scan نفسه. المشكلة مش في الفهرس — في إن الفهرس
+    <em>مش مغطّي</em> الاستعلام.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <p class="note">الورقة اليمين فيها الصف كامل. الورقة الشمال فيها مفتاحين بس — فأي عمود زيادة = رحلة.</p>
+
+  <div class="stage" id="payloadStage">
+    <svg class="payload" viewBox="0 0 470 190">
+      <rect x="8" y="30" width="170" height="105" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="93" y="50" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">NC index leaf</text>
+      <text x="93" y="72" fill="#bae6fd" font-size="11" text-anchor="middle" font-family="Consolas">CustomerId = 42</text>
+      <text x="93" y="90" fill="#bae6fd" font-size="11" text-anchor="middle" font-family="Consolas">OrderId = 1001</text>
+      <text x="93" y="116" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">دول بس اللي متخزنين</text>
+
+      <rect x="292" y="20" width="170" height="130" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="377" y="40" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Segoe UI">Clustered leaf = الصف</text>
+      <text x="377" y="62" fill="#d1fae5" font-size="11" text-anchor="middle" font-family="Consolas">OrderId, CustomerId,</text>
+      <text x="377" y="80" fill="#d1fae5" font-size="11" text-anchor="middle" font-family="Consolas">OrderDate, Total,</text>
+      <text x="377" y="98" fill="#d1fae5" font-size="11" text-anchor="middle" font-family="Consolas">Status, ShipTo, …</text>
+      <text x="377" y="126" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">كل الأعمدة موجودة هنا</text>
+
+      <line x1="178" y1="82" x2="292" y2="82" stroke="#334155" stroke-width="2"/>
+
+      <g class="packet">
+        <rect x="180" y="68" width="110" height="28" rx="6" fill="#fbbf24"/>
+        <text x="235" y="86" fill="#3b2a05" font-size="10" text-anchor="middle" font-family="Segoe UI">Key Lookup · 3 قراءات</text>
+      </g>
+
+      <text x="235" y="172" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">
+        الرحلة دي بتتكرر لكل صف مطابق — مش مرة واحدة للاستعلام
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="payloadToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+
+  <h3>الشجرتين على الطبيعة — شغّل الاستعلام بنفسك</h3>
+  <p class="note">
+    اختار كام صف مطابق، وقرّر الفهرس يكون <code>INCLUDE</code> ولا لأ، وبعدين دوس «شغّل الاستعلام»
+    وبصّ على عدّاد الـ logical reads وعلى اسم الـ operator في الخطة.
+  </p>
+
+  <div class="stage">
+    <div class="twin">
+      <div class="tcol" id="ncCol">
+        <h4>IX_Orders_CustomerId (nonclustered)</h4>
+        <div class="lvl-name">root</div>
+        <div class="level" id="ncL0"></div>
+        <div class="lvl-name">intermediate</div>
+        <div class="level" id="ncL1"></div>
+        <div class="lvl-name">leaf = (CustomerId, OrderId) <span id="incTag"></span></div>
+        <div class="level" id="ncL2"></div>
+      </div>
+      <div class="tcol" id="clCol">
+        <h4>PK_Orders على OrderId (clustered)</h4>
+        <div class="lvl-name">root</div>
+        <div class="level" id="clL0"></div>
+        <div class="lvl-name">intermediate</div>
+        <div class="level" id="clL1"></div>
+        <div class="lvl-name">leaf = صفحات البيانات (الصفوف كاملة)</div>
+        <div class="level" id="clL2"></div>
+      </div>
+    </div>
+    <div class="counters">
+      <span>📄 Logical reads: <b id="reads">0</b></span>
+      <span>↩️ Key lookups: <b id="lookups">0</b></span>
+      <span>🎯 الخطة: <b id="planOp">—</b></span>
+    </div>
+    <div class="verdict" id="verdict">—</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost sel" data-rows="3">صفوف مطابقة: 3</button>
+    <button class="btn ghost" data-rows="200">200</button>
+    <button class="btn ghost" data-rows="5000">5000</button>
+  </div>
+  <div class="controls">
+    <button class="btn" id="runBtn">▶ شغّل الاستعلام</button>
+    <button class="btn ghost" id="coverBtn">🛡️ ضيف INCLUDE (OrderDate, Total)</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة</h2></div>
+  <p class="note">نفس الرسمة اللي فوق بتتحرك معاك. الرجوع بيعيد بناء الحالة من الأول، فجرّب تقدّم وترجع.</p>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي</h2></div>
+
+  <h3>أ. نفس الاستعلام، فهرس عادي مقابل فهرس مغطّي</h3>
+<pre><code>SET STATISTICS IO ON;
+
+<span class="c">-- الفهرس العادي: المفتاح بس</span>
+CREATE INDEX IX_Orders_CustomerId ON Orders (CustomerId);
+
+SELECT OrderDate, Total FROM Orders WHERE CustomerId = 42;
+<span class="c">-- Index Seek + Key Lookup  ·  1,000 صف  ·  logical reads 3,104</span>
+
+<span class="c">-- الفهرس المغطّي: نفس المفتاح + الأعمدة اللي بترجّعها</span>
+CREATE INDEX IX_Orders_CustomerId_Covering
+ON Orders (CustomerId)                 <span class="c">-- key: اللي بتدوّر وترتّب بيه</span>
+INCLUDE (OrderDate, Total);            <span class="c">-- payload في الأوراق بس</span>
+
+SELECT OrderDate, Total FROM Orders WHERE CustomerId = 42;
+<span class="c">-- Index Seek لوحده  ·  1,000 صف  ·  logical reads 9   ← صفر lookups</span></code></pre>
+
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ غير مغطّي</strong> — ضريبة لكل صف</div>
+<pre><code><span class="c">// 1,000 صف مطابق</span>
+3 (seek) + 1000 × 3 (lookup)
+= 3,104 logical reads</code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ مغطّي</strong> — الورقة فيها كل حاجة</div>
+<pre><code><span class="c">// نفس الـ 1,000 صف</span>
+9 صفحات فهرس متتابعة
+= 9 logical reads</code></pre>
+    </div>
+  </div>
+
+  <h3>ب. نقطة الانقلاب (tipping point) — ليه الفهرس بيتجاهَل خالص</h3>
+  <p>
+    الـ optimizer بيقارن بالتكلفة: لو الـ lookups المتوقعة أغلى من قراية الجدول كله، بيسيب الفهرس ويعمل
+    scan. النسبة بتلف حوالي <b>٠.٥٪–٢٪</b> من صفوف الجدول (مش رقم ثابت — بيتحسب من عدد الصفحات
+    والـ statistics).
+  </p>
+<pre><code><span class="c">-- جدول 5 مليون صف، 41,882 صفحة</span>
+SELECT OrderDate, Total FROM Orders WHERE CustomerId = 77;   <span class="c">-- 8,000 صف متوقعين</span>
+<span class="c">-- 8,000 × 3 = 24,000 random read  &gt;  41,882 sequential read؟ قريبة جداً</span>
+<span class="c">-- النتيجة: Clustered Index Scan. الفهرس موجود ومش مستخدم — وده قرار صح مش باج.</span></code></pre>
+  <div class="callout">
+    <strong>الترجمة العملية:</strong> «ليه الفهرس بتاعي مش شغال؟» في نص الحالات معناها «الفهرس مش مغطّي
+    والصفوف المطابقة كتير». العلاج <code>INCLUDE</code>، مش <code>INDEX</code> hint.
+  </div>
+
+  <h3>ج. في EF Core: الـ projection هو اللي بيخلّي التغطية ممكنة</h3>
+<pre><code><span class="c">// ❌ بيجيب الـ entity كله → كل أعمدة Orders → مفيش فهرس يقدر يغطّي</span>
+<span class="k">var</span> rows = <span class="k">await</span> db.Orders
+    .Where(o =&gt; o.CustomerId == 42)
+    .ToListAsync();
+
+<span class="c">// ✅ بترجّع عمودين → IX (CustomerId) INCLUDE (OrderDate, Total) يغطّي الاستعلام</span>
+<span class="k">var</span> rows = <span class="k">await</span> db.Orders
+    .Where(o =&gt; o.CustomerId == 42)
+    .Select(o =&gt; <span class="k">new</span> { o.OrderDate, o.Total })
+    .ToListAsync();</code></pre>
+  <div class="callout info">
+    ولو بتعرّف الفهرس من الـ model بدل SQL يدوي:
+    <code>modelBuilder.Entity&lt;Order&gt;().HasIndex(o =&gt; o.CustomerId).IncludeProperties(o =&gt; new { o.OrderDate, o.Total });</code>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>حشر أعمدة التغطية في المفتاح</b> —
+      <code>ON Orders (CustomerId, OrderDate, Total)</code> بدل <code>INCLUDE</code>. أعمدة المفتاح
+      مترتّبة ومتكرّرة في <u>كل</u> مستويات الشجرة، فالفهرس يتخن والصيانة تغلى. المفتاح للـ
+      <code>WHERE</code> والـ <code>ORDER BY</code> بس.</li>
+    <li><b><code>SELECT *</code></b> — بيخلي التغطية مستحيلة عملياً (هتعمل INCLUDE للجدول كله؟)،
+      وأي عمود جديد في الجدول بيكسر التغطية بأثر رجعي.</li>
+    <li><b>فهرس لكل استعلام</b> — ٢٠ فهرس على جدول كتابة عالية معناها كل <code>INSERT</code> بيصيان
+      ٢٠ شجرة. راجع الفهارس المتشابهة: فهرس <code>(CustomerId)</code> بيبقى زيادة لو عندك
+      <code>(CustomerId, Status)</code>.</li>
+    <li><b>فرض الفهرس بـ hint لما الخطة تعمل scan</b> —
+      <code>WITH (INDEX(IX_Orders_CustomerId))</code> بيحوّل الـ scan لـ ٢٤ ألف lookup عشوائي. الـ
+      optimizer كان صح؛ غيّر الفهرس مش الخطة.</li>
+    <li><b>ترتيب أعمدة المفتاح غلط</b> — المساواة الأول بعدين المدى/الترتيب. فهرس
+      <code>(OrderDate, CustomerId)</code> مش بينفع كويس مع
+      <code>WHERE CustomerId = 42 AND OrderDate &gt;= @d</code>؛ العكس هو الصح. وقيس دايماً بـ
+      <code>SET STATISTICS IO ON</code> — الثواني بيكدب عليك بسبب الـ cache، عدد الـ logical reads لأ.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. الخطة بتوريك <code>Key Lookup</code> لكل صف جاي من فهرس nonclustered. معنى كده:</div>
+    <button class="opt">الفهرس بايظ ومحتاج rebuild</button>
+    <button class="opt">أعمدة الاستعلام مش جوّه الفهرس، فبيروح للـ clustered index لكل صف</button>
+    <button class="opt">الإحصائيات قديمة</button>
+    <div class="feedback">
+      ورقة الـ NC فيها أعمدة المفتاح + مفتاح الـ clustering بس. الأعمدة الناقصة لازم تتجاب من الصف
+      نفسه — والعلاج <code>INCLUDE</code> مش rebuild ولا UPDATE STATISTICS.
+    </div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. أعمدة <code>INCLUDE</code> بتختلف عن أعمدة المفتاح في إنها:</div>
+    <button class="opt">متخزنة مترتّبة زيها بالظبط</button>
+    <button class="opt">موجودة في الأوراق بس ومش مترتّبة — تنفع للتغطية مش للـ seek أو الترتيب</button>
+    <button class="opt">مينفعش تكون nullable</button>
+    <div class="feedback">
+      الـ INCLUDE payload رخيص في الصيانة ومش محسوب على حدود حجم المفتاح، بس القدرة على الـ
+      seek/sort بتجيلك من أعمدة المفتاح لوحدها.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>ورقة الـ nonclustered index فيها المفتاح + مفتاح الـ clustering بس، فأي عمود زيادة في الـ
+      <code>SELECT</code> تمنه رحلة <b>Key Lookup</b> لكل صف.</li>
+    <li>لما الصفوف المطابقة تكتر، الـ optimizer بيحسب إن الـ lookups أغلى من الـ scan فيرمي الفهرس —
+      ودي إجابة سؤال «ليه الفهرس بتاعي مش مستخدم؟».</li>
+    <li>غطّي الاستعلام: المفتاح لأعمدة الـ <code>WHERE</code>/<code>ORDER BY</code>،
+      و<code>INCLUDE</code> لأعمدة الـ <code>SELECT</code> — واثبت الفرق بـ logical reads مش بالثواني.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- payload animation toggle
+  var payloadStage = document.getElementById('payloadStage');
+  var payloadToggle = document.getElementById('payloadToggle');
+  payloadToggle.addEventListener('click', function () {
+    var paused = payloadStage.classList.toggle('paused');
+    payloadToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- the two trees
+  var ncLeaves = ['40–41', '42 ×3', '43–58', '59–99'];
+  var ncMids = ['1–42', '43–99'];
+  var clLeaves = ['1001–1200', '1201–1400', '1401–1600', '1601–1800', '1801–2000'];
+  var clMids = ['1001–1400', '1401–2000'];
+  var lookupOrder = [1, 3, 0, 4, 2];   // الـ lookups بتنزل على صفحات مبعترة، مش ورا بعضها
+
+  var ncNodes = { root: null, mids: [], leaves: [] };
+  var clNodes = { root: null, mids: [], leaves: [] };
+
+  function makeNode(html, tag) {
+    var n = document.createElement('div');
+    n.className = 'node';
+    n.innerHTML = html + (tag ? ' <span class="tag">' + tag + '</span>' : '');
+    return n;
+  }
+  function buildTree(prefix, store, rootLabel, mids, leaves, leafTag) {
+    var l0 = document.getElementById(prefix + 'L0');
+    var l1 = document.getElementById(prefix + 'L1');
+    var l2 = document.getElementById(prefix + 'L2');
+    l0.innerHTML = ''; l1.innerHTML = ''; l2.innerHTML = '';
+    store.mids = []; store.leaves = [];
+    store.root = makeNode(rootLabel, 'root');
+    l0.appendChild(store.root);
+    mids.forEach(function (m) {
+      var n = makeNode(m, 'index page');
+      l1.appendChild(n);
+      store.mids.push(n);
+    });
+    leaves.forEach(function (lf) {
+      var n = makeNode(lf, leafTag);
+      l2.appendChild(n);
+      store.leaves.push(n);
+    });
+  }
+  buildTree('nc', ncNodes, 'CustomerId 1…99', ncMids, ncLeaves, 'leaf');
+  buildTree('cl', clNodes, 'OrderId 1001…2000', clMids, clLeaves, 'data page');
+
+  var readsEl = document.getElementById('reads');
+  var lookupsEl = document.getElementById('lookups');
+  var planEl = document.getElementById('planOp');
+  var verdictEl = document.getElementById('verdict');
+  var incTag = document.getElementById('incTag');
+  var ncCol = document.getElementById('ncCol'), clCol = document.getElementById('clCol');
+  var coverBtn = document.getElementById('coverBtn');
+
+  var covering = false, rows = 3, timer = null;
+
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function allNodes() {
+    return [ncNodes.root, clNodes.root]
+      .concat(ncNodes.mids, ncNodes.leaves, clNodes.mids, clNodes.leaves);
+  }
+  function clearMarks() {
+    allNodes().forEach(function (n) { n.classList.remove('active', 'found', 'scanned', 'dim'); });
+    ncCol.classList.remove('off');
+    clCol.classList.remove('off');
+  }
+  function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+
+  // seekPages: كام صفحة فهرس الـ seek بيقراها (بتكبر مع عدد الصفوف)
+  function seekPages() {
+    if (rows <= 3) return 3;
+    if (rows <= 200) return covering ? 5 : 4;
+    return covering ? 18 : 6;
+  }
+
+  // الحالة كلها بترسم من الصفر — عشان الرجوع في الـ stepper يبقى صح
+  function paint(s) {
+    clearMarks();
+    var reads = 0, lk = 0, plan = '—', verdict = '—';
+
+    if (s.nc === 'seek') {
+      ncNodes.root.classList.add('active');
+      ncNodes.mids[0].classList.add('active');
+      ncNodes.leaves[1].classList.add('found');
+      reads = seekPages();
+      plan = s.covering ? 'Index Seek (covering)' : 'Index Seek';
+    } else if (s.nc === 'skip') {
+      ncCol.classList.add('off');
+      allNodes().forEach(function (n) { if (ncCol.contains(n)) n.classList.add('dim'); });
+    }
+
+    if (s.covering) {
+      clCol.classList.add('off');
+      verdict = 'الأوراق فيها OrderDate و Total كمان → الاستعلام خلص جوّه الفهرس. صفر lookups.';
+    }
+
+    if (s.lookups) {
+      lk = s.lookups;
+      clNodes.root.classList.add('active');
+      clNodes.mids[0].classList.add('active');
+      clNodes.mids[1].classList.add('active');
+      var shown = Math.min(lk, clNodes.leaves.length);
+      for (var i = 0; i < shown; i++) clNodes.leaves[lookupOrder[i]].classList.add('found');
+      reads += lk * 3;
+      plan = 'Index Seek + Key Lookup';
+      verdict = 'كل صف مطابق = ٣ قراءات زيادة. ' + fmt(lk) + ' صف × 3 = ' + fmt(lk * 3) +
+                ' قراءة فوق الـ seek.';
+    }
+
+    if (s.scan) {
+      clNodes.root.classList.add('active');
+      clNodes.mids.forEach(function (n) { n.classList.add('active'); });
+      var upTo = s.scanUpTo === undefined ? clNodes.leaves.length : s.scanUpTo;
+      for (var j = 0; j < upTo; j++) clNodes.leaves[j].classList.add('scanned');
+      reads = 41882;
+      lk = 0;
+      plan = 'Clustered Index Scan';
+      verdict = 'الـ optimizer حسب إن ' + fmt(rows) + ' lookup أغلى من قراية الجدول كله → رمى الفهرس. ' +
+                'الفهرس موجود ومش مستخدم، وده قرار صح.';
+    }
+
+    if (s.nc === 'none' && !s.scan) { verdict = 'لسه مقريناش أي صفحة. دوس «شغّل الاستعلام».'; }
+
+    readsEl.textContent = fmt(reads);
+    lookupsEl.textContent = fmt(lk);
+    planEl.textContent = plan;
+    verdictEl.textContent = verdict;
+  }
+
+  function syncControls() {
+    incTag.textContent = covering ? '+ INCLUDE (OrderDate, Total)' : '';
+    coverBtn.textContent = covering
+      ? '🧹 شيل الـ INCLUDE'
+      : '🛡️ ضيف INCLUDE (OrderDate, Total)';
+    coverBtn.classList.toggle('sel', covering);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-rows]'), function (b) {
+      b.classList.toggle('sel', parseInt(b.getAttribute('data-rows'), 10) === rows);
+    });
+  }
+
+  function resetDemo() {
+    stopTimer();
+    paint({ nc: 'none' });
+    syncControls();
+  }
+
+  function runQuery() {
+    stopTimer();
+    syncControls();
+
+    // فوق نقطة الانقلاب وبدون تغطية → الـ optimizer بيسيب الفهرس ويعمل scan
+    var flips = !covering && rows >= 5000;
+
+    if (flips) {
+      var k = 0;
+      paint({ nc: 'skip', scan: true, scanUpTo: 0 });
+      timer = setInterval(function () {
+        k++;
+        paint({ nc: 'skip', scan: true, scanUpTo: k });
+        if (k >= clNodes.leaves.length) stopTimer();
+      }, 380);
+      return;
+    }
+
+    paint({ nc: 'seek', covering: covering });
+    if (covering) return;
+
+    var steps = Math.min(rows, 5);
+    var i = 0;
+    timer = setInterval(function () {
+      i++;
+      // آخر فريم بيقفز للعدد الحقيقي عشان الأرقام تبقى صادقة
+      var count = (i >= steps) ? rows : i;
+      paint({ nc: 'seek', covering: false, lookups: count });
+      if (i >= steps) stopTimer();
+    }, 450);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-rows]'), function (b) {
+    b.addEventListener('click', function () {
+      rows = parseInt(b.getAttribute('data-rows'), 10);
+      resetDemo();
+    });
+  });
+  coverBtn.addEventListener('click', function () { covering = !covering; resetDemo(); });
+  document.getElementById('runBtn').addEventListener('click', runQuery);
+  document.getElementById('resetBtn').addEventListener('click', resetDemo);
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      text: 'الاستعلام: SELECT OrderDate, Total FROM Orders WHERE CustomerId = 42. الفهرس على (CustomerId) بس، ' +
+            'و٣ صفوف مطابقة. لسه مفيش أي قراءة.',
+      run: function () { covering = false; rows = 3; syncControls(); paint({ nc: 'none' }); }
+    },
+    {
+      text: 'الـ seek في شجرة الفهرس: root ← intermediate ← leaf = ٣ قراءات. لقى الـ OrderIds بتاعة ' +
+            'العميل 42 بسرعة… بس الورقة فيها CustomerId و OrderId بس.',
+      run: function () { covering = false; rows = 3; syncControls(); paint({ nc: 'seek' }); }
+    },
+    {
+      text: 'الصف الأول: OrderDate و Total مش موجودين. رحلة Key Lookup جوّه الـ clustered index بالـ ' +
+            'OrderId = ٣ قراءات زيادة. المجموع بقى ٦.',
+      run: function () { covering = false; rows = 3; syncControls(); paint({ nc: 'seek', lookups: 1 }); }
+    },
+    {
+      text: 'نفس الحكاية للصف التاني والتالت — وكل lookup على صفحة بيانات مبعترة، مش ورا اللي قبلها. ' +
+            '٣ صفوف = ٩ قراءات إضافية فوق الـ seek.',
+      run: function () { covering = false; rows = 3; syncControls(); paint({ nc: 'seek', lookups: 3 }); }
+    },
+    {
+      text: 'دلوقتي عميل عنده ٥٠٠٠ أوردر: ١٥ ألف قراءة عشوائية. الـ optimizer بيقارن بتكلفة قراية ' +
+            'الجدول كله ويختار الـ scan — الفهرس اللي إنت عملته بيتجاهَل بالكامل.',
+      run: function () { covering = false; rows = 5000; syncControls(); paint({ nc: 'skip', scan: true }); }
+    },
+    {
+      text: 'العلاج: INCLUDE (OrderDate, Total). الأعمدة بقت في أوراق الفهرس نفسه، فالـ seek بيجاوب ' +
+            'الاستعلام كامل — صفر lookups، والـ clustered index مش بيتلمس أصلاً.',
+      run: function () { covering = true; rows = 3; syncControls(); paint({ nc: 'seek', covering: true }); }
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stopTimer();
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    steps[step].run();          // كل خطوة بترسم الحالة كاملة من الصفر
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+
+  resetDemo();
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

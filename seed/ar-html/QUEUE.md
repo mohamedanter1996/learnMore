@@ -51,8 +51,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Design Patterns` — SOLID IV: Interface Segregation Principle → `2-design-patterns/solid-iv-interface-segregation-principle.html`
 
-## Queue (130)
-- [ ] 19. `SQL Server Optimization` — Nonclustered Indexes and the Key Lookup Tax → `3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html`
+- [x] `SQL Server Optimization` — Nonclustered Indexes and the Key Lookup Tax → `3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html`
+
+## Queue (129)
 - [ ] 20. `System Design` — Stateless Services and Session Management → `4-system-design/stateless-services-and-session-management.html`
 - [ ] 21. `Frontend Engineering` — Closures: The Feature Behind Everything → `5-frontend/closures-the-feature-behind-everything.html`
 - [ ] 22. `Data Structures & Algorithms` — Queues: FIFO, Deques, and PriorityQueue → `1-dsa/queues-fifo-deques-and-priorityqueue.html`

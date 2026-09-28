@@ -114,6 +114,11 @@
       "topic": "Design Patterns",
       "title": "SOLID IV: Interface Segregation Principle",
       "file": "2-design-patterns/solid-iv-interface-segregation-principle.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Nonclustered Indexes and the Key Lookup Tax",
+      "file": "3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html"
     }
   ]
 }
