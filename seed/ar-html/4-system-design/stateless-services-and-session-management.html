@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stateless Services and Session Management — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .farm { width: 100%; height: 190px; }
+  .packet-a { animation: to-a 3s ease-in-out infinite; }
+  .packet-b { animation: to-b 3s ease-in-out infinite; animation-delay: 1.5s; }
+  @keyframes to-a {
+    0%   { transform: translate(0, 0);        opacity: 0; }
+    10%  { opacity: 1; }
+    40%  { transform: translate(150px, 0);    opacity: 1; }
+    60%  { transform: translate(150px, 0);    opacity: 1; }
+    92%  { transform: translate(245px, -55px); opacity: 1; }
+    100% { transform: translate(245px, -55px); opacity: 0; }
+  }
+  @keyframes to-b {
+    0%   { transform: translate(0, 0);        opacity: 0; }
+    10%  { opacity: 1; }
+    40%  { transform: translate(150px, 0);    opacity: 1; }
+    60%  { transform: translate(150px, 0);    opacity: 1; }
+    92%  { transform: translate(245px, 50px); opacity: 1; }
+    100% { transform: translate(245px, 50px); opacity: 0; }
+  }
+  .paused .packet-a, .paused .packet-b { animation-play-state: paused; }
+
+  .rack { display: flex; flex-direction: row-reverse; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .box {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; min-width: 130px; text-align: center; font-size: 13px;
+    color: var(--text-dim); transition: all .3s ease;
+  }
+  .box .tag { display: block; font-size: 10px; color: #64748b; direction: ltr; margin-top: 3px; }
+  .box.hit { background: #14384d; border-color: var(--primary); color: #bae6fd; transform: translateY(-3px); }
+  .box.ok { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .box.fail { background: rgba(248,113,113,.16); border-color: var(--danger); color: #fecaca; }
+  .box.dead { opacity: .4; border-style: dashed; }
+  .insts { display: flex; flex-direction: column; gap: 8px; }
+  .chip {
+    display: inline-block; border: 1px dashed var(--border); border-radius: 999px;
+    padding: 5px 12px; font-size: 12px; color: var(--text-dim); direction: ltr;
+  }
+  .chip.ok { border-color: var(--success); border-style: solid; color: #d1fae5; }
+  .chip.fail { border-color: var(--danger); border-style: solid; color: #fecaca; }
+
+  .fleet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; min-width: 460px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--border); margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--primary); transition: width .3s ease; }
+  .logbox {
+    background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin-top: 12px;
+    font-size: 13px; min-height: 92px; direction: rtl;
+  }
+  .logbox div { margin-bottom: 4px; }
+  .logbox .bad { color: #fecaca; }
+  .logbox .good { color: #d1fae5; }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🌐 System Design · درس مصري مفصّل</div>
+  <h1>لو مقدرتش تقتل أي instance في عز الضهر — إنت مش stateless</h1>
+  <div class="en">Stateless Services and Session Management</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك API بـ ASP.NET Core شغال على instance واحد وتمام. المرور زاد، فطلعت ٣ instances ورا
+    load balancer بـ round robin. نفس الكود بالحرف، من غير أي deploy جديد للكود نفسه — وفجأة:
+    المستخدمين بيتسجل خروجهم كل شوية، وعربية التسوق بتفضى، والملفات المرفوعة بترجع
+    <code>404</code>.
+  </p>
+  <p>
+    الأرقام من الـ logs: <b>٦٧٪</b> من الـ requests بترجع <code>401</code> (اتنين من كل تلاتة بيروحوا
+    لـ instance غير اللي سجّلت الدخول عليه)، والـ <code>/api/cart</code> بيرجع سلة فاضية ٢ من كل ٣ مرات.
+    مفيش exception في الـ logs خالص — الكود «شغال»، الافتراضات هي اللي ماتت.
+  </p>
+  <div class="callout info">
+    الخدمة الـ <strong>stateless</strong> مش بتحتفظ بأي حاجة في ذاكرة البروسيس بين الـ requests.
+    فأي instance يخدم أي request، والـ load balancing يبقى تافه، والـ deploy والـ crash والـ autoscale
+    كلهم <b>أحداث عادية</b> محدش بيحس بيها.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفكر إن المشكلة في Redis أو في الـ JWT expiry أو في CORS،
+    وهتشغّل <b>sticky sessions</b> عشان الوجع يسكت — وتكون دفنت المشكلة مكان ما تقوم تاني في أول
+    deploy، وفي الوقت اللي سيرفر واحد بيولع والتانيين فاضيين.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الـ request مش بيرجع لنفس السيرفر</h2></div>
+  <div class="stage" id="busStage">
+    <svg class="farm" viewBox="0 0 470 190" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="70" width="90" height="56" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="55" y="94" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Browser</text>
+      <text x="55" y="112" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">cookie واحد</text>
+
+      <rect x="160" y="70" width="90" height="56" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="205" y="94" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">LB</text>
+      <text x="205" y="112" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">round robin</text>
+
+      <rect x="330" y="15" width="130" height="52" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="395" y="37" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Instance A</text>
+      <text x="395" y="54" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">ذاكرته الخاصة</text>
+
+      <rect x="330" y="122" width="130" height="52" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="395" y="144" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Instance B</text>
+      <text x="395" y="161" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="Segoe UI">ذاكرته الخاصة</text>
+
+      <line x1="100" y1="98" x2="160" y2="98" stroke="#334155" stroke-width="2"/>
+      <line x1="250" y1="98" x2="330" y2="41" stroke="#334155" stroke-width="2"/>
+      <line x1="250" y1="98" x2="330" y2="148" stroke="#334155" stroke-width="2"/>
+
+      <g class="packet-a">
+        <rect x="104" y="86" width="50" height="24" rx="6" fill="#38bdf8"/>
+        <text x="129" y="103" fill="#0c2431" font-size="10" text-anchor="middle" font-family="Segoe UI">req 1</text>
+      </g>
+      <g class="packet-b">
+        <rect x="104" y="86" width="50" height="24" rx="6" fill="#38bdf8"/>
+        <text x="129" y="103" fill="#0c2431" font-size="10" text-anchor="middle" font-family="Segoe UI">req 2</text>
+      </g>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="busToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الـ browser شايف «سيرفر» واحد، بس مفيش حاجة بتضمن إن request رقم ٢ يوصل لنفس البروسيس بتاع
+    request رقم ١. فأي حاجة حفظتها في <code>IMemoryCache</code> أو في <code>static</code> field أو في
+    session داخل الذاكرة — بالنسبة للـ request الجاي <b>مش موجودة</b>.
+  </p>
+
+  <h3>جرّب بنفسك: بعت requests وشوف اللي بيحصل</h3>
+  <div class="controls">
+    <button class="btn" data-mode="memory">🧠 session في الذاكرة + مفاتيح محلية</button>
+    <button class="btn ghost" data-mode="sticky">🧲 sticky sessions</button>
+    <button class="btn ghost" data-mode="redis">✅ Redis + مفاتيح مشتركة</button>
+  </div>
+  <div class="stage">
+    <div class="fleet" id="fleet"></div>
+    <div class="counters">
+      <span>📨 Requests: <b id="totalCount">0</b></span>
+      <span>✅ نجحت: <b id="okCount">0</b></span>
+      <span>❌ خروج/سلة ضايعة: <b id="failCount">0</b></span>
+      <span>⚙️ الوضع: <b id="modeLabel">—</b></span>
+    </div>
+    <div class="logbox" id="demoLog"></div>
+  </div>
+  <div class="controls">
+    <button class="btn" id="sendBtn">📨 ابعت request</button>
+    <button class="btn ghost" id="send9Btn">📨 ابعت ٩ requests</button>
+    <button class="btn ghost" id="killBtn">💀 اقتل Instance A (deploy)</button>
+    <button class="btn ghost" id="resetDemoBtn">↺ إعادة</button>
+  </div>
+  <p class="note">
+    بصّ على توزيع الأعمدة في وضع الـ sticky — سيرفر واحد شايل كل الحمل. وبعدين اقتله وشوف كام
+    مستخدم اتسجّل خروجه في اللحظة دي.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: bug الـ «random logouts»</h2></div>
+  <p class="note">
+    ده أشهر bug في الدنيا لما تعمل scale-out لـ ASP.NET Core. لازم تعرفه <b>قبل</b> ما يحصل لك.
+  </p>
+
+  <div class="stage">
+    <div class="rack">
+      <div class="box" id="stepLb">Load Balancer<span class="tag">round robin</span></div>
+      <div class="insts">
+        <div class="box" id="stepA">Instance A<span class="tag" id="stepKeyA">keyring: local A</span></div>
+        <div class="box" id="stepB">Instance B<span class="tag" id="stepKeyB">keyring: —</span></div>
+      </div>
+    </div>
+    <div style="margin-top:12px"><span class="chip" id="stepCookie">🍪 مفيش cookie لسه</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. الـ DataProtection — السطرين اللي بيوقفوا الخروج العشوائي</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ الافتراضي مع ٣ instances</strong></div>
+<pre><code><span class="c">// مفيش أي إعداد → كل instance بيولّد keyring لوحده</span>
+builder.Services.AddAuthentication()
+    .AddCookie();
+
+<span class="c">// النتيجة في الإنتاج:</span>
+<span class="c">// 6,400 × 401 في الساعة، و 67% من الـ requests</span>
+<span class="c">// بترجع للـ login page</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ keyring مشترك</strong></div>
+<pre><code><span class="k">var</span> redis = ConnectionMultiplexer.Connect(<span class="s">"redis:6379"</span>);
+
+builder.Services.AddDataProtection()
+    .SetApplicationName(<span class="s">"learnmore"</span>)
+    .PersistKeysToStackExchangeRedis(redis, <span class="s">"DataProtection-Keys"</span>);
+
+<span class="c">// 401 من الـ scale-out: صفر. التكلفة: قراءة واحدة</span>
+<span class="c">// للمفاتيح عند الإقلاع (~3 ms)، وبعدها من الكاش.</span></code></pre>
+    </div>
+  </div>
+  <div class="callout info">
+    <code>SetApplicationName</code> مش تفصيلة شكلية: الـ keyring بيتشتق بـ purpose فيه اسم التطبيق.
+    مفاتيح مشتركة + أسماء تطبيق مختلفة = نفس الـ bug بالظبط، وإنت فاكر إنك حلّيته.
+  </div>
+
+  <h3>ب. الـ session: من الذاكرة لـ Redis</h3>
+<pre><code><span class="c">// ❌ قبل: السلة في ذاكرة البروسيس — تضيع مع كل deploy ومع كل instance تاني</span>
+<span class="k">private static readonly</span> ConcurrentDictionary&lt;<span class="k">string</span>, Cart&gt; _carts = <span class="k">new</span>();
+_carts[userId] = cart;                       <span class="c">// 3 instances → 67% cache miss</span>
+
+<span class="c">// ✅ بعد: مخزن مشترك، أي instance يشوف نفس الحاجة</span>
+builder.Services.AddStackExchangeRedisCache(o =&gt; o.Configuration = <span class="s">"redis:6379"</span>);
+builder.Services.AddSession();
+
+<span class="k">public async</span> Task SaveCart(<span class="k">string</span> userId, Cart cart, IDistributedCache cache) =&gt;
+    <span class="k">await</span> cache.SetStringAsync(<span class="s">$"cart:{userId}"</span>, JsonSerializer.Serialize(cart),
+        <span class="k">new</span> DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromHours(2) });</code></pre>
+  <p class="note">
+    التمن الحقيقي: قراءة الذاكرة المحلية ~٥٠ نانو ثانية، وقراءة Redis على نفس الشبكة ~١.٢ ملي ثانية.
+    بتدفع ملي ثانية في الـ request عشان تكسب إنك تقتل أي instance في أي لحظة. مقايضة كسبانة.
+  </p>
+
+  <h3>ج. الاستثناء الشرعي: SignalR</h3>
+<pre><code><span class="c">// الاتصال المفتوح فعلاً بيعيش على سيرفر واحد — ده stateful بطبيعته.</span>
+<span class="c">// الحل مش sticky بس، الحل backplane عشان السيرفرات تكلّم بعضها:</span>
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(<span class="s">"redis:6379"</span>);</code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>sticky sessions كعمارة مش كعكاز</b> — بتخفي المشكلة وتجيب تلاتة مكانها: توزيع أعرج، وdeploy
+      بيسجّل خروج ناس، وسيرفر واحد بيولع والباقي فاضي. مقبولة كمرحلة هجرة مؤقتة، وبس.</li>
+    <li><b>مفاتيح DataProtection مشتركة بأسماء تطبيق مختلفة</b> — نسيت <code>SetApplicationName</code>
+      فالـ purpose مختلف، والـ cookie لسه مش بتتفك. الـ bug شكله «Redis مش بيشتغل».</li>
+    <li><b><code>static</code> field أو <code>IMemoryCache</code> كمصدر حقيقة</b> — عداد rate limit،
+      أو feature flag، أو «آخر مرة عملنا sync». كل instance عنده نسخته، والأرقام بتبقى غلط ٣ أضعاف.</li>
+    <li><b>ملفات مرفوعة على القرص المحلي</b> — انحفظت على A وطُلبت من B فبقت <code>404</code>،
+      وأول ما الـ container يتغيّر تروح خالص. مكانها object storage.</li>
+    <li><b><code>BackgroundService</code> أو timer في كل instance</b> — ٣ instances = الـ job بيشتغل
+      ٣ مرات: ٣ إيميلات للعميل و٣ خصومات. عايز leader election أو scheduler برّه التطبيق.</li>
+    <li><b>«JWT خلاص بقيت stateless»</b> — لحد ما تحتاج تسحب توكن قبل ميعاده؛ الـ revocation list
+      حالة مشتركة لازم تعيش في مخزن مشترك.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. اتنين instances من ASP.NET Core ورا load balancer، والمستخدمين بيتسجل خروجهم عشوائياً. أرجح سبب؟</div>
+    <button class="opt">مدة الـ JWT قصيرة جداً</button>
+    <button class="opt">مفاتيح DataProtection مش مشتركة — B مش قادر يفك cookie صادرة من A</button>
+    <button class="opt">Redis واقع</button>
+    <button class="opt">إعداد CORS غلط</button>
+    <div class="feedback">الـ auth cookie بتتشفر بمفاتيح DataProtection. لو مش متخزنة في مكان مشترك، كل instance بيولّد مفاتيحه، فالـ cookie بتبقى مفهومة على السيرفر اللي أصدرها بس.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إيه الاختبار العملي اللي بيقولك إنك stateless بما يكفي؟</div>
+    <button class="opt">إن الكود مفيهوش <code>static</code> خالص</button>
+    <button class="opt">إن الـ session محفوظة في Redis</button>
+    <button class="opt">إني أقدر أقتل أي instance في عز الضهر من غير أثر على أي مستخدم</button>
+    <div class="feedback">ده الاختبار اللي بيقيس النتيجة مش الوسيلة. لو عدّيته، تبقى الـ deploy والـ crash والـ autoscale كلهم أحداث عادية — وده بالظبط اللي بيخلي الـ containers والـ serverless ممكنين من الأساس.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>Stateless = مفيش حاجة في ذاكرة البروسيس بين الـ requests، فأي instance يخدم أي request.</li>
+    <li>الحالة ليها بيوت معروفة: الهوية في توكن/cookie، الـ session في Redis، الملفات في object storage، ومفاتيح الـ DataProtection مشتركة.</li>
+    <li>الـ sticky sessions تأجيل للمشكلة مش حل — والاستثناء الشرعي الوحيد هو الاتصالات المفتوحة زي SignalR، ومعاها backplane.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram animation toggle
+  var busStage = document.getElementById('busStage');
+  var busToggle = document.getElementById('busToggle');
+  busToggle.addEventListener('click', function () {
+    var paused = busStage.classList.toggle('paused');
+    busToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- request router demo
+  var NAMES = ['Instance A', 'Instance B', 'Instance C'];
+  var fleet = document.getElementById('fleet');
+  var totalEl = document.getElementById('totalCount'), okEl = document.getElementById('okCount');
+  var failEl = document.getElementById('failCount'), modeEl = document.getElementById('modeLabel');
+  var logEl = document.getElementById('demoLog');
+  var boxes = [], bars = [], hitsPerInst = [];
+  var mode = 'memory', rr = 0, total = 0, ok = 0, fail = 0, loginOn = 0, dead = [false, false, false];
+
+  var MODE_TEXT = {
+    memory: 'session في الذاكرة',
+    sticky: 'sticky sessions',
+    redis: 'Redis + مفاتيح مشتركة'
+  };
+
+  for (var i = 0; i < NAMES.length; i++) {
+    var card = document.createElement('div');
+    card.className = 'box';
+    card.innerHTML = NAMES[i] + '<span class="tag"></span>';
+    var bar = document.createElement('div');
+    bar.className = 'bar';
+    bar.innerHTML = '<i></i>';
+    card.appendChild(bar);
+    fleet.appendChild(card);
+    boxes.push(card);
+    bars.push(bar.querySelector('i'));
+    hitsPerInst.push(0);
+  }
+
+  function log(text, kind) {
+    var line = document.createElement('div');
+    if (kind) line.className = kind;
+    line.textContent = text;
+    logEl.insertBefore(line, logEl.firstChild);
+    while (logEl.childNodes.length > 6) logEl.removeChild(logEl.lastChild);
+  }
+  function paintFleet() {
+    var max = Math.max(1, Math.max.apply(null, hitsPerInst));
+    boxes.forEach(function (b, i) {
+      b.classList.remove('hit', 'ok', 'fail');
+      b.classList.toggle('dead', dead[i]);
+      var store = mode === 'redis' ? 'state: Redis' : 'state: in-memory';
+      b.querySelector('.tag').textContent = dead[i]
+        ? 'down' : store + ' · ' + hitsPerInst[i] + ' req';
+      bars[i].style.width = Math.round(hitsPerInst[i] / max * 100) + '%';
+    });
+  }
+  function resetDemo() {
+    rr = 0; total = 0; ok = 0; fail = 0; loginOn = 0;
+    dead = [false, false, false];
+    hitsPerInst = [0, 0, 0];
+    totalEl.textContent = '0'; okEl.textContent = '0'; failEl.textContent = '0';
+    modeEl.textContent = MODE_TEXT[mode];
+    logEl.innerHTML = '';
+    paintFleet();
+    log('سجّلت الدخول على ' + NAMES[loginOn] + '. ابعت requests بقى.');
+  }
+  function alive() {
+    var list = [];
+    dead.forEach(function (d, i) { if (!d) list.push(i); });
+    return list;
+  }
+  function pickTarget() {
+    var list = alive();
+    if (!list.length) return -1;
+    if (mode === 'sticky') {
+      if (dead[loginOn]) {                     // السيرفر الملزوق مات → المستخدم ينتقل ويفقد حالته
+        loginOn = list[0];
+        log('السيرفر الملزوق مات → المستخدم اتنقل لـ ' + NAMES[loginOn] + ' وفقد الـ session.', 'bad');
+      }
+      return loginOn;
+    }
+    var t = list[rr % list.length];
+    rr++;
+    return t;
+  }
+  function send() {
+    var t = pickTarget();
+    if (t < 0) { log('كل الـ instances واقعة — الـ LB ملقاش حد يبعت له.', 'bad'); return; }
+    total++; hitsPerInst[t]++;
+    var good = mode === 'redis' || t === loginOn;
+    if (good) ok++; else { fail++; loginOn = t; }
+    paintFleet();
+    boxes[t].classList.add(good ? 'ok' : 'fail');
+    totalEl.textContent = total; okEl.textContent = ok; failEl.textContent = fail;
+    if (mode === 'redis') {
+      log('request → ' + NAMES[t] + ': قرا الـ session من Redis وفكّ الـ cookie بالمفتاح المشترك. 200', 'good');
+    } else if (good) {
+      log('request → ' + NAMES[t] + ': نفس السيرفر اللي فيه الحالة. 200', 'good');
+    } else {
+      log('request → ' + NAMES[t] + ': cookie مش بتتفك + مفيش session → 401 وخروج، وسلة فاضية.', 'bad');
+    }
+  }
+  document.getElementById('sendBtn').addEventListener('click', send);
+  document.getElementById('send9Btn').addEventListener('click', function () {
+    for (var k = 0; k < 9; k++) send();
+  });
+  document.getElementById('killBtn').addEventListener('click', function () {
+    if (dead[0]) { log('Instance A واقع أصلاً.'); return; }
+    dead[0] = true;
+    paintFleet();
+    if (mode === 'redis') {
+      log('Instance A مات. الحالة كلها في Redis → الـ LB شال السيرفر من التوزيع ومحدش حس. 0 أثر.', 'good');
+    } else {
+      log('Instance A مات — وكل session كانت في ذاكرته ضاعت مع البروسيس.', 'bad');
+      if (loginOn === 0) { fail++; failEl.textContent = fail; }
+    }
+  });
+  document.getElementById('resetDemoBtn').addEventListener('click', resetDemo);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'), function (b) {
+    b.addEventListener('click', function () {
+      mode = b.getAttribute('data-mode');
+      Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'), function (o) {
+        o.classList.toggle('ghost', o !== b);
+      });
+      resetDemo();
+    });
+  });
+  resetDemo();
+
+  // ---------------------------------------------------------------- stepper
+  var stepA = document.getElementById('stepA'), stepB = document.getElementById('stepB');
+  var stepLb = document.getElementById('stepLb'), stepCookie = document.getElementById('stepCookie');
+  var keyA = document.getElementById('stepKeyA'), keyB = document.getElementById('stepKeyB');
+
+  var steps = [
+    {
+      text: 'instance واحد بس. المستخدم بيسجّل دخول، و A بيشفّر الـ auth cookie بالـ keyring المحلي بتاعه (على القرص، جوّه الـ container).',
+      paint: function () {
+        stepA.classList.add('ok');
+        keyA.textContent = 'keyring: local A';
+        keyB.textContent = 'keyring: —';
+        stepB.classList.add('dead');
+        stepCookie.textContent = '🍪 cookie مشفّرة بمفاتيح A';
+        stepCookie.className = 'chip ok';
+      }
+    },
+    {
+      text: 'عملت scale-out: instance B قام. مفيش أي حاجة مشتركة بينهم، فـ B ولّد keyring خاص بيه لأول مرة — ومن غير ولا سطر لوج.',
+      paint: function () {
+        stepA.classList.add('ok');
+        keyA.textContent = 'keyring: local A';
+        keyB.textContent = 'keyring: local B';
+        stepCookie.textContent = '🍪 cookie مشفّرة بمفاتيح A';
+        stepCookie.className = 'chip ok';
+      }
+    },
+    {
+      text: 'الـ request الجاي من نفس المستخدم، بنفس الـ cookie. الـ LB بيوزع round robin — فالدور على B.',
+      paint: function () {
+        keyA.textContent = 'keyring: local A';
+        keyB.textContent = 'keyring: local B';
+        stepLb.classList.add('hit');
+        stepB.classList.add('hit');
+        stepCookie.textContent = '🍪 cookie مشفّرة بمفاتيح A → رايحة لـ B';
+        stepCookie.className = 'chip';
+      }
+    },
+    {
+      text: 'B بيحاول يفك الـ cookie بمفاتيحه → فشل. الـ cookie middleware مبيرميش exception: بيرمي الـ cookie نفسها ويعتبرك anonymous → 302 على صفحة الدخول.',
+      paint: function () {
+        keyA.textContent = 'keyring: local A';
+        keyB.textContent = 'keyring: local B';
+        stepB.classList.add('fail');
+        stepCookie.textContent = '❌ unprotect failed → 302 /login';
+        stepCookie.className = 'chip fail';
+      }
+    },
+    {
+      text: 'المستخدم بيسجّل دخول تاني — ودلوقتي الـ cookie بمفاتيح B. الـ request اللي بعده يرجع لـ A فيطلع بره تاني. لفة لا نهائية: ده بالظبط اللي التيكت بيسميه «random logouts».',
+      paint: function () {
+        keyA.textContent = 'keyring: local A';
+        keyB.textContent = 'keyring: local B';
+        stepA.classList.add('fail');
+        stepB.classList.add('fail');
+        stepCookie.textContent = '🔁 كل ريفريش = خروج تاني';
+        stepCookie.className = 'chip fail';
+      }
+    },
+    {
+      text: 'الحل: keyring واحد مشترك — PersistKeysToStackExchangeRedis مع SetApplicationName. أي instance يفك أي cookie، والـ session نفسها تروح Redis. دلوقتي اقتل أي واحد فيهم ومحدش هيحس.',
+      paint: function () {
+        keyA.textContent = 'keyring: Redis (shared)';
+        keyB.textContent = 'keyring: Redis (shared)';
+        stepA.classList.add('ok');
+        stepB.classList.add('ok');
+        stepCookie.textContent = '🍪 أي instance يقراها → 200';
+        stepCookie.className = 'chip ok';
+      }
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    // إعادة بناء الحالة من الصفر عشان الرجوع يبقى صح مش مجرد تراجع فريم
+    [stepA, stepB, stepLb].forEach(function (n) {
+      n.classList.remove('hit', 'ok', 'fail', 'dead');
+    });
+    stepCookie.className = 'chip';
+    steps[step].paint();
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

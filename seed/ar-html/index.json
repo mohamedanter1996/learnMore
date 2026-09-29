@@ -119,6 +119,11 @@
       "topic": "SQL Server Optimization",
       "title": "Nonclustered Indexes and the Key Lookup Tax",
       "file": "3-sql-optimization/nonclustered-indexes-and-the-key-lookup-tax.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Stateless Services and Session Management",
+      "file": "4-system-design/stateless-services-and-session-management.html"
     }
   ]
 }
