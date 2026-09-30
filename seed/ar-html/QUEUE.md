@@ -55,8 +55,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — Stateless Services and Session Management → `4-system-design/stateless-services-and-session-management.html`
 
-## Queue (128)
-- [ ] 21. `Frontend Engineering` — Closures: The Feature Behind Everything → `5-frontend/closures-the-feature-behind-everything.html`
+- [x] `Frontend Engineering` — Closures: The Feature Behind Everything → `5-frontend/closures-the-feature-behind-everything.html`
+
+## Queue (127)
 - [ ] 22. `Data Structures & Algorithms` — Queues: FIFO, Deques, and PriorityQueue → `1-dsa/queues-fifo-deques-and-priorityqueue.html`
 - [ ] 23. `Design Patterns` — Builder: Constructing Complex Objects Step by Step → `2-design-patterns/builder-constructing-complex-objects-step-by-s.html`
 - [ ] 24. `SQL Server Optimization` — Implicit Conversions: The Silent Scan Generator → `3-sql-optimization/implicit-conversions-the-silent-scan-generator.html`

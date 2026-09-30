@@ -124,6 +124,11 @@
       "topic": "System Design",
       "title": "Stateless Services and Session Management",
       "file": "4-system-design/stateless-services-and-session-management.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "Closures: The Feature Behind Everything",
+      "file": "5-frontend/closures-the-feature-behind-everything.html"
     }
   ]
 }
