@@ -129,6 +129,11 @@
       "topic": "Frontend Engineering",
       "title": "Closures: The Feature Behind Everything",
       "file": "5-frontend/closures-the-feature-behind-everything.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Queues: FIFO, Deques, and PriorityQueue",
+      "file": "1-dsa/queues-fifo-deques-and-priorityqueue.html"
     }
   ]
 }

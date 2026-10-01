@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queues: FIFO, Deques, and PriorityQueue — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  /* ---- الحلقة المتحركة (circular buffer) ---- */
+  .ring { width: 100%; height: 210px; }
+  .ring .slot-c { fill: var(--surface-2); stroke: var(--border); }
+  .ring .slot-t { fill: var(--text-dim); font-size: 12px; font-family: Consolas, monospace; }
+  .ring .lbl { fill: var(--text-dim); font-size: 11px; font-family: Consolas, monospace; }
+  .arm { transform-box: view-box; transform-origin: 230px 100px; }
+  .arm.head { animation: orbit 7.2s steps(8) infinite; }
+  .arm.tail { animation: orbit 4.8s steps(8) infinite; }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  .paused .arm { animation-play-state: paused; }
+
+  /* ---- شريط الخانات بتاع الـ stepper ---- */
+  .cb { display: flex; gap: 6px; direction: ltr; min-width: 600px; }
+  .slot { width: 46px; text-align: center; }
+  .box {
+    height: 42px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2);
+    color: var(--text-dim); font-family: Consolas, monospace; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .25s, color .25s, border-color .25s, transform .18s;
+  }
+  .box.filled { background: #14384d; border-color: var(--primary); color: #bae6fd; }
+  .box.just { transform: scale(1.12); border-color: var(--success); }
+  .box.freed { border-style: dashed; }
+  .ptr { font-size: 11px; font-family: Consolas, monospace; height: 18px; color: var(--text-dim); }
+  .ptr .h { color: var(--success); }
+  .ptr .t { color: var(--warning); }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  /* ---- شجرة الـ heap ---- */
+  .hlvl { display: flex; justify-content: center; gap: 10px; margin-bottom: 16px; min-width: 520px; }
+  .hnode {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 10px; min-width: 86px; text-align: center; direction: ltr;
+    font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim);
+    transition: background .25s, border-color .25s, transform .2s;
+  }
+  .hnode .p { display: block; font-size: 15px; color: var(--text); }
+  .hnode.root { background: #14384d; border-color: var(--primary); color: #bae6fd; }
+  .hnode.moved { border-color: var(--success); transform: translateY(-3px); }
+  .arr { margin-top: 6px; direction: ltr; font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim); }
+  .outs { font-size: 14px; }
+  .outs b { font-family: Consolas, monospace; color: var(--text); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures & Algorithms · درس مصري مفصّل</div>
+  <h1>الطابور مش بس «الأول بالأول» — السؤال هو مين يستحق يكون الأول</h1>
+  <div class="en">Queues: FIFO, Deques, and PriorityQueue</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>BackgroundService</code> في ASP.NET Core بيشيل jobs من طابور: توليد PDF، إرسال
+    نشرة بريدية، إعادة تعيين كلمة سر. متوسط الـ job <b>١.٢ ثانية</b>. ساعة الذروة الطابور فيه
+    <b>٤٠٠٠ job</b> نشرة بريدية. جه عميل طلب «reset password» — دخل آخر الطابور.
+  </p>
+  <div class="callout info">
+    بحساب بسيط: 4000 × 1.2 ثانية ≈ <b>٨٠ دقيقة</b> قبل ما إيميل الـ reset يخرج أصلاً. نفس الكود
+    بالظبط، بس بـ <code>PriorityQueue&lt;Job,int&gt;</code> بدل <code>Queue&lt;Job&gt;</code>،
+    الـ job ده يخرج في الدور اللي بعده = <b>١.٢ ثانية</b>. مغيّرتش حرف في منطق الشغل — غيّرت
+    <strong>سياسة الترتيب</strong> بس.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتستخدم <code>List&lt;T&gt;</code> كطابور وتنده
+    <code>RemoveAt(0)</code> فتحوّل O(1) لـ O(n) من غير ما تحس، وهتفترض إن
+    <code>PriorityQueue</code> بتحافظ على ترتيب الدخول للعناصر المتساوية (مش بتحافظ)، وهتكتب Dijkstra
+    بـ <code>Queue</code> عادي فيطلع لك مسار غلط.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: جوّه <code>Queue&lt;T&gt;</code> حلقة، مش قايمة</h2></div>
+  <p>
+    السؤال اللي بيحير الناس: إزاي الحذف من <b>أول</b> الطابور بيكون O(1) والعناصر في array متصل؟
+    الجواب إن مفيش حد بيتحرك — المؤشرين بس هما اللي بيلفّوا.
+  </p>
+  <div class="stage" id="ringStage">
+    <svg class="ring" viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg">
+      <text x="14" y="22" class="lbl">Queue&lt;T&gt; internal array — capacity 8</text>
+      <circle cx="230" cy="100" r="66" fill="none" stroke="#334155" stroke-dasharray="4 5"/>
+
+      <g class="slot-c"><circle cx="230" cy="34" r="15"/></g><text x="230" y="39" class="slot-t" text-anchor="middle">0</text>
+      <g class="slot-c"><circle cx="277" cy="53" r="15"/></g><text x="277" y="58" class="slot-t" text-anchor="middle">1</text>
+      <g class="slot-c"><circle cx="296" cy="100" r="15"/></g><text x="296" y="105" class="slot-t" text-anchor="middle">2</text>
+      <g class="slot-c"><circle cx="277" cy="147" r="15"/></g><text x="277" y="152" class="slot-t" text-anchor="middle">3</text>
+      <g class="slot-c"><circle cx="230" cy="166" r="15"/></g><text x="230" y="171" class="slot-t" text-anchor="middle">4</text>
+      <g class="slot-c"><circle cx="183" cy="147" r="15"/></g><text x="183" y="152" class="slot-t" text-anchor="middle">5</text>
+      <g class="slot-c"><circle cx="164" cy="100" r="15"/></g><text x="164" y="105" class="slot-t" text-anchor="middle">6</text>
+      <g class="slot-c"><circle cx="183" cy="53" r="15"/></g><text x="183" y="58" class="slot-t" text-anchor="middle">7</text>
+
+      <g class="arm head">
+        <line x1="230" y1="100" x2="230" y2="56" stroke="#34d399" stroke-width="3"/>
+        <circle cx="230" cy="56" r="5" fill="#34d399"/>
+      </g>
+      <g class="arm tail">
+        <line x1="230" y1="100" x2="230" y2="72" stroke="#fbbf24" stroke-width="3"/>
+        <circle cx="230" cy="72" r="5" fill="#fbbf24"/>
+      </g>
+      <circle cx="230" cy="100" r="4" fill="#334155"/>
+
+      <text x="446" y="22" class="lbl" text-anchor="end">Dequeue → head++</text>
+      <text x="446" y="188" class="lbl" text-anchor="end">Enqueue → tail++</text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="ringToggle">⏸ وقف الحركة</button>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> head — مكان العنصر اللي هيخرج</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> tail — مكان العنصر اللي هيدخل</span>
+    </div>
+  </div>
+  <p>
+    المؤشرين بيزيدوا بـ <code>(i + 1) % capacity</code>، فلما يوصلوا آخر الـ array بيلفّوا على صفر
+    ويستخدموا الخانات اللي الـ head سابها. ده اسمه <b>circular buffer</b>، وهو سبب إن
+    <code>Enqueue</code> و<code>Dequeue</code> و<code>Peek</code> كلهم O(1). لما الـ tail يلحق الـ head
+    (يعني <code>Count == Capacity</code>) بس — ساعتها الـ array بيتضاعف.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة جوّه الـ buffer</h2></div>
+
+  <div class="stage">
+    <div class="cb" id="cbGrid"></div>
+    <div class="counters">
+      <span>🟢 head: <b id="cbHead">0</b></span>
+      <span>🟡 tail: <b id="cbTail">0</b></span>
+      <span>📦 Count: <b id="cbCount">0</b></span>
+      <span>📐 Capacity: <b id="cbCap">8</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> خانة فاضية</span>
+      <span><i class="swatch" style="background:#14384d"></i> فيها عنصر</span>
+      <span>H = head · T = tail</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn ghost" id="cbEnqBtn">➕ Enqueue عنصر جديد</button>
+    <button class="btn ghost" id="cbDeqBtn">➖ Dequeue</button>
+    <button class="btn ghost" id="cbResetBtn">↺ إعادة</button>
+  </div>
+  <p class="note">
+    اضغط Enqueue لحد ما الخانات تخلص وشوف الـ Capacity بتتضاعف — نسخة واحدة O(n) كل n عملية،
+    وعشان كده بنقول إن الـ Enqueue <b>amortized O(1)</b>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: العيلة التلاتة ومين يستحق الأول</h2></div>
+
+  <h3>أ. الطابور الغلط: <code>List&lt;T&gt;</code> بـ <code>RemoveAt(0)</code></h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ O(n) لكل حذف</strong></div>
+<pre><code><span class="k">var</span> jobs = <span class="k">new</span> List&lt;Job&gt;(source);
+<span class="k">while</span> (jobs.Count &gt; 0) {
+    <span class="k">var</span> j = jobs[0];
+    jobs.RemoveAt(0);     <span class="c">// بيزحزح كل اللي بعده</span>
+    Handle(j);
+}
+<span class="c">// 100,000 job ≈ 1,800 ms في الإزاحة لوحدها</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ O(1) لكل حذف</strong></div>
+<pre><code><span class="k">var</span> jobs = <span class="k">new</span> Queue&lt;Job&gt;(source);
+<span class="k">while</span> (jobs.TryDequeue(<span class="k">out</span> <span class="k">var</span> j))
+    Handle(j);
+
+<span class="c">// نفس الـ 100,000 job ≈ 1 ms</span>
+<span class="c">// TryDequeue بترجع false بدل استثناء</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    نفس عدد الـ jobs ونفس الشغل الحقيقي — الفرق كله إن <code>RemoveAt(0)</code> بتنسخ ٥٠ ألف عنصر
+    في المتوسط كل مرة، والـ <code>Queue</code> بتزوّد رقم.
+  </p>
+
+  <h3>ب. الـ Deque: داخل وخارج من الناحيتين</h3>
+<pre><code><span class="c">// .NET مفيهاش Deque&lt;T&gt; جاهزة — LinkedList&lt;T&gt; هي الأقرب، وكلها O(1)</span>
+<span class="k">var</span> window = <span class="k">new</span> LinkedList&lt;<span class="k">int</span>&gt;();
+window.AddLast(5);          <span class="c">// push back</span>
+window.AddFirst(3);         <span class="c">// push front</span>
+window.RemoveFirst();       <span class="c">// pop front</span>
+window.RemoveLast();        <span class="c">// pop back</span>
+
+<span class="c">// بتحتاجها في sliding window maximum، وفي undo/redo بسقف محدود</span></code></pre>
+
+  <h3>ج. <code>PriorityQueue&lt;TElement,TPriority&gt;</code> — من .NET 6</h3>
+<pre><code><span class="k">var</span> pq = <span class="k">new</span> PriorityQueue&lt;Job, <span class="k">int</span>&gt;();
+pq.Enqueue(newsletterJob, 5);
+pq.Enqueue(passwordResetJob, 1);
+pq.Enqueue(reportJob, 3);
+
+pq.Dequeue();               <span class="c">// passwordResetJob — أصغر أولوية الأول (min-heap)</span>
+pq.Peek();                  <span class="c">// reportJob — بص من غير ما تشيل</span>
+pq.Count;                   <span class="c">// 2</span>
+
+<span class="c">// عايز الأكبر الأول؟ مش بتقلب الأرقام بإيدك — بتبعت comparer</span>
+<span class="k">var</span> maxFirst = <span class="k">new</span> PriorityQueue&lt;Job, <span class="k">int</span>&gt;(
+    Comparer&lt;<span class="k">int</span>&gt;.Create((a, b) =&gt; b.CompareTo(a)));</code></pre>
+
+  <h3>د. جرّب الـ heap بنفسك</h3>
+  <p class="note">
+    ضيف jobs بأولويات مختلفة وبصّ على الشجرة: العنصر الجديد بيطلع لفوق (sift-up) لحد ما يلاقي مكانه.
+    عداد المقارنات هو ارتفاع الشجرة = <span class="mono">O(log n)</span>، مش n.
+  </p>
+  <div class="stage">
+    <div id="heapTree"></div>
+    <div class="arr" id="heapArr">المصفوفة: []</div>
+    <div class="counters">
+      <span>🔁 مقارنات آخر عملية: <b id="heapCmp">0</b></span>
+      <span>📦 عدد العناصر: <b id="heapCount">0</b></span>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn" data-prio="1" data-label="reset-pw">➕ reset-pw (1)</button>
+    <button class="btn ghost" data-prio="3" data-label="invoice">➕ invoice (3)</button>
+    <button class="btn ghost" data-prio="9" data-label="newsletter">➕ newsletter (9)</button>
+    <button class="btn" id="pqDeq">⬇ Dequeue</button>
+    <button class="btn ghost" id="pqReset">↺ إعادة</button>
+  </div>
+  <div class="outs">
+    <div>ترتيب خروج <code>PriorityQueue</code>: <b id="pqOut">—</b></div>
+    <div>ترتيب خروج <code>Queue</code> العادي: <b id="fifoOut">—</b></div>
+  </div>
+
+  <h3>هـ. الطابور في الشغل الموزّع</h3>
+<pre><code><span class="c">// Channel&lt;T&gt;: طابور بين producer وconsumer جوّه البروسيس، بـ async</span>
+<span class="k">var</span> ch = Channel.CreateBounded&lt;Job&gt;(<span class="k">new</span> BoundedChannelOptions(1000) {
+    FullMode = BoundedChannelFullMode.Wait      <span class="c">// backpressure بدل ما الذاكرة تطير</span>
+});
+<span class="k">await</span> ch.Writer.WriteAsync(job);
+<span class="k">await</span> <span class="k">foreach</span> (<span class="k">var</span> j <span class="k">in</span> ch.Reader.ReadAllAsync(ct)) Handle(j);</code></pre>
+  <div class="callout info">
+    <strong>نفس الموديل الذهني على كل المستويات:</strong> <code>Queue&lt;T&gt;</code> جوّه الميثود،
+    <code>ConcurrentQueue&lt;T&gt;</code> بين threads، <code>Channel&lt;T&gt;</code> بين
+    producer وconsumer، و RabbitMQ / Azure Service Bus بين خدمات. الفرق في الضمانات والدوام، مش في الفكرة.
+  </div>
+  <div class="callout good">
+    <strong>وفي الخوارزميات:</strong> BFS = <code>Queue</code> حرفياً (مستوى بمستوى)، وDijkstra =
+    <code>PriorityQueue</code> حرفياً (أقرب عقدة الأول). على جراف فيه ٥٠ ألف عقدة، لو بدّلت الـ
+    PriorityQueue بـ «دوّر على الأصغر في list» تحوّل O(E log V) لـ O(V²).
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b><code>List&lt;T&gt;</code> + <code>RemoveAt(0)</code> كطابور</b> — أشهر غلطة. كل حذف بيزحزح
+      كل العناصر اللي بعده. استخدم <code>Queue&lt;T&gt;</code>.</li>
+    <li><b><code>Dequeue()</code> على طابور فاضي</b> — بترمي
+      <code>InvalidOperationException</code> مش بترجع <code>null</code>. في أي loop
+      استخدم <code>TryDequeue(out var item)</code>.</li>
+    <li><b>افتراض إن <code>PriorityQueue</code> stable</b> — العناصر المتساوية في الأولوية ترتيبها
+      <u>مش مضمون</u>. لو محتاج العدل، خلي الأولوية مركّبة:
+      <code>PriorityQueue&lt;Job,(int Prio, long Seq)&gt;</code> بعدّاد متزايد.</li>
+    <li><b>محاولة تعديل أولوية عنصر داخل الطابور</b> — مفيش decrease-key. الحل المعتاد في Dijkstra:
+      اعمل Enqueue بالقيمة الجديدة، ولما تطلع نسخة قديمة تجاهلها (lazy deletion).</li>
+    <li><b>استخدام <code>Queue&lt;T&gt;</code> من أكتر من thread</b> — مش thread-safe، والـ corruption
+      بيظهر كـ bug عشوائي بعد شهر. <code>ConcurrentQueue&lt;T&gt;</code> أو
+      <code>Channel&lt;T&gt;</code> لو عايز انتظار async.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. ليه <code>Queue&lt;T&gt;.Dequeue()</code> بتكون O(1) بينما <code>List&lt;T&gt;.RemoveAt(0)</code> بتكون O(n)؟</div>
+    <button class="opt">لأن <code>Queue</code> مبنية على <code>LinkedList</code> جواها</button>
+    <button class="opt">لأنها بتحرّك مؤشر head جوّه circular buffer — مفيش أي عنصر بيتزحزح</button>
+    <button class="opt">لأن الـ <code>Queue</code> دايماً أصغر في عدد العناصر</button>
+    <div class="feedback">
+      جواها array متصل + مؤشرين. الحذف = <code>head = (head + 1) % capacity</code> وبس. الـ
+      <code>List</code> مضطرة تخلي العنصر الأول في الخانة صفر، فبتنسخ كل اللي بعده.
+    </div>
+  </div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">2. دخّلت تلات jobs بنفس الأولوية 5 بالترتيب A ثم B ثم C في <code>PriorityQueue&lt;Job,int&gt;</code>. أول <code>Dequeue</code> هترجع إيه؟</div>
+    <button class="opt">A — المتساويين في الأولوية بيخرجوا FIFO</button>
+    <button class="opt">أي واحد فيهم — الترتيب بين المتساويين مش مضمون</button>
+    <button class="opt">C — آخر واحد دخل يخرج الأول</button>
+    <div class="feedback">
+      الـ binary heap بيضمن إن الجذر هو الأصغر، مش إنه يحافظ على ترتيب الدخول. لو عايز العدل بين
+      المتساويين استخدم أولوية مركّبة <code>(Prio, Seq)</code> والـ <code>Seq</code> عدّاد متزايد.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li><code>Queue&lt;T&gt;</code> جواها circular buffer، فـ Enqueue/Dequeue/Peek كلهم O(1) —
+      وأي حل بـ <code>List.RemoveAt(0)</code> هو O(n) متخفّي.</li>
+    <li><code>PriorityQueue&lt;TElement,TPriority&gt;</code> binary heap بيطلّع أصغر أولوية الأول في
+      O(log n)، ومش stable للمتساويين — ضيف رقم تسلسلي لو العدل مهم.</li>
+    <li>اختار على حسب سياسة الخروج: FIFO عادي → <code>Queue</code>، من الناحيتين →
+      <code>LinkedList</code>، «الأهم الأول» → <code>PriorityQueue</code>، وعبر threads →
+      <code>ConcurrentQueue</code> أو <code>Channel</code>.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- ring animation toggle
+  var ringStage = document.getElementById('ringStage');
+  var ringToggle = document.getElementById('ringToggle');
+  ringToggle.addEventListener('click', function () {
+    var paused = ringStage.classList.toggle('paused');
+    ringToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- circular buffer model
+  var grid = document.getElementById('cbGrid');
+  var headEl = document.getElementById('cbHead'), tailEl = document.getElementById('cbTail');
+  var countEl = document.getElementById('cbCount'), capEl = document.getElementById('cbCap');
+  var LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var cb, nextLetter;
+
+  function cbInit(cap) {
+    cb = { cap: cap, buf: [], head: 0, tail: 0, count: 0, last: -1, freed: -1 };
+    for (var i = 0; i < cap; i++) cb.buf.push(null);
+    nextLetter = 0;
+  }
+  function cbGrow() {
+    var bigger = [], i;
+    for (i = 0; i < cb.cap * 2; i++) bigger.push(null);
+    for (i = 0; i < cb.count; i++) bigger[i] = cb.buf[(cb.head + i) % cb.cap];
+    cb.buf = bigger; cb.cap = cb.cap * 2; cb.head = 0; cb.tail = cb.count;
+  }
+  function cbEnq(v) {
+    if (cb.count === cb.cap) cbGrow();
+    cb.buf[cb.tail] = v;
+    cb.last = cb.tail; cb.freed = -1;
+    cb.tail = (cb.tail + 1) % cb.cap;
+    cb.count++;
+  }
+  function cbDeq() {
+    if (cb.count === 0) return null;
+    var v = cb.buf[cb.head];
+    cb.buf[cb.head] = null;
+    cb.freed = cb.head; cb.last = -1;
+    cb.head = (cb.head + 1) % cb.cap;
+    cb.count--;
+    return v;
+  }
+  function cbDraw() {
+    grid.innerHTML = '';
+    for (var i = 0; i < cb.cap; i++) {
+      var slot = document.createElement('div');
+      slot.className = 'slot';
+      var box = document.createElement('div');
+      box.className = 'box'
+        + (cb.buf[i] ? ' filled' : '')
+        + (i === cb.last ? ' just' : '')
+        + (i === cb.freed ? ' freed' : '');
+      box.textContent = cb.buf[i] ? cb.buf[i] : '·';
+      var ptr = document.createElement('div');
+      ptr.className = 'ptr';
+      var marks = [];
+      if (i === cb.head) marks.push('<span class="h">H</span>');
+      if (i === cb.tail) marks.push('<span class="t">T</span>');
+      ptr.innerHTML = marks.join(' ');
+      slot.appendChild(box);
+      slot.appendChild(ptr);
+      grid.appendChild(slot);
+    }
+    headEl.textContent = cb.head; tailEl.textContent = cb.tail;
+    countEl.textContent = cb.count; capEl.textContent = cb.cap;
+  }
+  function cbEnqNew() { cbEnq(LETTERS.charAt(nextLetter++ % LETTERS.length)); }
+
+  // ---------------------------------------------------------------- stepper
+  function enqN(n) { return function () { for (var i = 0; i < n; i++) cbEnqNew(); }; }
+  var steps = [
+    { text: 'البداية: Queue فاضي بـ capacity 8. head = tail = 0 و Count = 0. الـ array موجود، بس مفيش عناصر.',
+      run: function () { cbInit(8); } },
+    { text: 'Enqueue A ثم B ثم C: كل عنصر بيتحط عند الـ tail، والـ tail بيزيد واحد. بقى tail = 3 و Count = 3.',
+      run: enqN(3) },
+    { text: 'Dequeue مرتين: A وB خرجوا. لاحظ إن C معملتش حاجة — مفيش إزاحة خالص. الـ head بس اتحرك لـ 2. دي الحتة اللي بتخلي الحذف O(1).',
+      run: function () { cbDeq(); cbDeq(); } },
+    { text: 'Enqueue خمسة كمان (D..H): الـ tail ملا الخانات 3..7 ووصل لآخر الـ array، فلفّ على صفر — (7 + 1) % 8 = 0.',
+      run: enqN(5) },
+    { text: 'Enqueue I وJ: دخلوا الخانتين 0 و1 — نفس الخانات اللي A وB سابوها. الطابور دلوقتي مليان: Count = Capacity = 8، والـ tail لحق الـ head.',
+      run: enqN(2) },
+    { text: 'Enqueue K على طابور مليان: الـ Queue بتعمل array جديد بضعف الحجم وتنسخ العناصر بترتيبها المنطقي من الـ head، فـ head يرجع 0. نسخة O(n) واحدة كل n عملية = amortized O(1).',
+      run: enqN(1) }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة البناء من أول خطوة، عشان الرجوع يبقى صح مش مجرد تراجع عن آخر حركة
+    for (var i = 0; i <= step; i++) steps[i].run();
+    cbDraw();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+
+  document.getElementById('cbEnqBtn').addEventListener('click', function () { cbEnqNew(); cbDraw(); });
+  document.getElementById('cbDeqBtn').addEventListener('click', function () { cbDeq(); cbDraw(); });
+  document.getElementById('cbResetBtn').addEventListener('click', function () { step = 0; render(); });
+  render();
+
+  // ---------------------------------------------------------------- min-heap demo
+  var heap = [], fifo = [], seq = 0, cmps = 0, moved = {};
+  var pqOut = [], fifoOut = [];
+  var treeEl = document.getElementById('heapTree'), arrEl = document.getElementById('heapArr');
+  var cmpEl = document.getElementById('heapCmp'), hCountEl = document.getElementById('heapCount');
+  var pqOutEl = document.getElementById('pqOut'), fifoOutEl = document.getElementById('fifoOut');
+
+  function swap(i, j) { var t = heap[i]; heap[i] = heap[j]; heap[j] = t; }
+
+  function siftUp(i) {
+    while (i > 0) {
+      var p = (i - 1) >> 1;
+      cmps++;
+      if (heap[i].prio < heap[p].prio) { swap(i, p); moved[i] = true; moved[p] = true; i = p; }
+      else break;
+    }
+  }
+  function siftDown(i) {
+    for (;;) {
+      var l = 2 * i + 1, r = l + 1, small = i;
+      if (l < heap.length) { cmps++; if (heap[l].prio < heap[small].prio) small = l; }
+      if (r < heap.length) { cmps++; if (heap[r].prio < heap[small].prio) small = r; }
+      if (small === i) break;
+      swap(i, small); moved[i] = true; moved[small] = true; i = small;
+    }
+  }
+  function heapEnqueue(label, prio) {
+    cmps = 0; moved = {};
+    var item = { label: label + '#' + (++seq), prio: prio };
+    heap.push(item);
+    fifo.push(item);
+    moved[heap.length - 1] = true;
+    siftUp(heap.length - 1);
+    heapDraw();
+  }
+  function heapDequeue() {
+    cmps = 0; moved = {};
+    if (!heap.length) { heapDraw(); return; }
+    var top = heap[0];
+    var last = heap.pop();
+    if (heap.length) { heap[0] = last; moved[0] = true; siftDown(0); }
+    pqOut.push(top.label);
+    fifoOut.push(fifo.shift().label);
+    heapDraw();
+  }
+  function heapReset() {
+    heap = []; fifo = []; seq = 0; cmps = 0; moved = {};
+    pqOut = []; fifoOut = [];
+    heapDraw();
+  }
+  function heapDraw() {
+    treeEl.innerHTML = '';
+    var i = 0, levelStart = 0, width = 1;
+    while (levelStart < heap.length) {
+      var row = document.createElement('div');
+      row.className = 'hlvl';
+      for (i = levelStart; i < levelStart + width && i < heap.length; i++) {
+        var n = document.createElement('div');
+        n.className = 'hnode' + (i === 0 ? ' root' : '') + (moved[i] ? ' moved' : '');
+        n.innerHTML = '<span class="p">' + heap[i].prio + '</span>' + heap[i].label;
+        row.appendChild(n);
+      }
+      treeEl.appendChild(row);
+      levelStart += width;
+      width = width * 2;
+    }
+    if (!heap.length) {
+      var empty = document.createElement('div');
+      empty.className = 'note';
+      empty.textContent = 'الـ heap فاضي — ضيف job.';
+      treeEl.appendChild(empty);
+    }
+    var parts = [];
+    for (i = 0; i < heap.length; i++) parts.push('(' + heap[i].prio + ') ' + heap[i].label);
+    arrEl.textContent = 'المصفوفة: [' + parts.join(', ') + ']';
+    cmpEl.textContent = cmps;
+    hCountEl.textContent = heap.length;
+    pqOutEl.textContent = pqOut.length ? pqOut.join(' → ') : '—';
+    fifoOutEl.textContent = fifoOut.length ? fifoOut.join(' → ') : '—';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-prio]'), function (b) {
+    b.addEventListener('click', function () {
+      heapEnqueue(b.getAttribute('data-label'), parseInt(b.getAttribute('data-prio'), 10));
+    });
+  });
+  document.getElementById('pqDeq').addEventListener('click', heapDequeue);
+  document.getElementById('pqReset').addEventListener('click', heapReset);
+  heapDraw();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
