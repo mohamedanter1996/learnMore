@@ -134,6 +134,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Queues: FIFO, Deques, and PriorityQueue",
       "file": "1-dsa/queues-fifo-deques-and-priorityqueue.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "Builder: Constructing Complex Objects Step by Step",
+      "file": "2-design-patterns/builder-constructing-complex-objects-step-by-s.html"
     }
   ]
 }

@@ -59,8 +59,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Data Structures & Algorithms` — Queues: FIFO, Deques, and PriorityQueue → `1-dsa/queues-fifo-deques-and-priorityqueue.html`
 
-## Queue (126)
-- [ ] 23. `Design Patterns` — Builder: Constructing Complex Objects Step by Step → `2-design-patterns/builder-constructing-complex-objects-step-by-s.html`
+- [x] `Design Patterns` — Builder: Constructing Complex Objects Step by Step → `2-design-patterns/builder-constructing-complex-objects-step-by-s.html`
+
+## Queue (125)
 - [ ] 24. `SQL Server Optimization` — Implicit Conversions: The Silent Scan Generator → `3-sql-optimization/implicit-conversions-the-silent-scan-generator.html`
 - [ ] 25. `System Design` — Load Balancing: Algorithms and Health → `4-system-design/load-balancing-algorithms-and-health.html`
 - [ ] 26. `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`

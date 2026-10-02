@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Builder: Constructing Complex Objects Step by Step — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .line-svg { width: 100%; height: 170px; }
+  .part { animation: feed 3s ease-in-out infinite; }
+  @keyframes feed {
+    0%   { transform: translateX(0);     opacity: 0; }
+    12%  { opacity: 1; }
+    40%  { transform: translateX(118px); opacity: 1; }
+    58%  { transform: translateX(118px); opacity: 1; }
+    88%  { transform: translateX(262px); opacity: 1; }
+    100% { transform: translateX(262px); opacity: 0; }
+  }
+  .paused .part { animation-play-state: paused; }
+
+  .bench { display: flex; gap: 14px; flex-wrap: wrap; align-items: stretch; }
+  .box {
+    flex: 1 1 240px; min-width: 240px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  }
+  .box.builder { border-color: var(--primary); }
+  .box.product { border-style: dashed; }
+  .box.product.ready { border-style: solid; border-color: var(--success); }
+  .box.product.failed { border-style: solid; border-color: var(--danger); }
+  .box-title { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+  .slot {
+    display: flex; justify-content: space-between; gap: 10px; padding: 5px 7px; border-radius: 6px;
+    font-size: 13px; margin-bottom: 5px; background: var(--bg); color: var(--text-dim);
+    transition: background .25s, color .25s;
+  }
+  .slot .v { font-family: Consolas, monospace; direction: ltr; font-size: 12px; }
+  .slot.set { background: #14384d; color: #bae6fd; }
+  .slot.locked { background: rgba(251,191,36,.14); color: #fde68a; }
+  .slot.err { background: rgba(248,113,113,.16); color: #fecaca; }
+  .empty-note { color: #64748b; font-size: 13px; }
+  .chain { margin: 0; max-height: 190px; overflow: auto; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+  .btn.on { border-color: var(--warning); color: #fde68a; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧩 Design Patterns · درس مصري مفصّل</div>
+  <h1>الـ Builder مش «method chaining» — دي تجميعة على مراحل وخطوة واحدة بتقفلها</h1>
+  <div class="en">Builder: Constructing Complex Objects Step by Step</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>Order</code> فيه constructor بـ ٩ parameters: عميل، سطور، خصم، عنوان شحن، عملة،
+    مصدر الطلب، ملاحظات… و<b>٤٠ unit test</b> بينادوه. جالك requirement يضيف
+    <code>CouponCode</code> — فالـ compiler وقّف ٤٠ ملف، وقعدت ساعتين تحط <code>null</code> في
+    كل نداء. وفي نفس الوقت أي حد يقرا test بياخد ٣٠ ثانية يعرف إيه الـ parameter اللي
+    <i>فعلاً</i> بيختبره وسط ٨ قيم مش مهمة.
+  </p>
+  <div class="callout info">
+    الـ <strong>Builder</strong> بيفصل <b>طريقة التجميع</b> عن <b>شكل الكائن النهائي</b>: كائن مؤقت
+    بيشيل الأجزاء خطوة خطوة بـ defaults معقولة، وفي الآخر <code>Build()</code> بتتحقق من الحالة
+    وتطلع المنتج الجاهز. إنت بتستخدمه كل يوم حرفياً:
+    <code>WebApplication.CreateBuilder(args)</code> … إضافات … <code>builder.Build()</code>.
+    وكمان <code>StringBuilder</code> و<code>ConfigurationBuilder</code> و<code>HostBuilder</code>
+    و<code>ModelBuilder</code> بتاع EF Core.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تنسخ constructors طويلة في كل test، وهتسيب كائنات
+    نص مبنية تخرج من الـ service وتوصل للداتابيز من غير أي validation، وهتخلط بين الـ Builder
+    و«أي API بيرجع <code>this</code>» فتكتب Builder لـ DTO بتلات properties وتزوّد كود بلا فايدة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: خط تجميع + خطوة قفل</h2></div>
+  <div class="stage" id="feedStage">
+    <svg class="line-svg" viewBox="0 0 470 170" xmlns="http://www.w3.org/2000/svg">
+      <rect x="8" y="50" width="100" height="62" rx="10" fill="#1e293b" stroke="#94a3b8"/>
+      <text x="58" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">الأجزاء</text>
+      <text x="58" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">.WithX(...)</text>
+
+      <rect x="170" y="50" width="100" height="62" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="220" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Builder</text>
+      <text x="220" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">حالة مؤقتة</text>
+
+      <rect x="332" y="50" width="130" height="62" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="397" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Product</text>
+      <text x="397" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">جاهز ومتحقق منه</text>
+
+      <line x1="108" y1="81" x2="170" y2="81" stroke="#334155" stroke-width="2"/>
+      <line x1="270" y1="81" x2="332" y2="81" stroke="#334155" stroke-width="2"/>
+      <text x="301" y="42" fill="#34d399" font-size="12" text-anchor="middle" font-family="Consolas, monospace">Build()</text>
+
+      <g class="part">
+        <rect x="112" y="68" width="54" height="26" rx="6" fill="#38bdf8"/>
+        <text x="139" y="86" fill="#0c2431" font-size="11" text-anchor="middle" font-family="Segoe UI">جزء</text>
+      </g>
+
+      <text x="235" y="146" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        كل نداء بيحط جزء في الحالة المؤقتة · Build() بتتحقق مرة واحدة وتطلّع المنتج
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="feedToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    لاحظ تلات حاجات: الأجزاء بتدخل <b>بأي ترتيب</b> واللي مش بتحدده بياخد default، الحالة المؤقتة
+    <b>قابلة للتغيير</b> (mutable) عن قصد، والمنتج مبيوجدش <b>إلا</b> بعد <code>Build()</code>.
+    الحاجة الوحيدة اللي مش جزء من البترن هي إن كل method ترجّع <code>this</code> — ده
+    <b>شكل كتابة</b> (fluent) مش البترن. بترن الـ Builder = تجميع على مراحل + خطوة تجميع نهائية.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: دورة حياة <code>WebApplicationBuilder</code></h2></div>
+  <p class="note">
+    ده نفس الكود اللي في <code>Program.cs</code> بتاعك. بصّ على الـ Builder وعلى المنتج في كل خطوة —
+    وخصوصاً الخطوتين الأخيرتين.
+  </p>
+
+  <div class="stage">
+    <div class="bench">
+      <div class="box builder"><div class="box-title">builder — الحالة المؤقتة</div><div id="sbSlots"></div></div>
+      <div class="box product" id="sbProductBox"><div class="box-title">app — المنتج</div><div id="sbProduct"></div></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>جرّب بنفسك: Test Data Builder</h2></div>
+  <p class="note">
+    ركّب طلب بالأجزاء اللي تهمك بس، وبعدين دوس <code>Build()</code>. جرّب تدوس
+    <code>Build()</code> من غير أي سطر عشان تشوف الـ validation بتقف فين، وجرّب زرار
+    «أعيد استخدام نفس الـ builder» وبعدها ركّب طلب تاني.
+  </p>
+
+  <div class="stage">
+    <div class="bench">
+      <div class="box builder"><div class="box-title">new OrderBuilder() — الحالة المؤقتة</div><div id="dbSlots"></div></div>
+      <div class="box product" id="dbProductBox"><div class="box-title">المنتج من Build()</div><div id="dbProduct"></div></div>
+    </div>
+    <div class="counters">
+      <span>🧱 عدد النداءات: <b id="dbCalls">0</b></span>
+      <span>📦 منتجات اتبنت: <b id="dbBuilt">0</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="btnCustomer">👤 ForCustomer(vip)</button>
+    <button class="btn" id="btnLine1">➕ WithLine("SKU-1", 2, 50m)</button>
+    <button class="btn" id="btnLine2">➕ WithLine("SKU-9", 1, 120m)</button>
+    <button class="btn" id="btnDiscount">🏷️ WithDiscount(10)</button>
+    <button class="btn" id="btnBuild">✅ Build()</button>
+  </div>
+  <div class="controls">
+    <button class="btn ghost" id="btnReuse">♻️ أعيد استخدام نفس الـ builder: لا</button>
+    <button class="btn ghost" id="btnReset">↺ إعادة</button>
+  </div>
+
+  <div class="box-title" style="margin-top:14px">الكود اللي الـ test بيقراه</div>
+<pre class="chain"><code id="dbChain"></code></pre>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>مثال واقعي بالأرقام</h2></div>
+
+  <h3>أ. الـ test قبل وبعد</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ constructor بـ ٩ parameters</strong> — متكرر في ٤٠ test</div>
+<pre><code><span class="k">var</span> order = <span class="k">new</span> Order(
+    vipCustomer,
+    <span class="k">new</span> List&lt;OrderLine&gt; { <span class="k">new</span>(<span class="s">"SKU-1"</span>, 2, 50m) },
+    discount: 0,
+    shipTo: <span class="k">null</span>,
+    currency: <span class="s">"EGP"</span>,
+    source: OrderSource.Web,
+    notes: <span class="k">null</span>,
+    couponCode: <span class="k">null</span>,
+    createdAt: clock.UtcNow);
+<span class="c">// 9 سطور setup · إضافة parameter = تعديل 40 ملف</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ builder</strong> — الـ test بيقول اللي يهمه بس</div>
+<pre><code><span class="k">var</span> order = <span class="k">new</span> OrderBuilder()
+    .ForCustomer(vipCustomer)
+    .WithLine(<span class="s">"SKU-1"</span>, qty: 2, price: 50m)
+    .Build();
+<span class="c">// 4 سطور setup · إضافة parameter = تعديل ملف واحد</span>
+<span class="c">// (default جوه الـ builder، والـ 40 test متلمسوش)</span></code></pre>
+    </div>
+  </div>
+
+  <h3>ب. الـ builder نفسه — والـ validation مكانها فين</h3>
+<pre><code><span class="k">public</span> <span class="k">class</span> OrderBuilder
+{
+    <span class="k">private</span> Customer _customer = TestData.DefaultCustomer;
+    <span class="k">private</span> <span class="k">readonly</span> List&lt;OrderLine&gt; _lines = [];
+    <span class="k">private</span> <span class="k">decimal</span> _discount = 0m;
+
+    <span class="k">public</span> OrderBuilder ForCustomer(Customer c) { _customer = c; <span class="k">return</span> <span class="k">this</span>; }
+    <span class="k">public</span> OrderBuilder WithDiscount(<span class="k">decimal</span> pct) { _discount = pct; <span class="k">return</span> <span class="k">this</span>; }
+
+    <span class="k">public</span> OrderBuilder WithLine(<span class="k">string</span> sku, <span class="k">int</span> qty, <span class="k">decimal</span> price)
+    { _lines.Add(<span class="k">new</span>(sku, qty, price)); <span class="k">return</span> <span class="k">this</span>; }
+
+    <span class="k">public</span> Order Build()
+    {
+        <span class="c">// الشرط اللي الكائن نفسه مش مسموح يتخلق من غيره</span>
+        <span class="k">if</span> (_lines.Count == 0)
+            <span class="k">throw</span> <span class="k">new</span> InvalidOperationException(<span class="s">"Order needs at least one line."</span>);
+
+        <span class="c">// نسخة جديدة من السطور — عشان تعديل الـ builder بعد كده ميلمسش المنتج</span>
+        <span class="k">return</span> <span class="k">new</span> Order(_customer, _lines.ToList(), _discount);
+    }
+}</code></pre>
+  <div class="callout">
+    <strong>السطر المهم هو <code>_lines.ToList()</code>.</strong> لو رجّعت الليستة نفسها، المنتج
+    والـ builder بيشاركوا نفس الـ <code>List</code> — فأول <code>WithLine</code> بعد
+    <code>Build()</code> بتعدّل طلب «خلص» بالفعل. ده bug بيظهر بس لما الـ builder يُعاد استخدامه،
+    يعني في الـ tests الجماعية بالأخص.
+  </div>
+
+  <h3>ج. نفس العقلية في الـ runtime: <code>StringBuilder</code></h3>
+<pre><code><span class="c">// ❌ كل += بتخلق string جديد وتنسخ اللي قبله</span>
+<span class="k">string</span> s = <span class="s">""</span>;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 10_000; i++) s += <span class="s">"line\n"</span>;
+<span class="c">// ~500 MB allocations · ~300 ms (تقريبي) — النمو O(n²) في النسخ</span>
+
+<span class="c">// ✅ حالة مؤقتة واحدة بتكبر، وخطوة واحدة في الآخر بتطلّع المنتج</span>
+<span class="k">var</span> sb = <span class="k">new</span> StringBuilder();
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 10_000; i++) sb.Append(<span class="s">"line\n"</span>);
+<span class="k">string</span> s2 = sb.ToString();   <span class="c">// ~400 KB allocations · أقل من 1 ms</span></code></pre>
+  <p class="note">
+    <code>sb.ToString()</code> هي <code>Build()</code> بالظبط: الحالة المؤقتة mutable وأرخص،
+    والمنتج النهائي immutable وبيتولد مرة واحدة.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>Builder لـ DTO بتلات properties</b> — في C# الـ object initializer مع
+      <code>required</code> بيعمل نفس القراءة وبيديك أمان وقت الـ compile. البترن للحالات اللي فيها
+      أجزاء اختيارية كتير أو تجميع لازم يتفحص ككل.</li>
+    <li><b>إعادة استخدام نفس الـ builder لمنتجين</b> وهو بيرجّع الـ collection بالمرجع — المنتج
+      التاني بيورث سطور الأول. إمّا <code>Build()</code> تاخد snapshot، أو الـ builder يبقى
+      single-use ويرمي لو اتنادى تاني.</li>
+    <li><b>مفيش validation في <code>Build()</code></b> — ساعتها الـ builder بقى مجرد طريقة أطول
+      لكتابة constructor. القيمة الحقيقية إن فيه مكان واحد مستحيل تخلق منه كائن ناقص.</li>
+    <li><b>التعديل على الـ builder بعد <code>Build()</code> وتوقّع إن المنتج يتغير</b> — في
+      ASP.NET Core الـ <code>builder.Services</code> بيبقى read-only بعد <code>builder.Build()</code>،
+      فأي <code>Add...</code> بعدها بترمي <code>InvalidOperationException</code> بدل ما تتجاهلك بصمت.</li>
+    <li><b>خلط الـ Builder بأي API بيرجع <code>this</code></b> — الـ chaining شكل كتابة.
+      ولو كتبت builder <b>immutable</b> (كل method ترجّع نسخة جديدة) لازم تستقبل الناتج:
+      <code>b = b.WithLine(...)</code>، وإلا السطر بيروح في الهوا من غير أي error.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. <code>WebApplication.CreateBuilder(args)</code> … <code>.Build()</code> بيوضّح بترن الـ Builder عشان:</div>
+    <button class="opt">لأنه بيستخدم method chaining</button>
+    <button class="opt">لأن إعدادات معقدة بتتجمّع على مراحل، وبعدين <code>Build()</code> بتطلّع المنتج الجاهز</button>
+    <button class="opt">لأن <code>CreateBuilder</code> method static</button>
+    <button class="opt">لأنه بيعمل singleton</button>
+    <div class="feedback">
+      جوهر البترن = تجميع على مراحل + خطوة تجميع نهائية. الـ chaining مجرد تحلية في الكتابة،
+      و<code>static</code> أو singleton مالهمش علاقة.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إيه الحاجة اللي بتحوّل الـ builder من «constructor أطول» لحاجة فيها قيمة فعلية؟</div>
+    <button class="opt">إن كل method ترجّع <code>this</code></button>
+    <button class="opt">إنه بيقلل عدد الـ allocations</button>
+    <button class="opt">إن <code>Build()</code> فيها الـ validation + snapshot، فمستحيل يخرج منها كائن ناقص أو مشارك لحالة الـ builder</button>
+    <button class="opt">إنه بيخلي الكلاس اللي بيبنيه immutable تلقائياً</button>
+    <div class="feedback">
+      الـ <code>Build()</code> هي البوابة: بتتحقق من الحالة ككل وبتنسخ الـ collections.
+      من غيرها إنت بس غيّرت شكل نداء الـ constructor.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ Builder = حالة مؤقتة mutable بتتجمّع على مراحل بـ defaults معقولة، و<code>Build()</code> واحدة بتتحقق منها وتطلّع المنتج النهائي.</li>
+    <li>القيمة في <code>Build()</code> نفسها — validation للحالة ككل و snapshot للـ collections — مش في إن الـ methods بترجّع <code>this</code>.</li>
+    <li>أعلى مكسب بتاخده منه هو Test Data Builder: كل test بيقول اللي يهمه بس، وتغيير الـ constructor بيتصلح في ملف واحد بدل ٤٠.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- assembly-line animation
+  var feedStage = document.getElementById('feedStage');
+  var feedToggle = document.getElementById('feedToggle');
+  feedToggle.addEventListener('click', function () {
+    var paused = feedStage.classList.toggle('paused');
+    feedToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- small render helper
+  function slot(label, value, cls) {
+    var row = document.createElement('div');
+    row.className = 'slot' + (cls ? ' ' + cls : '');
+    var l = document.createElement('span'), v = document.createElement('span');
+    l.textContent = label; v.className = 'v'; v.textContent = value;
+    row.appendChild(l); row.appendChild(v);
+    return row;
+  }
+  function note(host, text) {
+    var n = document.createElement('div');
+    n.className = 'empty-note'; n.textContent = text;
+    host.appendChild(n);
+  }
+
+  // ---------------------------------------------------------------- stepper: WebApplicationBuilder
+  var sbSlots = document.getElementById('sbSlots');
+  var sbProduct = document.getElementById('sbProduct');
+  var sbProductBox = document.getElementById('sbProductBox');
+
+  var st;
+  function stReset() { st = { services: 0, config: ['appsettings.json', 'env vars'], built: false, error: null }; }
+
+  var steps = [
+    { text: 'var builder = WebApplication.CreateBuilder(args); — الـ builder اتخلق بالـ defaults (configuration + logging + DI فاضي). المنتج (app) لسه مش موجود خالص.',
+      run: function () { stReset(); } },
+    { text: 'builder.Services.AddDbContext<AppDbContext>(); — أول جزء دخل الحالة المؤقتة. مفيش حاجة اتبنت، دي مجرد تسجيلة في ServiceCollection.',
+      run: function () { st.services = 1; } },
+    { text: 'builder.Services.AddAuthentication().AddJwtBearer(); — جزء تاني. الترتيب هنا مش مهم: التسجيلات بتتجمّع، والحل الفعلي للـ dependencies بيحصل بعدين.',
+      run: function () { st.services = 2; } },
+    { text: 'builder.Configuration.AddUserSecrets<Program>(); — طبقة إعدادات جديدة فوق اللي قبلها. لسه بنجمّع، لسه مفيش منتج.',
+      run: function () { st.config = st.config.concat(['user secrets']); } },
+    { text: 'var app = builder.Build(); — خطوة القفل: الـ ServiceProvider اتبنى من التسجيلات، والإعدادات اتدمجت، والـ ServiceCollection بقى read-only. أول مرة يبقى عندنا منتج.',
+      run: function () { st.built = true; } },
+    { text: 'builder.Services.AddSingleton<IClock, SystemClock>(); بعد Build() — بترمي InvalidOperationException. المنتج مبيتغيرش بعد ما يتبني، والـ runtime بيقولك بصوت عالي بدل ما يتجاهلك.',
+      run: function () { st.error = 'InvalidOperationException'; } }
+  ];
+
+  function renderStepper() {
+    sbSlots.innerHTML = '';
+    sbProduct.innerHTML = '';
+    sbProductBox.classList.remove('ready', 'failed');
+
+    var svcCls = st.error ? 'err' : (st.built ? 'locked' : (st.services ? 'set' : ''));
+    var svcVal = st.services + ' registration(s)' + (st.error ? ' · إضافة مرفوضة' : (st.built ? ' · read-only' : ''));
+    sbSlots.appendChild(slot('Services', svcVal, svcCls));
+    sbSlots.appendChild(slot('Configuration', st.config.length + ' layer(s)', st.config.length > 2 ? 'set' : ''));
+    sbSlots.appendChild(slot('Build() اتنادت؟', st.built ? 'أيوه' : 'لأ', st.built ? 'set' : ''));
+    if (st.error) sbSlots.appendChild(slot('آخر محاولة', 'throw ' + st.error, 'err'));
+
+    if (!st.built) {
+      note(sbProduct, 'مفيش app لسه — الـ builder لوحده مش منتج.');
+    } else {
+      sbProductBox.classList.add('ready');
+      sbProduct.appendChild(slot('WebApplication', 'app', 'set'));
+      sbProduct.appendChild(slot('ServiceProvider', 'مبني من ' + st.services + ' registration', 'set'));
+      sbProduct.appendChild(slot('Configuration', 'مدمجة من ' + st.config.length + ' layer', 'set'));
+      if (st.error) note(sbProduct, 'المنتج زي ما هو — تعديل الـ builder بعد Build() مأثّرش عليه.');
+    }
+  }
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح
+    stReset();
+    for (var i = 0; i <= step; i++) steps[i].run();
+    renderStepper();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(); } });
+  renderStep();
+
+  // ---------------------------------------------------------------- demo: OrderBuilder
+  var dbSlots = document.getElementById('dbSlots');
+  var dbProduct = document.getElementById('dbProduct');
+  var dbProductBox = document.getElementById('dbProductBox');
+  var dbChain = document.getElementById('dbChain');
+  var dbCalls = document.getElementById('dbCalls'), dbBuilt = document.getElementById('dbBuilt');
+  var reuseBtn = document.getElementById('btnReuse');
+
+  var d, reuse = false;
+  function dReset() {
+    d = {
+      customer: 'TestData.DefaultCustomer', customerSet: false, lines: [], discount: 0,
+      calls: [], built: 0, product: null, error: null, consumed: false, inherited: 0
+    };
+  }
+
+  function addCall(code, apply) {
+    if (d.consumed && !reuse) {
+      d.error = 'الـ builder اتستهلك خلاص — دوس «إعادة» أو شغّل إعادة الاستخدام.';
+      renderDemo();
+      return;
+    }
+    d.error = null;
+    d.calls.push(code);
+    apply();
+    renderDemo();
+  }
+
+  function total() {
+    var sum = 0;
+    d.lines.forEach(function (l) { sum += l.qty * l.price; });
+    return sum * (1 - d.discount / 100);
+  }
+
+  function renderDemo() {
+    dbSlots.innerHTML = '';
+    dbProduct.innerHTML = '';
+    dbProductBox.classList.remove('ready', 'failed');
+
+    dbSlots.appendChild(slot('_customer', d.customer, d.customerSet ? 'set' : ''));
+    dbSlots.appendChild(slot('_lines', d.lines.length + ' سطر' + (d.inherited ? ' (منهم ' + d.inherited + ' موروث)' : ''),
+      d.lines.length ? (d.inherited ? 'locked' : 'set') : ''));
+    dbSlots.appendChild(slot('_discount', d.discount + '%', d.discount ? 'set' : ''));
+    if (d.consumed) dbSlots.appendChild(slot('حالة الـ builder', reuse ? 'بيُعاد استخدامه' : 'مستهلك', reuse ? 'locked' : ''));
+    if (d.error) dbSlots.appendChild(slot('رفض', d.error, 'err'));
+
+    if (d.product) {
+      if (d.product.ok) {
+        dbProductBox.classList.add('ready');
+        dbProduct.appendChild(slot('Customer', d.product.customer, 'set'));
+        dbProduct.appendChild(slot('Lines', d.product.lines + ' سطر', 'set'));
+        dbProduct.appendChild(slot('Total', d.product.total.toFixed(2) + ' EGP', 'set'));
+        if (d.product.inherited) {
+          note(dbProduct, '⚠ المنتج ده ورث ' + d.product.inherited +
+            ' سطر من طلب قبله — ده بالظبط الـ bug بتاع إعادة استخدام builder بيشارك نفس الـ List.');
+        }
+      } else {
+        dbProductBox.classList.add('failed');
+        dbProduct.appendChild(slot('throw', 'InvalidOperationException', 'err'));
+        note(dbProduct, d.product.message);
+      }
+    } else {
+      note(dbProduct, 'مفيش منتج لسه — Build() هي اللي بتخلقه.');
+    }
+
+    var code = 'var order = new OrderBuilder()';
+    d.calls.forEach(function (c) { code += '\n    .' + c; });
+    code += d.calls.length ? '' : '\n    // مفيش نداءات لسه';
+    dbChain.textContent = code + ';';
+
+    dbCalls.textContent = d.calls.length;
+    dbBuilt.textContent = d.built;
+  }
+
+  document.getElementById('btnCustomer').addEventListener('click', function () {
+    addCall('ForCustomer(vipCustomer)', function () { d.customer = 'vipCustomer'; d.customerSet = true; });
+  });
+  document.getElementById('btnLine1').addEventListener('click', function () {
+    addCall('WithLine("SKU-1", qty: 2, price: 50m)', function () { d.lines.push({ qty: 2, price: 50 }); });
+  });
+  document.getElementById('btnLine2').addEventListener('click', function () {
+    addCall('WithLine("SKU-9", qty: 1, price: 120m)', function () { d.lines.push({ qty: 1, price: 120 }); });
+  });
+  document.getElementById('btnDiscount').addEventListener('click', function () {
+    addCall('WithDiscount(10)', function () { d.discount = 10; });
+  });
+
+  document.getElementById('btnBuild').addEventListener('click', function () {
+    if (d.consumed && !reuse) {
+      d.error = 'الـ builder اتستهلك خلاص — دوس «إعادة».';
+      renderDemo();
+      return;
+    }
+    d.error = null;
+    d.calls.push('Build()');
+    if (d.lines.length === 0) {
+      d.product = { ok: false, message: 'Order needs at least one line. — الـ validation منعت كائن ناقص قبل ما يخرج.' };
+    } else {
+      d.product = { ok: true, customer: d.customer, lines: d.lines.length, total: total(), inherited: d.inherited };
+      d.built++;
+      d.consumed = true;
+      if (reuse) {
+        // الـ builder محتفظ بحالته: السطور الحالية هتدخل المنتج اللي بعده كمان
+        d.inherited = d.lines.length;
+        d.calls = [];
+      }
+    }
+    renderDemo();
+  });
+
+  reuseBtn.addEventListener('click', function () {
+    reuse = !reuse;
+    reuseBtn.textContent = '♻️ أعيد استخدام نفس الـ builder: ' + (reuse ? 'أيوه' : 'لا');
+    reuseBtn.classList.toggle('on', reuse);
+    if (!reuse) { d.inherited = 0; }
+    renderDemo();
+  });
+
+  document.getElementById('btnReset').addEventListener('click', function () { dReset(); renderDemo(); });
+  dReset();
+  renderDemo();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
