@@ -1,11 +1,21 @@
-# Fallback publisher for when electron-builder's GitHub upload flakes ("socket hang up").
-# Regenerates latest.yml from the built exe, uploads exe + blockmap + latest.yml to the
-# release, and publishes it. Run after `npm run package` (or a failed `npm run release`).
+# Publishes a built installer as the latest GitHub release: regenerates latest.yml from the exe,
+# uploads exe + blockmap + latest.yml, tags -Target, and marks the release latest. Run after
+# `npm run package` (or a failed `npm run release`).
 #
-#   powershell -ExecutionPolicy Bypass -File scripts/publish-assets.ps1 -Version 1.2.0
+# Safe to re-run. A run killed midway (the PC slept during the upload on 2026-10-02 and v1.9.6
+# stayed a draft) leaves only drafts and no tag; the next run deletes those drafts and creates the
+# release again. electron-builder's own drafts for the tag (it can race itself into two) go the
+# same way. On a release that is already published it only re-uploads what differs.
+#
+#   powershell -ExecutionPolicy Bypass -File scripts/publish-assets.ps1 -Version 1.2.0 [-Target <sha>] [-DryRun]
 param(
     [Parameter(Mandatory = $true)] [string] $Version,
-    [string] $Repo = "mohamedanter1996/learnMore"
+    # Commit the new tag points at. Defaults to HEAD; pass the version-bump commit when finishing
+    # an older release, or later commits will look shipped to weekly-release.ps1's page diff.
+    [string] $Target,
+    [string] $Repo = "mohamedanter1996/learnMore",
+    # Reports what it would change on GitHub without changing it.
+    [switch] $DryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +24,7 @@ $spaced = Join-Path $dir "LearnMore Setup $Version.exe"
 $dashed = "LearnMore-Setup-$Version.exe"
 if (-not (Test-Path $spaced)) { throw "Installer not found: $spaced (run npm run package first)" }
 
-# sha512 (base64) + size — the format electron-updater's latest.yml expects.
+# sha512 (base64) + size - the format electron-updater's latest.yml expects.
 $size = (Get-Item $spaced).Length
 $sha = [System.Security.Cryptography.SHA512]::Create()
 $fs = [System.IO.File]::OpenRead($spaced)
@@ -37,26 +47,83 @@ Set-Content -Path (Join-Path $dir "latest.yml") -Value $yml -Encoding utf8 -NoNe
 Copy-Item $spaced (Join-Path $dir $dashed) -Force
 Copy-Item "$spaced.blockmap" (Join-Path $dir "$dashed.blockmap") -Force
 
+if (-not $Target) { $Target = (git rev-parse HEAD).Trim() }
 $tag = "v$Version"
-# Ensure a (draft) release exists, then upload and publish.
-# `gh release view` writes "release not found" to stderr, which $ErrorActionPreference = Stop
-# turns into a terminating NativeCommandError — that used to abort the script right here,
-# before it could create the release. Probe with errors tolerated instead.
-$exists = $true
-try {
-    $ErrorActionPreference = "SilentlyContinue"
-    gh release view $tag --repo $Repo *> $null
-    if ($LASTEXITCODE -ne 0) { $exists = $false }
-} finally { $ErrorActionPreference = "Stop" }
+$title = "LearnMore $tag"
+$assets = @($dashed, "$dashed.blockmap", "latest.yml")
 
-if (-not $exists) {
-    gh release create $tag --repo $Repo --draft --title "LearnMore $tag" --notes "Release $Version"
+# gh reports "not found" on stderr, and under "Stop" Windows PowerShell turns redirected stderr
+# into a terminating error - that once aborted this script before it could create a missing
+# release. Probes run with errors tolerated and are judged by exit code; $null means failed.
+function Invoke-GhProbe {
+    $ErrorActionPreference = "SilentlyContinue"
+    $out = & gh @args 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($out -join "`n")
 }
+
+# A native command's exit code never trips "Stop", so writes are checked by hand.
+function Invoke-GhWrite([string] $what) {
+    if ($DryRun) { Write-Host "[dry run] would $what"; return }
+    & gh @args
+    if ($LASTEXITCODE -ne 0) { throw "gh failed to $what (exit $LASTEXITCODE)" }
+}
+
+# Only a published release resolves by tag; drafts never do.
+$published = Invoke-GhProbe api "repos/$Repo/releases/tags/$tag" --jq '.assets[] | [.name, .digest] | @tsv'
+$publishedId = Invoke-GhProbe api "repos/$Repo/releases/tags/$tag" --jq .id
 
 Push-Location $dir
 try {
-    gh release upload $tag $dashed "$dashed.blockmap" "latest.yml" --repo $Repo --clobber
+    if ($publishedId) {
+        # latest.yml is tiny and always re-sent; the 140MB exe only when GitHub's copy differs.
+        $remote = @{}
+        foreach ($line in @($published -split "`n" | Where-Object { $_ })) {
+            $name, $digest = $line -split "`t"
+            $remote[$name] = $digest
+        }
+        $upload = @("latest.yml")
+        foreach ($a in $dashed, "$dashed.blockmap") {
+            $local = "sha256:" + (Get-FileHash $a -Algorithm SHA256).Hash.ToLower()
+            if ($remote[$a] -ne $local) { $upload += $a }
+        }
+        Invoke-GhWrite "upload $($upload -join ', ') to published $tag" release upload $tag @upload --repo $Repo --clobber
+    } else {
+        $drafts = Invoke-GhProbe api "repos/$Repo/releases?per_page=100" --jq '.[] | select(.draft) | [.id, .tag_name] | @tsv'
+        foreach ($line in @($drafts -split "`n" | Where-Object { $_ })) {
+            $id, $draftTag = $line -split "`t"
+            if ($draftTag -eq $tag) {
+                Invoke-GhWrite "delete leftover draft $id for $tag" api -X DELETE "repos/$Repo/releases/$id" --silent
+            }
+        }
+        # With assets attached gh creates a draft, uploads, then publishes, so a run killed here
+        # leaves a draft for the next run to clear - never a public release missing its exe.
+        Invoke-GhWrite "create $tag at $Target with $($assets -join ', ')" release create $tag @assets --repo $Repo --target $Target --title $title --notes "Release $Version" --latest
+    }
 } finally { Pop-Location }
 
-gh release edit $tag --repo $Repo --draft=false --latest --title "LearnMore $tag"
-Write-Host "Published $tag with exe + blockmap + latest.yml."
+if ($DryRun) {
+    Write-Host "[dry run] would make sure releases/latest is $tag and all three assets are attached"
+    return
+}
+
+# make_latest is ignored when it rides on the request that publishes a draft (v1.9.6 stayed behind
+# v1.9.5 that way). electron-updater resolves the tag from releases/latest, so check it and set it
+# on its own when needed.
+$latest = Invoke-GhProbe api "repos/$Repo/releases/latest" --jq .tag_name
+if ($latest -ne $tag) {
+    $id = Invoke-GhProbe api "repos/$Repo/releases/tags/$tag" --jq .id
+    if (-not $id) { throw "$tag is not published" }
+    Invoke-GhWrite "mark $tag latest" api -X PATCH "repos/$Repo/releases/$id" -f make_latest=true --silent
+    for ($i = 0; $i -lt 6 -and $latest -ne $tag; $i++) {
+        Start-Sleep -Seconds 5
+        $latest = Invoke-GhProbe api "repos/$Repo/releases/latest" --jq .tag_name
+    }
+    if ($latest -ne $tag) { throw "GitHub still reports $latest as the latest release, not $tag" }
+}
+
+$names = @((Invoke-GhProbe api "repos/$Repo/releases/tags/$tag" --jq '.assets[].name') -split "`n")
+foreach ($a in $assets) {
+    if ($names -notcontains $a) { throw "$tag is published but missing $a" }
+}
+Write-Host "Published $tag (latest) with exe + blockmap + latest.yml."

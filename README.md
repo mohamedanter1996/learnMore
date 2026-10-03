@@ -159,16 +159,19 @@ Shipping a new version:
 
 ```bash
 # 1. bump "version" in package.json    2. commit + push    3.
-$env:GH_TOKEN = (gh auth token)
-npm run release        # builds everything and publishes the release
+npm run package                 # builds the installer under build/installer/, uploads nothing
+npm run publish:assets 1.2.0    # latest.yml + exe + blockmap, tags HEAD, marks the release latest
 ```
 
-DB migrations and new seed content apply automatically on the updated app's first launch — user progress is preserved.
+`publish:assets` is safe to re-run: if a run dies mid-upload it leaves only a draft, and the next run
+deletes that draft and starts over. The app only sees a release GitHub marks **latest** — a draft, or a
+published release that isn't latest, is invisible to it. The Friday `weekly-release.ps1` task does the
+same steps, and on its next run finishes any release an earlier run left half-done.
 
-> **If `npm run release` fails mid-upload** (electron-builder's GitHub upload occasionally throws `socket hang up` on the ~140MB installer), the exe is still built under `build/installer/`. Recover with:
-> ```bash
-> npm run publish:assets 1.2.0    # regenerates latest.yml, uploads assets, publishes the release
-> ```
+`npm run release` (electron-builder's own upload) still works, but its upload flakes on the ~140MB
+installer and always leaves a draft — follow it with `npm run publish:assets <version>`.
+
+DB migrations and new seed content apply automatically on the updated app's first launch — user progress is preserved.
 
 ## Arabic explanations (الشرح بالمصري)
 
