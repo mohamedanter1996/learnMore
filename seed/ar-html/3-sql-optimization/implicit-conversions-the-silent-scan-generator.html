@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implicit Conversions: The Silent Scan Generator — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .duel { display: flex; align-items: stretch; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .side {
+    flex: 1 1 210px; min-width: 200px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; text-align: center; transition: border-color .3s, background .3s;
+  }
+  .side .who { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .side .ty {
+    font-family: Consolas, monospace; direction: ltr; font-size: 14px; color: var(--text);
+    display: block; margin-bottom: 6px;
+  }
+  .side .rank { font-size: 11px; color: var(--text-dim); }
+  .side.winner { border-color: var(--success); background: rgba(52, 211, 153, .12); }
+  .side.loser  { border-color: var(--danger);  background: rgba(248, 113, 113, .14); }
+  .side.quiet  { opacity: .75; }
+  .badge {
+    display: none; margin-top: 8px; font-family: Consolas, monospace; direction: ltr;
+    font-size: 11px; border-radius: 6px; padding: 4px 6px;
+    background: rgba(248, 113, 113, .18); border: 1px solid var(--danger); color: var(--text);
+  }
+  .badge.param { background: rgba(251, 191, 36, .16); border-color: var(--warning); }
+  .badge.show { display: block; }
+  .vs { align-self: center; color: var(--text-dim); font-family: Consolas, monospace; font-size: 13px; }
+
+  .ladder { margin: 14px 0 0; padding: 0; list-style: none; direction: ltr; }
+  .rung {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px;
+    background: var(--surface-2); transition: all .3s ease;
+  }
+  .rung .pos { font-size: 10px; }
+  .rung.hi { border-color: var(--success); color: var(--text); background: rgba(52, 211, 153, .12); }
+  .rung.lo { border-color: var(--danger);  color: var(--text); background: rgba(248, 113, 113, .14); }
+
+  .predicate {
+    direction: ltr; font-family: Consolas, monospace; font-size: 13px; text-align: center;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 8px; margin-top: 12px; overflow-x: auto; white-space: nowrap;
+  }
+
+  .belt-wrap {
+    position: relative; overflow: hidden; height: 60px; margin-top: 12px; direction: ltr;
+    border: 1px dashed var(--border); border-radius: 8px; background: var(--bg);
+  }
+  .belt {
+    position: absolute; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px;
+    padding-left: 10px; animation: beltmove 7s linear infinite; will-change: transform;
+  }
+  @keyframes beltmove { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .paused .belt { animation-play-state: paused; }
+  .chip {
+    flex: 0 0 auto; font-family: Consolas, monospace; font-size: 11px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; background: var(--surface-2);
+  }
+  .gate {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 118px; transform: translateX(-50%);
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-family: Consolas, monospace; font-size: 10px; line-height: 1.4; padding: 0 4px;
+    white-space: pre-line;
+    border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-dim); transition: all .3s ease;
+  }
+  .gate.bad { border-color: var(--danger); background: rgba(248, 113, 113, .2); color: var(--text); }
+  .gate.good { border-color: var(--success); background: rgba(52, 211, 153, .14); color: var(--text); }
+
+  .counters { display: flex; gap: 20px; margin-top: 14px; font-size: 15px; flex-wrap: wrap; }
+  .counters b { font-family: Consolas, monospace; }
+  .verdict { margin-top: 12px; font-size: 15px; }
+  .verdict.ok  { color: var(--success); }
+  .verdict.bad { color: var(--danger); }
+  .picker { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .picker .lbl { font-size: 13px; color: var(--text-dim); min-width: 112px; }
+  .btn.on { border-color: var(--primary); color: var(--text); }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 86px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>سطر واحد في كود C# بيحوّل الـ seek لـ scan — وإنت مش لامس الـ SQL</h1>
+  <div class="en">Implicit Conversions: The Silent Scan Generator</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    جدول <code>Customers</code> فيه ٣ مليون صف، وعمود <code>AccountNumber VARCHAR(20)</code> عليه
+    فهرس nonclustered. بتشغّل الاستعلام في SSMS فبيرجع في <b>٠.٤ ملي ثانية</b> بـ ٣ قراءات منطقية.
+    نفس الاستعلام بالظبط من الـ API بتاعك بياخد <b>٧٤٠ ملي ثانية</b> و<b>٣٨,١١٢</b> قراءة.
+    نفس السيرفر، نفس الفهرس، نفس النص.
+  </p>
+  <div class="callout info">
+    السبب إن الـ string في C# بيتبعت افتراضياً كـ <code>NVARCHAR</code>. والعمود <code>VARCHAR</code>.
+    لما النوعين يختلفوا، SQL Server بيحوّل طرف للتاني — والقرار بتاع
+    <strong>data type precedence</strong>، مش بتاعك. وفي الحالة دي الطرف اللي بيتحول هو
+    <strong>العمود</strong>، صف صف، قبل أي مقارنة.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتفضل تضيف فهارس وتعيد كتابة الاستعلام والخطة زي ما هي scan،
+    وهتقول «الـ SSMS سريع يبقى المشكلة في الـ ORM» من غير ما تعرف إن المشكلة سطر
+    <code>AddWithValue</code> واحد. وفي أسوأ الحالات (<code>WHERE Code = 123</code> على عمود نصي)
+    هتاخد <code>Conversion failed</code> في الـ production على صف واحد فيه حروف.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: مين فيهم اللي بيتحول؟</h2></div>
+  <p class="note">
+    القاعدة الوحيدة اللي تحفظها: <b>الأقل في سلّم الأولوية هو اللي بيتحول للأعلى</b>.
+    لو الأقل هو الـ parameter → تحويل واحد وخلاص. لو الأقل هو العمود → تحويل لكل صف = الفهرس مات.
+    غيّر الأنواع تحت وشوف السلّم بيحكم على مين.
+  </p>
+
+  <div class="stage" id="convStage">
+    <div class="duel">
+      <div class="side" id="colBox">
+        <div class="who">العمود (في الجدول)</div>
+        <code class="ty" id="colTypeLabel">AccountNumber varchar(20)</code>
+        <div class="rank" id="colRank">—</div>
+        <div class="badge" id="colBadge"></div>
+      </div>
+      <div class="vs">=</div>
+      <div class="side" id="parBox">
+        <div class="who">الـ parameter (جاي من التطبيق)</div>
+        <code class="ty" id="parTypeLabel">@p1 nvarchar(4000)</code>
+        <div class="rank" id="parRank">—</div>
+        <div class="badge param" id="parBadge"></div>
+      </div>
+    </div>
+
+    <ul class="ladder" id="ladder">
+      <li class="rung" data-type="int"><span>int</span><span class="pos">أعلى</span></li>
+      <li class="rung" data-type="nvarchar"><span>nvarchar</span><span class="pos">↑</span></li>
+      <li class="rung" data-type="nchar"><span>nchar</span><span class="pos">↑</span></li>
+      <li class="rung" data-type="varchar"><span>varchar</span><span class="pos">↓</span></li>
+      <li class="rung" data-type="char"><span>char</span><span class="pos">أدنى</span></li>
+    </ul>
+
+    <div class="predicate" id="predicate">[AccountNumber] = @p1</div>
+
+    <div class="belt-wrap" id="beltWrap">
+      <div class="belt" id="belt"></div>
+      <div class="gate" id="gate">— مفيش بوابة تحويل —</div>
+    </div>
+
+    <div class="counters">
+      <span>📄 Logical reads: <b id="reads">—</b></span>
+      <span>⏱ الزمن: <b id="ms">—</b></span>
+    </div>
+    <div class="verdict" id="verdict">اختار نوعين وشوف الخطة.</div>
+
+    <div class="picker">
+      <span class="lbl">نوع العمود:</span>
+      <button class="btn ghost" data-col="varchar">VARCHAR(20)</button>
+      <button class="btn ghost" data-col="nvarchar">NVARCHAR(20)</button>
+    </div>
+    <div class="picker">
+      <span class="lbl">نوع الـ parameter:</span>
+      <button class="btn ghost" data-par="nvarchar">NVARCHAR (الافتراضي من .NET)</button>
+      <button class="btn ghost" data-par="varchar">VARCHAR (AnsiString)</button>
+      <button class="btn ghost" data-par="int">INT (رقم مكتوب على طول)</button>
+    </div>
+    <div class="controls">
+      <button class="btn ghost" id="animToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إزاي الـ seek بيموت</h2></div>
+  <p class="note">الخطوات دي بتشغّل نفس الرسمة اللي فوق على الحالة الأشهر: عمود <code>VARCHAR</code> و parameter <code>NVARCHAR</code>.</p>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من كود .NET</h2></div>
+
+  <h3>أ. ADO.NET الخام — الفرق سطر واحد</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ AddWithValue</strong> — بيبعت NVARCHAR</div>
+<pre><code><span class="k">var</span> cmd = <span class="k">new</span> SqlCommand(
+  <span class="s">"SELECT * FROM Customers WHERE AccountNumber = @acc"</span>, conn);
+cmd.Parameters.AddWithValue(<span class="s">"@acc"</span>, acc);
+<span class="c">// Index Scan · logical reads 38,112 · ~740 ms</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ نوع صريح</strong> — VarChar بطول العمود</div>
+<pre><code><span class="k">var</span> cmd = <span class="k">new</span> SqlCommand(
+  <span class="s">"SELECT * FROM Customers WHERE AccountNumber = @acc"</span>, conn);
+cmd.Parameters.Add(<span class="s">"@acc"</span>, SqlDbType.VarChar, 20).Value = acc;
+<span class="c">// Index Seek · logical reads 3 · ~0.4 ms</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    نفس الـ SQL حرف بحرف. اللي اتغير هو نوع الـ parameter اللي اتبعت على السلك — ومعاه الخطة كلها.
+  </p>
+
+  <h3>ب. Dapper و EF Core</h3>
+<pre><code><span class="c">// Dapper: DbString بيخليك تحدد ansi + الطول</span>
+conn.QuerySingleOrDefault&lt;Customer&gt;(sql, <span class="k">new</span> {
+    acc = <span class="k">new</span> DbString { Value = acc, IsAnsi = <span class="k">true</span>, Length = 20 }
+});
+
+<span class="c">// EF Core: صلّحها مرة واحدة في الموديل وكل استعلام بعدها يطلع صح</span>
+modelBuilder.Entity&lt;Customer&gt;()
+    .Property(c =&gt; c.AccountNumber)
+    .HasColumnType(<span class="s">"varchar(20)"</span>);</code></pre>
+  <div class="callout info">
+    EF Core بيبعت الأنواع صح <b>لو الموديل عارف نوع العمود</b>. لو عملت scaffold من داتابيز موجودة
+    هتلاقيها متظبطة؛ لو كتبت الـ entity بإيدك و سبت <code>string</code> من غير
+    <code>HasColumnType</code>، هيفترض <code>nvarchar(max)</code> ويقع في نفس الفخ.
+  </div>
+
+  <h3>ج. دوّر عليها في السيرفر بتاعك</h3>
+<pre><code><span class="c">-- الخطط اللي في الكاش ومتأثرة فعلاً بتحويل ضمني</span>
+<span class="k">SELECT</span> <span class="k">TOP</span> 20 qs.execution_count, qt.text
+<span class="k">FROM</span> sys.dm_exec_query_stats qs
+<span class="k">CROSS APPLY</span> sys.dm_exec_sql_text(qs.sql_handle) qt
+<span class="k">CROSS APPLY</span> sys.dm_exec_query_plan(qs.plan_handle) qp
+<span class="k">WHERE</span> <span class="k">CAST</span>(qp.query_plan <span class="k">AS</span> <span class="k">NVARCHAR</span>(<span class="k">MAX</span>)) <span class="k">LIKE</span> <span class="s">'%PlanAffectingConvert%'</span>;</code></pre>
+  <p class="note">
+    في الخطة الرسومية هتلاقي علامة ⚠ على الـ SELECT operator بتقول
+    <code>Type conversion in expression … may affect "CardinalityEstimate"</code>. في الـ XML
+    الكلمة اللي بتدوّر عليها هي <code>PlanAffectingConvert</code>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b><code>AddWithValue</code> في كل حتة</b> — بيستنتج النوع من قيمة C#: الـ <code>string</code>
+      بيبقى <code>nvarchar</code>، والـ <code>decimal</code> بياخد precision من القيمة نفسها فكل
+      قيمة تولّد plan جديد. حدد النوع والطول دايماً.</li>
+    <li><b>تسكيت الـ warning بـ CAST على العمود</b> — <code>CAST(AccountNumber AS NVARCHAR(20)) = @p</code>
+      هي نفس الكارثة بالظبط، بس بقت مكتوبة بإيدك. حوّل <u>الـ parameter</u>:
+      <code>WHERE AccountNumber = CAST(@p AS VARCHAR(20))</code>.</li>
+    <li><b><code>WHERE Code = 123</code> على عمود <code>VARCHAR</code></b> — الـ <code>int</code> أعلى
+      من <code>varchar</code> في السلّم، فالعمود بيتحول لـ int. scan + احتمال
+      <code>Conversion failed when converting the varchar value … to data type int</code> على أول صف
+      فيه حرف. حط القيمة بين علامتين تنصيص.</li>
+    <li><b>JOIN بين عمودين نوعهم اتفرّق مع الوقت</b> (<code>FK int</code> مقابل <code>PK bigint</code>،
+      أو <code>varchar</code> مقابل <code>nvarchar</code>) — التحويل بيقع على عمود الجوين، فبتخسر الـ seek
+      جوّه الـ nested loops وبتخسر دقة الـ estimates كمان.</li>
+    <li><b>الرد على الـ scan بفهرس جديد</b> — الـ Missing Index DMV هتقترح عليك فهرس، وهتعمله،
+      والخطة هتفضل scan لأن المشكلة مش نقص فهرس، المشكلة إن العمود مش ظاهر بقيمته الأصلية في الـ predicate.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. parameter جاي من .NET كـ string بيستعلم على عمود <code>VARCHAR</code> وبيعمل scan. ليه؟</div>
+    <button class="opt">لأن الـ strings في .NET طويلة أوي</button>
+    <button class="opt">.NET بيبعت NVARCHAR، والـ precedence بيجبر العمود VARCHAR إنه يتحول صف صف فيموت الـ seek</button>
+    <button class="opt">لأن الـ VARCHAR مينفعش يتعمل عليه فهرس</button>
+    <button class="opt">لأن الـ collation غلط</button>
+    <div class="feedback">
+      الـ nvarchar أعلى في السلّم فبيكسب، والطرف اللي بيتحول هو العمود — وتحويل العمود مش SARGable.
+      الحل: <code>DbType.AnsiString</code> / <code>SqlDbType.VarChar</code> أو ظبط نوع العمود في الموديل.
+    </div>
+  </div>
+
+  <div class="q" data-correct="0">
+    <div class="qt">2. العمود <code>NVARCHAR(20)</code> والـ parameter اتبعت <code>VARCHAR</code>. إيه اللي بيحصل؟</div>
+    <button class="opt">الـ parameter هو اللي بيتحول — مرة واحدة — والـ seek بيفضل شغال</button>
+    <button class="opt">العمود بيتحول صف صف، يبقى scan</button>
+    <button class="opt">SQL Server بيرمي error لأن النوعين مختلفين</button>
+    <button class="opt">مفيش أي تحويل، المقارنة بتتم زي ما هي</button>
+    <div class="feedback">
+      التحويل الضمني مش مصيبة في ذاته. المصيبة بس لما الطرف الأدنى يكون <b>العمود</b>. هنا الأدنى هو
+      الـ parameter، فبيتحول قيمة واحدة ساعة الـ compile والفهرس يفضل مستعمل.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>اختلاف الأنواع في الـ predicate بيجبر SQL Server على تحويل طرف، وجدول الـ data type precedence هو اللي بيختار مين — <code>int</code> فوق <code>nvarchar</code> فوق <code>varchar</code>.</li>
+    <li>التحويل على الـ parameter بيحصل مرة واحدة ومش مشكلة؛ التحويل على العمود معناه function على كل صف = predicate مش SARGable = scan.</li>
+    <li>صلّحها من المنبع: نوع الـ parameter = نوع العمود (<code>SqlDbType.VarChar</code>، <code>DbString { IsAnsi = true }</code>، <code>HasColumnType("varchar(20)")</code>) ودوّر على <code>PlanAffectingConvert</code> في الـ plan cache.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- belt animation
+  var convStage = document.getElementById('convStage');
+  var animToggle = document.getElementById('animToggle');
+  animToggle.addEventListener('click', function () {
+    var paused = convStage.classList.toggle('paused');
+    animToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  var belt = document.getElementById('belt');
+  var sample = ['AC-00417', 'AC-00418', 'AC-00419', 'AC-00420', 'AC-00421', 'AC-00422'];
+  for (var pass = 0; pass < 2; pass++) {           // نسختين عشان اللفّة تبقى سلسة
+    sample.forEach(function (v) {
+      var c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = v;
+      belt.appendChild(c);
+    });
+  }
+
+  // ---------------------------------------------------------------- precedence model
+  var TYPES = {
+    int:      { rank: 1, sql: 'int',          col: 'Code int',               par: '@p1 int' },
+    nvarchar: { rank: 2, sql: 'nvarchar(20)', col: 'AccountNumber nvarchar(20)', par: '@p1 nvarchar(4000)' },
+    varchar:  { rank: 3, sql: 'varchar(20)',  col: 'AccountNumber varchar(20)',  par: '@p1 varchar(20)' }
+  };
+  var RANK_TEXT = { int: 'الأعلى في السلّم', nvarchar: 'أعلى من varchar', varchar: 'الأدنى من التلاتة' };
+
+  var colType = 'varchar', parType = 'nvarchar', phase = 5;
+
+  var colBox = document.getElementById('colBox'), parBox = document.getElementById('parBox');
+  var colTypeLabel = document.getElementById('colTypeLabel'), parTypeLabel = document.getElementById('parTypeLabel');
+  var colRank = document.getElementById('colRank'), parRank = document.getElementById('parRank');
+  var colBadge = document.getElementById('colBadge'), parBadge = document.getElementById('parBadge');
+  var predicate = document.getElementById('predicate');
+  var gate = document.getElementById('gate'), beltWrap = document.getElementById('beltWrap');
+  var readsEl = document.getElementById('reads'), msEl = document.getElementById('ms');
+  var verdictEl = document.getElementById('verdict');
+  var rungs = document.querySelectorAll('.rung');
+
+  function loserSide() {
+    if (colType === parType) return 'none';
+    return TYPES[colType].rank > TYPES[parType].rank ? 'col' : 'par';
+  }
+  function winnerType() {
+    return TYPES[colType].rank < TYPES[parType].rank ? colType : parType;
+  }
+
+  function render() {
+    var loser = loserSide();
+    var win = winnerType();
+    var colName = colType === 'int' ? 'Code' : 'AccountNumber';
+
+    colTypeLabel.textContent = TYPES[colType].col;
+    parTypeLabel.textContent = TYPES[parType].par;
+
+    // 1) حالة الصناديق — تظهر من خطوة 3 وطالع
+    colBox.className = 'side';
+    parBox.className = 'side';
+    colRank.textContent = phase >= 2 ? RANK_TEXT[colType] : '—';
+    parRank.textContent = phase >= 2 ? RANK_TEXT[parType] : '—';
+    if (phase >= 2 && loser !== 'none') {
+      (loser === 'col' ? colBox : parBox).classList.add('loser');
+      (loser === 'col' ? parBox : colBox).classList.add('winner');
+    } else if (phase >= 2) {
+      colBox.classList.add('winner');
+      parBox.classList.add('winner');
+    } else {
+      colBox.classList.add('quiet');
+      parBox.classList.add('quiet');
+    }
+
+    // 2) السلّم
+    Array.prototype.forEach.call(rungs, function (r) {
+      r.classList.remove('hi', 'lo');
+      if (phase < 2 || loser === 'none') return;
+      var t = r.getAttribute('data-type');
+      if (t === win) r.classList.add('hi');
+      if (t === (loser === 'col' ? colType : parType)) r.classList.add('lo');
+    });
+
+    // 3) شارة التحويل
+    colBadge.className = 'badge';
+    parBadge.className = 'badge param';
+    if (phase >= 3 && loser === 'col') {
+      colBadge.textContent = 'CONVERT_IMPLICIT(' + TYPES[win].sql + ', ' + colName + ') — لكل صف';
+      colBadge.classList.add('show');
+    } else if (phase >= 3 && loser === 'par') {
+      parBadge.textContent = 'CONVERT_IMPLICIT(' + TYPES[win].sql + ', @p1) — مرة واحدة';
+      parBadge.classList.add('show');
+    }
+
+    // 4) شكل الـ predicate في الخطة
+    if (phase < 3 || loser === 'none') {
+      predicate.textContent = '[' + colName + '] = @p1';
+    } else if (loser === 'col') {
+      predicate.textContent = 'CONVERT_IMPLICIT(' + TYPES[win].sql + ', [' + colName + ']) = @p1';
+    } else {
+      predicate.textContent = '[' + colName + '] = CONVERT_IMPLICIT(' + TYPES[win].sql + ', @p1)';
+    }
+
+    // 5) السير والبوابة
+    gate.className = 'gate';
+    if (phase >= 4 && loser === 'col') {
+      gate.className = 'gate bad';
+      gate.textContent = 'CONVERT_IMPLICIT()\nكل صف لازم يعدّي من هنا';
+    } else if (phase >= 4) {
+      gate.className = 'gate good';
+      gate.textContent = 'مفيش تحويل على الصفوف\nالفهرس بيشتغل بقيمته';
+    } else {
+      gate.textContent = '— لسه بنقرر —';
+    }
+    beltWrap.style.opacity = phase >= 4 ? '1' : '.55';
+
+    // 6) الحكم والأرقام
+    if (phase < 5) {
+      readsEl.textContent = '—';
+      msEl.textContent = '—';
+      verdictEl.className = 'verdict';
+      verdictEl.textContent = 'كمّل الخطوات عشان تشوف الخطة النهائية.';
+      return;
+    }
+    if (loser === 'col') {
+      readsEl.textContent = '38,112';
+      msEl.textContent = '~740 ms';
+      verdictEl.className = 'verdict bad';
+      verdictEl.textContent = '❌ Index Scan — العمود بيتحول صف صف، فالفهرس اتعطّل تماماً.'
+        + (parType === 'int'
+            ? ' وكمان: أول صف فيه حروف هيرمي Conversion failed … to data type int.' : '');
+    } else if (loser === 'par') {
+      readsEl.textContent = '3';
+      msEl.textContent = '~0.4 ms';
+      verdictEl.className = 'verdict ok';
+      verdictEl.textContent = '✅ Index Seek — التحويل وقع على الـ parameter مرة واحدة، والفهرس شغال.';
+    } else {
+      readsEl.textContent = '3';
+      msEl.textContent = '~0.4 ms';
+      verdictEl.className = 'verdict ok';
+      verdictEl.textContent = '✅ Index Seek — النوعين متطابقين، مفيش تحويل من أصله.';
+    }
+  }
+
+  function syncPickers() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-col]'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-col') === colType);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-par]'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-par') === parType);
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-col]'), function (b) {
+    b.addEventListener('click', function () {
+      colType = b.getAttribute('data-col');
+      phase = 5;
+      syncPickers(); render();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-par]'), function (b) {
+    b.addEventListener('click', function () {
+      parType = b.getAttribute('data-par');
+      phase = 5;
+      syncPickers(); render();
+    });
+  });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    'الاستعلام وصل: SELECT * FROM Customers WHERE AccountNumber = @p1. العمود VARCHAR(20) وعليه فهرس، والـ parameter جاي من ADO.NET كـ NVARCHAR(4000) — ده الافتراضي لأي string في C#.',
+    'SQL Server مبيقارنش نوعين مختلفين على طول. لازم طرف يتحول للتاني، والاختيار مش مزاجي ومش بتاعك: فيه جدول ثابت اسمه data type precedence.',
+    'بص على السلّم: nvarchar أعلى من varchar. يعني الطرف الأدنى — العمود — هو اللي هيتحول للأعلى.',
+    'الخطة بتتكتب كده: CONVERT_IMPLICIT(nvarchar(20), [AccountNumber]) = @p1. العمود بقى جوّه function، وده بالظبط نفس اللي بيحصل لو كتبت CAST بإيدك.',
+    'عمود جوّه function = predicate مش SARGable. الفهرس مترتّب على القيمة الأصلية، مش على ناتج التحويل، فمفيش حتة يعمل فيها seek — لازم يقرا كل صف ويحوّله الأول عشان يقارن.',
+    'النتيجة: Index Scan على ٣ مليون صف — 38,112 قراءة منطقية و~740 ملي ثانية بدل 3 قراءات و~0.4 ملي ثانية. الحل مش فهرس جديد: خلي الـ parameter VARCHAR (SqlDbType.VarChar أو HasColumnType) فالطرفين يتطابقوا.'
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function renderStep(driveDiagram) {
+    stepBox.textContent = steps[step];
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    if (!driveDiagram) return;
+    // الحالة بتتبني من الأول كل مرة، فالرجوع بيرجّع الرسمة صح مش بيلغي آخر فريم بس
+    colType = 'varchar';
+    parType = 'nvarchar';
+    phase = step;
+    syncPickers();
+    render();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; renderStep(true); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; renderStep(true); } });
+
+  renderStep(false);
+  syncPickers();
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

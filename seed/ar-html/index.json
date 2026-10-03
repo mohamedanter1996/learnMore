@@ -139,6 +139,11 @@
       "topic": "Design Patterns",
       "title": "Builder: Constructing Complex Objects Step by Step",
       "file": "2-design-patterns/builder-constructing-complex-objects-step-by-s.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Implicit Conversions: The Silent Scan Generator",
+      "file": "3-sql-optimization/implicit-conversions-the-silent-scan-generator.html"
     }
   ]
 }
