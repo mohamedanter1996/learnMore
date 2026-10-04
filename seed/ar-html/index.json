@@ -144,6 +144,11 @@
       "topic": "SQL Server Optimization",
       "title": "Implicit Conversions: The Silent Scan Generator",
       "file": "3-sql-optimization/implicit-conversions-the-silent-scan-generator.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Load Balancing: Algorithms and Health",
+      "file": "4-system-design/load-balancing-algorithms-and-health.html"
     }
   ]
 }

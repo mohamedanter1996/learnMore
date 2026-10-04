@@ -63,8 +63,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `SQL Server Optimization` — Implicit Conversions: The Silent Scan Generator → `3-sql-optimization/implicit-conversions-the-silent-scan-generator.html`
 
-## Queue (124)
-- [ ] 25. `System Design` — Load Balancing: Algorithms and Health → `4-system-design/load-balancing-algorithms-and-health.html`
+- [x] `System Design` — Load Balancing: Algorithms and Health → `4-system-design/load-balancing-algorithms-and-health.html`
+
+## Queue (123)
 - [ ] 26. `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`
 - [ ] 27. `Data Structures & Algorithms` — Two Pointers: O(n²) → O(n) → `1-dsa/two-pointers-o-n-o-n.html`
 - [ ] 28. `Design Patterns` — Singleton: The Pattern You Should Rarely Hand-Roll → `2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html`
