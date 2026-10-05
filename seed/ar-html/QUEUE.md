@@ -65,8 +65,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — Load Balancing: Algorithms and Health → `4-system-design/load-balancing-algorithms-and-health.html`
 
-## Queue (123)
-- [ ] 26. `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`
+- [x] `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`
+
+## Queue (122)
 - [ ] 27. `Data Structures & Algorithms` — Two Pointers: O(n²) → O(n) → `1-dsa/two-pointers-o-n-o-n.html`
 - [ ] 28. `Design Patterns` — Singleton: The Pattern You Should Rarely Hand-Roll → `2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html`
 - [ ] 29. `SQL Server Optimization` — Statistics: What the Optimizer Actually Knows → `3-sql-optimization/statistics-what-the-optimizer-actually-knows.html`

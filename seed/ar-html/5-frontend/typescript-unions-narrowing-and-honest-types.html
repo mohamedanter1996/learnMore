@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TypeScript: Unions, Narrowing, and Honest Types — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .gate { width: 100%; height: 230px; }
+  /* نفس المسار لتلات حزم، والفرق بس في الفرع اللي بتنزل فيه (--dy) ووقت البداية */
+  .pk { animation: flow 4.2s ease-in-out infinite; }
+  @keyframes flow {
+    0% { transform: translate(0,0); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: translate(86px,0); opacity: 1; }
+    82% { transform: translate(206px, var(--dy)); opacity: 1; }
+    100% { transform: translate(206px, var(--dy)); opacity: 0; }
+  }
+  .pk1 { --dy: -62px; }
+  .pk2 { --dy: 0px; animation-delay: 1.4s; }
+  .pk3 { --dy: 62px; animation-delay: 2.8s; }
+  .paused .pk { animation-play-state: paused; }
+
+  .cands { display: flex; flex-direction: column; gap: 8px; }
+  .cand {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    background: var(--surface-2); font-family: Consolas, monospace; font-size: 13px;
+    direction: ltr; color: var(--text-dim); transition: all .28s ease;
+  }
+  .cand.keep { border-color: var(--success); background: rgba(52,211,153,.14); color: #d1fae5; }
+  .cand.out { opacity: .4; border-style: dashed; text-decoration: line-through; }
+  .props { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; direction: ltr; }
+  .prop {
+    border-radius: 999px; padding: 5px 11px; font-family: Consolas, monospace; font-size: 12px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+  }
+  .prop.ok { border-color: var(--success); color: #d1fae5; background: rgba(52,211,153,.14); }
+  .prop.no { border-color: var(--danger); color: #fecaca; background: rgba(248,113,113,.14); }
+  .guard-line {
+    margin-top: 12px; font-family: Consolas, monospace; direction: ltr; font-size: 13px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: #bae6fd;
+  }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 80px; }
+
+  .combos { display: grid; grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); gap: 8px; }
+  .combo {
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; cursor: pointer;
+    background: var(--surface-2); font-size: 12px; transition: border-color .2s, background .2s;
+  }
+  .combo:hover { border-color: var(--primary); }
+  .combo .bits { font-family: Consolas, monospace; direction: ltr; font-size: 12px; color: var(--text-dim); }
+  .combo .why { display: none; margin-top: 6px; font-size: 12px; }
+  .combo.shown .why { display: block; }
+  .combo.shown.legal { border-color: var(--success); background: rgba(52,211,153,.12); }
+  .combo.shown.illegal { border-color: var(--danger); background: rgba(248,113,113,.12); }
+  .counters { display: flex; gap: 20px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🎨 Frontend Engineering · درس مصري مفصّل</div>
+  <h1>قوة TypeScript مش إنك تكتب أنواع — إنك تخلّي الحالة الغلط <b>مش قادرة تتكتب</b></h1>
+  <div class="en">TypeScript: Unions, Narrowing, and Honest Types</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك كمبوننت عرض طلبات في Angular فيها التلاتة الكلاسيك:
+    <code>loading: boolean</code>، <code>error: string | null</code>، <code>orders: Order[]</code>.
+    جالك تيكيت من الـ QA: «الشاشة بتوري الـ spinner ورسالة الخطأ مع بعض». دخلت على الكود،
+    لقيت مسار واحد بيسيب <code>loading = true</code> وهو بيحط الـ error.
+  </p>
+  <p>
+    التلات حقول دول بيسمحوا بـ <b>٨ تركيبات</b> (2×2×2). منهم <b>٤ بس</b> ليهم معنى.
+    الأربعة الباقيين مش ممنوعين من الـ compiler — ممنوعين بانضباطك إنت وإنت بتكتب. وده بيفشل.
+  </p>
+  <div class="callout info">
+    الحل إنك تقلب الحالة من <b>تلات حقول مستقلة</b> لـ <b>شكل واحد من تلاتة</b> —
+    <strong>discriminated union</strong>. كل حالة شايلة داتاها هي بس، والـ compiler بعد كده
+    بيضيّق النوع لوحده (<b>narrowing</b>) فيعرف إن <code>data</code> موجودة في حالة
+    <code>'loaded'</code> بس.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تكتب <code>!</code> و<code>?.</code> في كل سطر عشان
+    تسكّت الـ compiler، وهتعمل <code>as</code> على كل response جاي من الـ API، وأول ما تضيف حالة
+    جديدة (<code>'refreshing'</code> مثلاً) الشاشة هتفضل تشتغل غلط <b>من غير أي compile error</b>،
+    وهتكتشفها من تيكيت.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الـ discriminant هو البوابة</h2></div>
+  <div class="stage" id="gateStage">
+    <svg class="gate" viewBox="0 0 560 230">
+      <rect x="16" y="82" width="152" height="60" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="92" y="106" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">state: State</text>
+      <text x="92" y="126" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">٣ أشكال محتملة</text>
+
+      <polygon points="268,74 344,112 268,150 192,112" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="268" y="108" fill="#e2e8f0" font-size="12" text-anchor="middle" font-family="Consolas">state.status</text>
+      <text x="268" y="126" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">الـ discriminant</text>
+
+      <line x1="168" y1="112" x2="192" y2="112" stroke="#334155" stroke-width="2"/>
+      <line x1="344" y1="112" x2="382" y2="50" stroke="#334155" stroke-width="2"/>
+      <line x1="344" y1="112" x2="382" y2="112" stroke="#334155" stroke-width="2"/>
+      <line x1="344" y1="112" x2="382" y2="174" stroke="#334155" stroke-width="2"/>
+
+      <rect x="382" y="26" width="166" height="48" rx="9" fill="#1e293b" stroke="#334155"/>
+      <text x="465" y="46" fill="#bae6fd" font-size="12" text-anchor="middle" font-family="Consolas">'loading'</text>
+      <text x="465" y="63" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Consolas">status</text>
+
+      <rect x="382" y="88" width="166" height="48" rx="9" fill="#1e293b" stroke="#334155"/>
+      <text x="465" y="108" fill="#bae6fd" font-size="12" text-anchor="middle" font-family="Consolas">'error'</text>
+      <text x="465" y="125" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Consolas">status + message</text>
+
+      <rect x="382" y="150" width="166" height="48" rx="9" fill="#1e293b" stroke="#334155"/>
+      <text x="465" y="170" fill="#bae6fd" font-size="12" text-anchor="middle" font-family="Consolas">'loaded'</text>
+      <text x="465" y="187" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Consolas">status + data</text>
+
+      <g class="pk pk1"><circle cx="178" cy="112" r="8" fill="#38bdf8"/></g>
+      <g class="pk pk2"><circle cx="178" cy="112" r="8" fill="#f87171"/></g>
+      <g class="pk pk3"><circle cx="178" cy="112" r="8" fill="#34d399"/></g>
+
+      <text x="280" y="218" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        القيمة بتدخل بشكل واحد بس — والـ compiler عارف أنهي فرع نزلت فيه
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="gateToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الفكرة كلها إن فيه حقل واحد نوعه <b>literal type</b> (<code>'loading' | 'error' | 'loaded'</code>)
+    مشترك بين كل الأشكال. أول ما تقارنه بقيمة، TypeScript بيشيل الأشكال اللي مستحيل تكون هي، وده
+    اللي بيخلي <code>state.data</code> يبقى مسموح جوّه فرع <code>'loaded'</code> ومرفوض بره.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: الـ compiler بيضيّق إزاي</h2></div>
+
+  <div class="stage">
+    <div class="cands" id="cands"></div>
+    <div class="guard-line" id="guardLine">// مفيش أي شرط لسه — النوع هو الاتحاد الكامل</div>
+    <div class="props" id="props"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> شكل لسه ممكن</span>
+      <span><i class="swatch" style="background:#283548"></i> اتشال بالـ narrowing</span>
+      <span><i class="swatch" style="background:#f87171"></i> property الـ compiler بيرفضها هنا</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn ghost" data-guard="loading">state.status === 'loading'</button>
+    <button class="btn ghost" data-guard="notLoading">state.status !== 'loading'</button>
+    <button class="btn ghost" data-guard="inMessage">'message' in state</button>
+    <button class="btn ghost" data-guard="loaded">state.status === 'loaded'</button>
+    <button class="btn ghost" id="guardReset">↺ رجّع الاتحاد الكامل</button>
+  </div>
+  <p class="note">
+    دوس على أي شرط وبصّ على قايمة الـ properties. المسموح = <b>القاسم المشترك</b> بين الأشكال اللي
+    لسه ممكنة. عشان كده <code>state.status !== 'loading'</code> لوحده مش كفاية توصل لـ
+    <code>message</code> — لسه فاضل احتمالين.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: كمبوننت طلبات في Angular</h2></div>
+
+  <h3>أ. قبل — تلات حقول مستقلة</h3>
+<pre><code><span class="k">export class</span> OrdersComponent {
+  loading = <span class="k">false</span>;
+  error: <span class="k">string</span> | <span class="k">null</span> = <span class="k">null</span>;
+  orders: Order[] = [];
+
+  load(): <span class="k">void</span> {
+    <span class="k">this</span>.loading = <span class="k">true</span>;
+    <span class="k">this</span>.api.getOrders().subscribe({
+      next: o =&gt; { <span class="k">this</span>.orders = o; <span class="k">this</span>.loading = <span class="k">false</span>; },
+      error: e =&gt; { <span class="k">this</span>.error = e.message; }   <span class="c">// ← نسي loading = false</span>
+    });
+  }
+}</code></pre>
+<pre><code><span class="c">&lt;!-- والتمبليت بيداري على الفجوة --&gt;</span>
+@<span class="k">if</span> (loading) { &lt;app-spinner /&gt; }
+@<span class="k">if</span> (error) { &lt;p class=<span class="s">"err"</span>&gt;{{ error }}&lt;/p&gt; }
+@<span class="k">if</span> (!loading &amp;&amp; !error &amp;&amp; orders?.length) { ... }
+&lt;span&gt;{{ orders?.[0]?.total }}&lt;/span&gt;</code></pre>
+  <div class="callout bad">
+    التمبليت ده فيه <b>٣ أماكن</b> بتستخدم <code>?.</code> عشان تعدّي الـ <code>strictNullChecks</code>،
+    و<b>شرط مركّب من تلات نفيات</b> عشان يعبّر عن حالة واحدة. والبَج اللي فوق (spinner + error مع بعض)
+    مفيش حاجة في النوع تمنعه.
+  </div>
+
+  <h3>ب. بعد — اتحاد واحد، وكل حالة شايلة داتاها</h3>
+<pre><code><span class="k">type</span> OrdersState =
+  | { status: <span class="s">'idle'</span> }
+  | { status: <span class="s">'loading'</span> }
+  | { status: <span class="s">'error'</span>; message: <span class="k">string</span> }
+  | { status: <span class="s">'loaded'</span>; orders: <span class="k">readonly</span> Order[] };
+
+<span class="k">export class</span> OrdersComponent {
+  <span class="k">private readonly</span> destroyRef = inject(DestroyRef);
+  <span class="k">readonly</span> state = signal&lt;OrdersState&gt;({ status: <span class="s">'idle'</span> });
+
+  load(): <span class="k">void</span> {
+    <span class="k">this</span>.state.set({ status: <span class="s">'loading'</span> });
+    <span class="k">this</span>.api.getOrders()
+      .pipe(takeUntilDestroyed(<span class="k">this</span>.destroyRef))
+      .subscribe({
+        next: orders =&gt; <span class="k">this</span>.state.set({ status: <span class="s">'loaded'</span>, orders }),
+        error: (e: HttpErrorResponse) =&gt; <span class="k">this</span>.state.set({ status: <span class="s">'error'</span>, message: e.message })
+      });
+  }
+}</code></pre>
+<pre><code><span class="c">&lt;!-- @let بيخزن القيمة في مرجع ثابت، فالـ narrowing بيشتغل جوّه الـ switch --&gt;</span>
+@<span class="k">let</span> s = state();
+
+@<span class="k">switch</span> (s.status) {
+  @<span class="k">case</span> (<span class="s">'idle'</span>)    { &lt;button (click)=<span class="s">"load()"</span>&gt;تحميل&lt;/button&gt; }
+  @<span class="k">case</span> (<span class="s">'loading'</span>) { &lt;app-spinner /&gt; }
+  @<span class="k">case</span> (<span class="s">'error'</span>)   { &lt;p class=<span class="s">"err"</span>&gt;{{ s.message }}&lt;/p&gt; }
+  @<span class="k">case</span> (<span class="s">'loaded'</span>)  { &lt;app-order-table [rows]=<span class="s">"s.orders"</span> /&gt; }
+}</code></pre>
+  <div class="callout good">
+    الفرق المقاس على نفس الكمبوننت: التركيبات الممكنة من <b>٨</b> لـ <b>٤</b> (وكلهم بمعنى)،
+    الـ <code>?.</code> من <b>٣</b> لـ <b>صفر</b>، والشرط المركّب من تلات نفيات بقى
+    <code>@case</code> واحد. والحالة الرابعة (<code>'idle'</code>) — اللي الـ booleans كانت بتخبّيها
+    جوّه «كله false» — بقت ظاهرة ومكتوبة.
+  </div>
+
+  <h3>ج. الحماية من المستقبل: exhaustiveness check</h3>
+<pre><code><span class="k">function</span> label(s: OrdersState): <span class="k">string</span> {
+  <span class="k">switch</span> (s.status) {
+    <span class="k">case</span> <span class="s">'idle'</span>:    <span class="k">return</span> <span class="s">'جاهز'</span>;
+    <span class="k">case</span> <span class="s">'loading'</span>: <span class="k">return</span> <span class="s">'بيحمّل…'</span>;
+    <span class="k">case</span> <span class="s">'error'</span>:   <span class="k">return</span> s.message;
+    <span class="k">case</span> <span class="s">'loaded'</span>:  <span class="k">return</span> `${s.orders.length} طلب`;
+    <span class="k">default</span>: {
+      <span class="k">const</span> _exhaustive: <span class="k">never</span> = s;   <span class="c">// ضفت 'refreshing'؟ → compile error هنا</span>
+      <span class="k">return</span> _exhaustive;
+    }
+  }
+}</code></pre>
+  <p class="note">
+    السطر ده هو اللي بيحوّل «لازم أفتكر أعدّل كل الـ switches» لـ «الـ build هيوقف ويقولي فين».
+    بلاش <code>default</code> بيرجع قيمة افتراضية ساكتة — ده بيلغى الفايدة.
+  </p>
+
+  <h3>د. الصدق على الحدود: <code>unknown</code> مش <code>any</code></h3>
+<pre><code><span class="c">// ❌ as = وعد الـ compiler مش قادر يتحقق منه. غيّروا الحقل في الباك إند؟ undefined في الإنتاج.</span>
+<span class="k">const</span> orders = (<span class="k">await</span> res.json()) <span class="k">as</span> Order[];
+
+<span class="c">// ✅ تحقّق مرة واحدة على الحد، وبعد كده النوع صادق</span>
+<span class="k">const</span> raw: <span class="k">unknown</span> = <span class="k">await</span> res.json();
+<span class="k">const</span> parsed = OrderSchema.array().safeParse(raw);
+<span class="k">if</span> (!parsed.success) <span class="k">return</span> { status: <span class="s">'error'</span>, message: <span class="s">'شكل غير متوقع من الـ API'</span> };
+<span class="k">return</span> { status: <span class="s">'loaded'</span>, orders: parsed.data };</code></pre>
+  <div class="callout info">
+    <code>http.get&lt;Order[]&gt;(url)</code> كمان <b>مش تحقق</b> — ده مجرد generic بيقول للـ compiler
+    «افترض إنها كده». ده مقبول لو إنت صاحب العقد وواعي بالقرار؛ المشكلة لما تفتكره فحص حقيقي.
+  </div>
+
+  <h3>هـ. ٨ تركيبات مقابل ٤ حالات — دوس وشوف</h3>
+  <div class="stage">
+    <div class="combos" id="combos"></div>
+    <div class="counters">
+      <span>✅ ليها معنى: <b id="legalCount">0</b></span>
+      <span>❌ حالة مستحيلة: <b id="illegalCount">0</b></span>
+    </div>
+    <div class="controls" style="margin-top:12px">
+      <button class="btn ghost" id="comboAll">🔍 اكشف الكل</button>
+      <button class="btn ghost" id="comboReset">↺ إعادة</button>
+    </div>
+  </div>
+  <p class="note">
+    دي كل القيم اللي الـ <code>{ loading, error, orders }</code> بيسمح بيها. الـ union بيسمح بأربعة بس —
+    والأربعة الباقيين مش محتاجين code review، محتاجين type.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>الـ discriminant نوعه <code>string</code> مش literal</b> — لو كتبت
+      <code>status: string</code> (أو جبتها من interface مولّد بـ <code>string</code>)، مفيش narrowing
+      خالص والـ switch بيبقى تزويق. لازم <code>status: 'loading' | 'error' | …</code> — أو
+      <code>as const</code> على الكائن.</li>
+    <li><b>الـ narrowing بيضيع بعد نداء دالة</b> — <code>if (this.cache !== null) { refresh(); this.cache.length }</code>
+      بيرفض، لأن <code>this.cache</code> property والـ compiler مش ضامن إن <code>refresh()</code>
+      مغيّرهاش. الحل: <code>const c = this.cache;</code> وبعدين ضيّق على <code>c</code>.</li>
+    <li><b>استخدام <code>as</code> لإسكات الـ compiler</b> — <code>as</code> مش تحويل، هو إعلان إنك
+      متأكد. كل <code>as</code> نقطة ممكن الإنتاج يخالفك فيها. خليه على الحدود اللي فعلاً عارفها، وضيّق
+      بالـ guards في باقي الكود.</li>
+    <li><b><code>any</code> واحد في دالة helper</b> — الـ <code>any</code> بيعدّي: أي حاجة تلمسه تبقى
+      <code>any</code> وتختفي من الفحص بالسكات. لو شكل الداتا مجهول استخدم <code>unknown</code>،
+      بيجبرك تتحقق قبل أي استخدام.</li>
+    <li><b>رشّ <code>!</code> و<code>?.</code> على كل سطر</b> — كل <code>!</code> هو اعتراف إن النوع
+      بيقول حاجة وإنت بتقول غيرها. عادةً العلاج إنك تصلّح الـ type (union) مش إنك تسكّت الرسالة. ونفس
+      الكلام على <code>default:</code> بيرجع قيمة افتراضية بدل <code>const _exhaustive: never = s</code>
+      — كده إضافة حالة جديدة تمر بسلام وتظهر في الإنتاج كـ UI فاضي.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. ليه الـ discriminated union أحسن من كائن بحقول <code>optional</code>؟</div>
+    <button class="opt">لأنه بيتسيريالايز أصغر على الشبكة</button>
+    <button class="opt">لأن التركيبات المستحيلة (loading + data + error مع بعض) تبقى مش قادرة تتكتب، والـ narrowing بيدّيك وصول آمن في كل حالة</button>
+    <button class="opt">لأنه أسرع وقت التشغيل</button>
+    <div class="feedback">
+      النوع نفسه بيفرض إن كل حالة شايلة داتاها هي بس — فعيلة bugs كاملة بتتشال وقت الـ compile.
+      الـ union مالهوش أي أثر وقت التشغيل أصلاً؛ الكسب كله في وقت الـ build.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">
+      2. عندك <code>state: { status: 'loading' } | { status: 'error'; message: string } | { status: 'loaded'; data: Order[] }</code>،
+      وكتبت <code>if (state.status !== 'loading') { … }</code>. جوّه الـ block، تقدر تقرا
+      <code>state.message</code> مباشرة؟
+    </div>
+    <button class="opt">أيوه، الشرط ضيّق النوع لحالة الخطأ</button>
+    <button class="opt">أيوه، بس بشرط تكتب <code>state.message!</code></button>
+    <button class="opt">لأ — لسه فاضل احتمالين (error و loaded)، والمسموح هو القاسم المشترك بينهم يعني <code>status</code> بس</button>
+    <div class="feedback">
+      الـ narrowing بيشيل شكل واحد بس. المسموح دايماً = تقاطع خصائص الأشكال اللي لسه ممكنة،
+      فمحتاج شرط تاني (<code>=== 'error'</code> أو <code>'message' in state</code>) توصل لـ
+      <code>message</code>.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>حقول مستقلة بتضاعف الحالات الممكنة (<code>2ⁿ</code>) وأغلبها مالهوش معنى — الـ discriminated
+      union بيسيب الحالات الصح بس موجودة في النوع.</li>
+    <li>الـ narrowing بيدّيك الوصول للداتا بالمجان جوّه كل فرع، والـ <code>never</code> في الـ
+      <code>default</code> بيخلي أي حالة جديدة تكسر الـ build مش الإنتاج.</li>
+    <li>على حدود النظام استخدم <code>unknown</code> وتحقّق مرة واحدة؛ كل <code>as</code> أو
+      <code>any</code> أو <code>!</code> هو وعد الـ compiler مش قادر يراجعه.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram pause
+  var gateStage = document.getElementById('gateStage');
+  var gateToggle = document.getElementById('gateToggle');
+  gateToggle.addEventListener('click', function () {
+    var paused = gateStage.classList.toggle('paused');
+    gateToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- narrowing model
+  var members = [
+    { id: 'loading', label: "{ status: 'loading' }", props: ['status'] },
+    { id: 'error', label: "{ status: 'error'; message: string }", props: ['status', 'message'] },
+    { id: 'loaded', label: "{ status: 'loaded'; data: Order[] }", props: ['status', 'data'] }
+  ];
+  var ALL_PROPS = ['status', 'message', 'data'];
+  var candsEl = document.getElementById('cands');
+  var propsEl = document.getElementById('props');
+  var guardLineEl = document.getElementById('guardLine');
+  var candEls = {};
+
+  members.forEach(function (m) {
+    var d = document.createElement('div');
+    d.className = 'cand';
+    d.textContent = m.label;
+    candsEl.appendChild(d);
+    candEls[m.id] = d;
+  });
+
+  // keep = قايمة ids الأشكال اللي لسه ممكنة. المسموح = تقاطع خصائصهم.
+  function apply(keep, guardText) {
+    members.forEach(function (m) {
+      var el = candEls[m.id];
+      var alive = keep.indexOf(m.id) !== -1;
+      el.classList.toggle('keep', alive && keep.length < members.length);
+      el.classList.toggle('out', !alive);
+    });
+    guardLineEl.textContent = guardText;
+
+    propsEl.innerHTML = '';
+    ALL_PROPS.forEach(function (p) {
+      var inAll = keep.length > 0 && keep.every(function (id) {
+        var m = members.filter(function (x) { return x.id === id; })[0];
+        return m.props.indexOf(p) !== -1;
+      });
+      var chip = document.createElement('span');
+      chip.className = 'prop ' + (inAll ? 'ok' : 'no');
+      chip.textContent = (inAll ? '✓ state.' : '✗ state.') + p;
+      propsEl.appendChild(chip);
+    });
+  }
+
+  var GUARDS = {
+    all: { keep: ['loading', 'error', 'loaded'], text: '// مفيش أي شرط لسه — النوع هو الاتحاد الكامل' },
+    loading: { keep: ['loading'], text: "if (state.status === 'loading') { … }" },
+    notLoading: { keep: ['error', 'loaded'], text: "if (state.status !== 'loading') { … }" },
+    inMessage: { keep: ['error'], text: "if ('message' in state) { … }" },
+    loaded: { keep: ['loaded'], text: "case 'loaded': { … }" }
+  };
+  function useGuard(key) { apply(GUARDS[key].keep, GUARDS[key].text); }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-guard]'), function (b) {
+    b.addEventListener('click', function () { useGuard(b.getAttribute('data-guard')); });
+  });
+  document.getElementById('guardReset').addEventListener('click', function () { useGuard('all'); });
+
+  // ---------------------------------------------------------------- stepper
+  // كل خطوة بتعيد بناء الحالة من الصفر، فالرجوع بيرجع الحالة الصح مش بيلغي آخر فريم بس
+  var steps = [
+    {
+      guard: 'all',
+      text: 'البداية: state نوعه الاتحاد الكامل. المسموح هو القاسم المشترك بين التلاتة — status بس. ' +
+            'لو لمست state.data دلوقتي الـ compiler بيرفض، وهو محق: ممكن تكون حالة loading.'
+    },
+    {
+      guard: 'loading',
+      text: "أول شرط: state.status === 'loading'. الشكلين التانيين مستحيلين جوّه الـ block ده، " +
+            'فالنوع بقى شكل واحد. ملوش داتا زيادة — وده صح، حالة التحميل مش شايلة حاجة.'
+    },
+    {
+      guard: 'notLoading',
+      text: 'في الـ else، TypeScript بيشيل loading بالاستبعاد (مش محتاج تقوله). فاضل احتمالين: ' +
+            'error و loaded — والمسموح لسه status بس. ده أهم جزء بيغلط فيه الناس.'
+    },
+    {
+      guard: 'inMessage',
+      text: "شرط تاني بالـ in operator: 'message' in state. ده narrowing شغّال كمان على الاتحادات " +
+            'اللي مفيهاش discriminant مشترك. بقى شكل واحد → state.message مسموحة بنوع string مش string | undefined.'
+    },
+    {
+      guard: 'loaded',
+      text: "في فرع case 'loaded': state.data نوعها Order[] مباشرة. " +
+            'state.data.length من غير ! ومن غير ?. — مفيش حاجة تتسكّت، النوع نفسه بقى صادق.'
+    },
+    {
+      guard: 'all',
+      text: 'في الـ default بعد التلات حالات، النوع المتبقي هو never — ' +
+            'فـ const _exhaustive: never = state يمر. ضفت حالة رابعة ونسيت الفرع بتاعها؟ ' +
+            'النوع بقى مش never والـ build بيقع عند السطر ده بالظبط.'
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    useGuard(s.guard);
+    if (step === steps.length - 1) {
+      guardLineEl.textContent = 'default: { const _exhaustive: never = state; }   // النوع المتبقي = never';
+    }
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- 8 combinations demo
+  var combos = [
+    { l: true,  e: false, d: false, ok: true,  why: 'حالة التحميل — دي واحدة من الأربعة الصح.' },
+    { l: false, e: true,  d: false, ok: true,  why: 'حالة الخطأ — رسالة موجودة ومفيش داتا.' },
+    { l: false, e: false, d: true,  ok: true,  why: 'حالة النجاح — داتا موجودة ومفيش خطأ.' },
+    { l: false, e: false, d: false, ok: true,  why: "الحالة الرابعة المخبّية: 'idle'. الـ booleans مكانتش بتسمّيها، فكل كمبوننت كانت بتخمّنها." },
+    { l: true,  e: true,  d: false, ok: false, why: 'spinner ورسالة خطأ مع بعض — ده بالظبط التيكيت اللي فوق.' },
+    { l: true,  e: false, d: true,  ok: false, why: 'بيحمّل وفي نفس الوقت فيه داتا جاهزة؟ الشاشة تورّي إيه؟' },
+    { l: false, e: true,  d: true,  ok: false, why: 'خطأ وداتا مع بعض — جدول نص مليان ورسالة فشل.' },
+    { l: true,  e: true,  d: true,  ok: false, why: 'التلاتة مع بعض. مفيش معنى، ومع ذلك بيـcompile.' }
+  ];
+  var combosEl = document.getElementById('combos');
+  var legalEl = document.getElementById('legalCount'), illegalEl = document.getElementById('illegalCount');
+  var comboEls = [];
+
+  function bits(c) {
+    return 'loading: ' + c.l + ' · error: ' + (c.e ? "'…'" : 'null') + ' · orders: ' + (c.d ? '[…]' : '[]');
+  }
+  combos.forEach(function (c) {
+    var d = document.createElement('div');
+    d.className = 'combo';
+    var b = document.createElement('div');
+    b.className = 'bits';
+    b.textContent = bits(c);
+    var w = document.createElement('div');
+    w.className = 'why';
+    w.textContent = (c.ok ? '✅ ' : '❌ ') + c.why;
+    d.appendChild(b);
+    d.appendChild(w);
+    d.addEventListener('click', function () { d.classList.add('shown'); recount(); });
+    combosEl.appendChild(d);
+    comboEls.push({ el: d, ok: c.ok });
+  });
+
+  function recount() {
+    var legal = 0, illegal = 0;
+    comboEls.forEach(function (x) {
+      if (!x.el.classList.contains('shown')) return;
+      x.el.classList.add(x.ok ? 'legal' : 'illegal');
+      if (x.ok) legal++; else illegal++;
+    });
+    legalEl.textContent = legal;
+    illegalEl.textContent = illegal;
+  }
+  document.getElementById('comboAll').addEventListener('click', function () {
+    comboEls.forEach(function (x) { x.el.classList.add('shown'); });
+    recount();
+  });
+  document.getElementById('comboReset').addEventListener('click', function () {
+    comboEls.forEach(function (x) { x.el.classList.remove('shown', 'legal', 'illegal'); });
+    legalEl.textContent = '0';
+    illegalEl.textContent = '0';
+  });
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

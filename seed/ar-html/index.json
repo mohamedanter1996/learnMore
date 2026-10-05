@@ -149,6 +149,11 @@
       "topic": "System Design",
       "title": "Load Balancing: Algorithms and Health",
       "file": "4-system-design/load-balancing-algorithms-and-health.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "TypeScript: Unions, Narrowing, and Honest Types",
+      "file": "5-frontend/typescript-unions-narrowing-and-honest-types.html"
     }
   ]
 }
