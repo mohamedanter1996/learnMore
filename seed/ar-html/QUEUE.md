@@ -67,8 +67,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Frontend Engineering` — TypeScript: Unions, Narrowing, and Honest Types → `5-frontend/typescript-unions-narrowing-and-honest-types.html`
 
-## Queue (122)
-- [ ] 27. `Data Structures & Algorithms` — Two Pointers: O(n²) → O(n) → `1-dsa/two-pointers-o-n-o-n.html`
+- [x] `Data Structures & Algorithms` — Two Pointers: O(n²) → O(n) → `1-dsa/two-pointers-o-n-o-n.html`
+
+## Queue (121)
 - [ ] 28. `Design Patterns` — Singleton: The Pattern You Should Rarely Hand-Roll → `2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html`
 - [ ] 29. `SQL Server Optimization` — Statistics: What the Optimizer Actually Knows → `3-sql-optimization/statistics-what-the-optimizer-actually-knows.html`
 - [ ] 30. `System Design` — CDNs and Static Content Strategy → `4-system-design/cdns-and-static-content-strategy.html`

@@ -154,6 +154,11 @@
       "topic": "Frontend Engineering",
       "title": "TypeScript: Unions, Narrowing, and Honest Types",
       "file": "5-frontend/typescript-unions-narrowing-and-honest-types.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Two Pointers: O(n²) → O(n)",
+      "file": "1-dsa/two-pointers-o-n-o-n.html"
     }
   ]
 }
