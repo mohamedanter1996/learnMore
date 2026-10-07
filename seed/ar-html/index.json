@@ -159,6 +159,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Two Pointers: O(n²) → O(n)",
       "file": "1-dsa/two-pointers-o-n-o-n.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "Singleton: The Pattern You Should Rarely Hand-Roll",
+      "file": "2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html"
     }
   ]
 }
