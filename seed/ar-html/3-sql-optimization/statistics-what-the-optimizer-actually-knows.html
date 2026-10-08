@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistics: What the Optimizer Actually Knows — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .flow { width: 100%; height: 170px; }
+  .packet { animation: travel 3.2s ease-in-out infinite; }
+  @keyframes travel {
+    0%   { transform: translateX(0); opacity: 0; }
+    8%   { opacity: 1; }
+    40%  { transform: translateX(-118px); opacity: 1; }
+    58%  { transform: translateX(-118px); opacity: 1; }
+    92%  { transform: translateX(-250px); opacity: 1; }
+    100% { transform: translateX(-250px); opacity: 0; }
+  }
+  .paused .packet { animation-play-state: paused; }
+
+  .hist { display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 6px; min-width: 620px; height: 190px; }
+  .bar-wrap { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; flex: 1; height: 100%; }
+  .bar {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0; transition: background .25s, border-color .25s, transform .18s;
+  }
+  .bar-wrap.hit .bar { background: rgba(56, 189, 248, .14); border-color: var(--primary); transform: translateY(-3px); }
+  .bar-wrap.fresh .bar { background: rgba(52, 211, 153, .15); border-color: var(--success); }
+  .bar-wrap.blind { opacity: .55; }
+  .bar-wrap.blind .bar { background: rgba(248, 113, 113, .15); border-color: var(--danger); border-style: dashed; }
+  .bar-key { font-family: Consolas, monospace; font-size: 10px; color: var(--text-dim); direction: ltr; }
+  .bar-eq { font-family: Consolas, monospace; font-size: 11px; color: var(--text); direction: ltr; }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .counters b.bad { color: var(--danger); }
+  .counters b.ok { color: var(--success); }
+  .plan-box {
+    margin-top: 12px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 14px; min-height: 46px;
+  }
+  .plan-box .op { font-family: Consolas, monospace; direction: ltr; color: var(--primary); }
+  .badge {
+    display: none; margin-top: 10px; font-size: 13px; color: var(--warning);
+    border: 1px dashed var(--warning); border-radius: 6px; padding: 6px 10px;
+  }
+  .badge.show { display: inline-block; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>الـ optimizer عمره ما شاف داتاك — هو بيخطّط من <b>رسم بياني</b> قديم</h1>
+  <div class="en">Statistics: What the Optimizer Actually Knows</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    جدول <code>DailyAssignments</code> فيه ٢ مليون صف. استعلام بسيط
+    <code>WHERE AssignedOn = '2026-10-08'</code> كان بيرجع في ٣٠ ملي ثانية. عملت data load
+    حطّ ٤٨ ألف صف بتاريخ النهارده، ومن غير ما تغيّر سطر كود واحد الاستعلام بقى <b>٤.٢ ثانية</b>.
+    نفس الفهارس، نفس السيرفر، نفس الاستعلام.
+  </p>
+  <div class="callout info">
+    السبب: الـ optimizer وهو بيعمل الخطة <strong>مبيبصّش على الداتا أبداً</strong>. بيبصّ على
+    <strong>statistics</strong> — histogram لحد ٢٠١ خطوة بيوصف توزيع القيم في العمود. كل قرار
+    (seek ولا scan، أنهي join، أد إيه ذاكرة) نابع من <strong>cardinality estimate</strong> جاي من
+    الـ histogram ده. والـ histogram بتاعك لسه بيوصف داتا امبارح: التاريخ الجديد بعد آخر خطوة فيه،
+    فالتقدير طلع <code>1 row</code> وهو ٤٨ ألف.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتفضل تقرا خطة فيها Estimated = 1 و Actual = 48,000 وتقول «الخطة
+    غلطانة»، وهتبص على ديسك وذاكرة وindex hints، والمشكلة مكانها سطر واحد:
+    <code>UPDATE STATISTICS</code>. وهتقع في «مشكلة الـ ascending date» كل شهر وتستغرب.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الوسيط اللي بينهم</h2></div>
+  <div class="stage" id="flowStage">
+    <svg class="flow" viewBox="0 0 470 170" xmlns="http://www.w3.org/2000/svg">
+      <rect x="345" y="50" width="115" height="62" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="402" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Optimizer</text>
+      <text x="402" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">بيحسب التكلفة</text>
+
+      <rect x="180" y="50" width="120" height="62" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="240" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Statistics</text>
+      <text x="240" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">histogram ≤ 201 خطوة</text>
+
+      <rect x="10" y="50" width="125" height="62" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="72" y="76" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">الداتا الحقيقية</text>
+      <text x="72" y="96" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">٢ مليون صف</text>
+
+      <line x1="300" y1="81" x2="345" y2="81" stroke="#334155" stroke-width="2"/>
+      <line x1="135" y1="81" x2="180" y2="81" stroke="#334155" stroke-width="2" stroke-dasharray="5 4"/>
+      <text x="157" y="134" fill="#f87171" font-size="11" text-anchor="middle" font-family="Segoe UI">
+        الخط ده بيتحدّث كل شوية — مش لحظي
+      </text>
+
+      <g class="packet">
+        <rect x="302" y="68" width="40" height="26" rx="6" fill="#38bdf8"/>
+        <text x="322" y="86" fill="#0c2431" font-size="10" text-anchor="middle" font-family="Segoe UI">est.</text>
+      </g>
+
+      <text x="235" y="28" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        وقت التخطيط: الـ optimizer بيكلّم الـ statistics بس — مش الجدول
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    لاحظ الخط المتقطّع: الـ statistics بتتولد وقت الـ auto-create أو الـ update، وبعد كده بتعيش
+    لوحدها. فبين أي كتابة في الجدول وآخر تحديث للـ stats، في <b>فجوة</b> — والـ optimizer بيخطط
+    من جوّه الفجوة دي.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>الـ histogram على الطبيعة — جرّب بنفسك</h2></div>
+  <p class="note">
+    كل عمود = خطوة في الـ histogram: <code>RANGE_HI_KEY</code> (آخر قيمة في الخطوة) وجوّاها
+    <code>EQ_ROWS</code> (كام صف بالقيمة دي بالظبط). دوس على تاريخ وشوف التقدير، وبعدين حمّل صفوف
+    جديدة وشوف الفجوة بتتفتح.
+  </p>
+
+  <div class="stage">
+    <div class="hist" id="hist"></div>
+    <div class="counters">
+      <span>🎯 الاستعلام: <b id="qDate">—</b></span>
+      <span>📐 Estimated rows: <b id="est">—</b></span>
+      <span>📊 Actual rows: <b id="act">—</b></span>
+      <span>✏️ modification_counter: <b id="mod">0</b></span>
+    </div>
+    <div class="plan-box" id="planBox">اختار تاريخ من تحت عشان تشوف الخطة اللي هتتولد.</div>
+    <div class="badge" id="autoBadge"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> خطوة في الـ histogram</span>
+      <span><i class="swatch" style="background:#38bdf8"></i> الخطوة اللي التقدير جاي منها</span>
+      <span><i class="swatch" style="background:#34d399"></i> خطوة اتولدت بعد تحديث</span>
+      <span><i class="swatch" style="background:#f87171"></i> داتا موجودة والـ stats معماها</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" data-date="2026-09-14">🔎 WHERE AssignedOn = '2026-09-14'</button>
+    <button class="btn" data-date="2026-09-30">🔎 = '2026-09-30' (آخر خطوة)</button>
+    <button class="btn" data-date="2026-10-08">🔎 = '2026-10-08' (النهارده)</button>
+  </div>
+  <div class="controls">
+    <button class="btn ghost" id="loadBtn">➕ data load: ١٢ ألف صف بتاريخ النهارده</button>
+    <button class="btn ghost" id="updBtn">🔄 UPDATE STATISTICS</button>
+    <button class="btn ghost" id="resetBtn">↺ إعادة</button>
+  </div>
+  <p class="note">
+    الـ auto-update بيولع بعد حوالي <code>SQRT(1000 × rows)</code> تعديل — على ٢ مليون صف ده
+    ≈ ٤٤,٧٢١ تعديل. دوس «data load» أربع مرات وشوف إمتى بيولع لوحده، ومع أنهي استعلام.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>خطوة بخطوة: من histogram لخطة</h2></div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">الرسم اللي فوق بيتحرّك مع كل خطوة — ارجع وقدّم وبصّ على العدادين.</p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>مثال واقعي: اقرا الأرقام بنفسك</h2></div>
+
+  <h3>أ. بصّ على الـ histogram بعينك</h3>
+<pre><code><span class="c">-- الطريقة القديمة (لسه أسرع في القراءة السريعة)</span>
+DBCC SHOW_STATISTICS (<span class="s">'DailyAssignments'</span>, <span class="s">'IX_DailyAssignments_AssignedOn'</span>);
+<span class="c">-- RANGE_HI_KEY  RANGE_ROWS  EQ_ROWS  DISTINCT_RANGE_ROWS  AVG_RANGE_ROWS</span>
+<span class="c">-- 2026-09-30    2500        1310     2                    1250</span>
+
+<span class="c">-- الطريقة الحديثة (DMF، تنفع في استعلام وتقرير)</span>
+<span class="k">SELECT</span> * <span class="k">FROM</span> sys.dm_db_stats_histogram(OBJECT_ID(<span class="s">'DailyAssignments'</span>), 2);
+
+<span class="c">-- آخر تحديث، وكم اتغيّر من ساعتها</span>
+<span class="k">SELECT</span> s.name, sp.last_updated, sp.rows, sp.rows_sampled, sp.modification_counter
+<span class="k">FROM</span> sys.stats s
+<span class="k">CROSS APPLY</span> sys.dm_db_stats_properties(s.object_id, s.stats_id) sp
+<span class="k">WHERE</span> OBJECT_NAME(s.object_id) = <span class="s">'DailyAssignments'</span>;</code></pre>
+
+  <h3>ب. نفس الاستعلام، قبل وبعد</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ stats بايتة</strong> — التقدير ١ صف</div>
+<pre><code>SET STATISTICS IO, TIME ON;
+
+<span class="k">SELECT</span> a.Id, i.Title
+<span class="k">FROM</span> DailyAssignments a
+<span class="k">JOIN</span> LearningItems i <span class="k">ON</span> i.Id = a.ItemId
+<span class="k">WHERE</span> a.AssignedOn = <span class="s">'2026-10-08'</span>;
+
+<span class="c">-- Estimated rows: 1 | Actual rows: 48,000</span>
+<span class="c">-- Nested Loops → 48,000 key lookup</span>
+<span class="c">-- logical reads 152,440 | elapsed 4,210 ms</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ بعد تحديث الـ stats</strong></div>
+<pre><code>UPDATE STATISTICS DailyAssignments
+  WITH FULLSCAN;   <span class="c">-- الداتا منحرفة، العيّنة بتكدب</span>
+
+<span class="c">-- نفس الاستعلام بالحرف، من غير أي تغيير</span>
+
+<span class="c">-- Estimated rows: 47,800 | Actual rows: 48,000</span>
+<span class="c">-- Hash Match + Index Scan</span>
+<span class="c">-- logical reads 3,180 | elapsed 190 ms</span></code></pre>
+    </div>
+  </div>
+  <p class="note">
+    مفيش ولا index جديد ولا hint. الفرق كله إن الـ optimizer بقى شايف الحقيقة، فاختار
+    <code>Hash Match</code> بدل ٤٨ ألف lookup.
+  </p>
+
+  <div class="callout">
+    <strong>الصيانة المنطقية:</strong> سيب <code>AUTO_CREATE_STATISTICS</code> و
+    <code>AUTO_UPDATE_STATISTICS</code> شغّالين — دول شغّالين افتراضياً وإقفالهم غلطة.
+    وزوّد عليهم <code>UPDATE STATISTICS</code> ليلي (سكريبتات Ola Hallengren هي المعيار)، لأن عتبة
+    الـ auto-update على الجداول الكبيرة بتسيب انحراف كبير قبل ما تولع. وبعد أي
+    <b>data load كبير</b>، حدّث الـ stats في نفس الـ job — مش تستنى.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«أعمل rebuild للفهرس فالـ stats بتتحدث»</b> — <code>REBUILD</code> فعلاً بيحدّث stats الفهرس
+      بـ fullscan، بس <code>REORGANIZE</code> <u>مبيحدّثش حاجة</u>. والناس بتفتكر الاتنين نفس الحاجة.</li>
+    <li><b>قراءة الخطة من غير مقارنة Estimated بـ Actual</b> — الفرق بينهم هو التشخيص نفسه. خطة
+      «وحشة» بتقديرات مظبوطة بتبقى غالباً قرار صح على داتا إنت مش فاهمها.</li>
+    <li><b>نسيان مشكلة الـ ascending date</b> — الصفوف الجديدة بعد آخر <code>RANGE_HI_KEY</code> فالتقدير
+      بيبقى ١ صف. أي استعلام على «داتا النهارده» معرّض لده كل يوم.</li>
+    <li><b>الاعتماد على العيّنة في داتا منحرفة</b> — <code>UPDATE STATISTICS</code> الافتراضي بياخد
+      sample. لو عميل واحد عنده ٦٠٪ من الصفوف، العيّنة بتخبّي الانحراف. ساعتها
+      <code>WITH FULLSCAN</code>.</li>
+    <li><b>إقفال الـ auto-update عشان «بيبطّأ الاستعلامات»</b> — بتشيل تأخير ملي ثانية وتجيب مكانه
+      خطط غلط لأسابيع. لو التوقيت مزعج، شغّل
+      <code>AUTO_UPDATE_STATISTICS_ASYNC</code> مش تقفله.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. الـ optimizer بيقرر seek ولا scan، ونوع الـ join، على أساس إيه؟</div>
+    <button class="opt">عيّنة حقيقية من الداتا وقت الـ compile</button>
+    <button class="opt">cardinality estimates جاية من histograms الـ statistics</button>
+    <button class="opt">وقت التنفيذ الفعلي لآخر خطة</button>
+    <button class="opt">حجم الجدول بس</button>
+    <div class="feedback">
+      التخطيط بيستشير الـ statistics، مش الداتا نفسها — وعشان كده stats بايتة أو عماها الانحراف
+      بتطلّع خطط وحشة.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">
+      2. خطة فيها <code>Estimated = 1</code> و <code>Actual = 48,000</code> على
+      <code>WHERE AssignedOn = 'النهارده'</code>. أول حاجة تعملها؟
+    </div>
+    <button class="opt">تزوّد الذاكرة بـ MAXDOP hint</button>
+    <button class="opt">تعمل فهرس جديد على العمود</button>
+    <button class="opt">تبص على last_updated و modification_counter وتحدّث الـ stats</button>
+    <button class="opt">تحوّل الاستعلام لـ stored procedure</button>
+    <div class="feedback">
+      ده التوقيع الكلاسيكي لمشكلة الـ ascending key: الـ histogram مش شايف التواريخ الجديدة.
+      الفهرس موجود أصلاً — الناقص هو إحصاء محدّث.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">8</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ optimizer بيخطط من histogram (≤ ٢٠١ خطوة)، مش من داتاك — فجودة الخطة سقفها جودة الإحصاء.</li>
+    <li>الفرق بين <code>Estimated</code> و <code>Actual</code> في الخطة هو جهاز التشخيص: فرق كبير = stats بايتة أو انحراف.</li>
+    <li>سيب الـ auto-update شغال، وزوّد تحديث ليلي + تحديث بعد كل data load كبير، و<code>FULLSCAN</code> للداتا المنحرفة.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- flow animation toggle
+  var flowStage = document.getElementById('flowStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = flowStage.classList.toggle('paused');
+    flowToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- histogram model
+  var TABLE_ROWS = 2000000;
+  var THRESHOLD = Math.round(Math.sqrt(1000 * TABLE_ROWS));   // ≈ 44,721
+  var BASE = [
+    { hi: '2026-08-25', eq: 980 },
+    { hi: '2026-08-31', eq: 1040 },
+    { hi: '2026-09-07', eq: 1120 },
+    { hi: '2026-09-14', eq: 1010 },
+    { hi: '2026-09-21', eq: 1180 },
+    { hi: '2026-09-28', eq: 1240 },
+    { hi: '2026-09-30', eq: 1310 }
+  ];
+  var TODAY = '2026-10-08';
+
+  var hist, actualToday, modCounter, picked, freshKey, lastPlan;
+
+  var histEl = document.getElementById('hist');
+  var qDateEl = document.getElementById('qDate');
+  var estEl = document.getElementById('est');
+  var actEl = document.getElementById('act');
+  var modEl = document.getElementById('mod');
+  var planEl = document.getElementById('planBox');
+  var badgeEl = document.getElementById('autoBadge');
+
+  function resetStats() {
+    hist = BASE.map(function (s) { return { hi: s.hi, eq: s.eq }; });
+    actualToday = 0;
+    modCounter = 0;
+    picked = null;
+    freshKey = null;
+    lastPlan = null;
+    draw();
+  }
+
+  function actualFor(date) {
+    if (date === TODAY) return actualToday;
+    for (var i = 0; i < BASE.length; i++) if (BASE[i].hi === date) return BASE[i].eq;
+    return 0;
+  }
+
+  // التقدير: لو التاريخ جوّه الـ histogram بناخد EQ_ROWS بتاعته.
+  // لو بعد آخر RANGE_HI_KEY → مفيش خطوة تغطيه، فالتقدير صف واحد (مشكلة الـ ascending key).
+  function estimateFor(date) {
+    for (var i = 0; i < hist.length; i++) if (hist[i].hi === date) return hist[i].eq;
+    return 1;
+  }
+
+  function planFor(est, actual) {
+    if (est < 100) {
+      return { op: 'Nested Loops + Key Lookup', why: 'التقدير ' + est + ' صف، فالـ optimizer شايف إن lookup لكل صف أرخص حاجة.' };
+    }
+    if (est <= 5000) {
+      return { op: 'Index Seek + Key Lookup', why: 'التقدير ' + fmt(est) + ' صف — لسه في نطاق الـ seek المريح.' };
+    }
+    return { op: 'Index Scan + Hash Match', why: 'التقدير ' + fmt(est) + ' صف، فالـ hash join أرخص من ' + fmt(actual) + ' lookup.' };
+  }
+
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function draw() {
+    histEl.innerHTML = '';
+    var all = hist.slice();
+    var covered = {};
+    all.forEach(function (s) { covered[s.hi] = true; });
+    // لو في صفوف للنهارده والـ histogram معماه، نرسم عمود متقطّع يبيّن الفجوة
+    if (actualToday > 0 && !covered[TODAY]) all.push({ hi: TODAY, eq: actualToday, blind: true });
+
+    // تحجيم بالجذر عشان عمود كبير (١٢ ألف) ميهرسش الأعمدة اللي حواليه (~١٢٠٠)
+    var max = 1;
+    all.forEach(function (s) { if (s.eq > max) max = s.eq; });
+    var scale = function (v) { return Math.max(6, Math.round(Math.sqrt(v / max) * 120)); };
+
+    all.forEach(function (s) {
+      var wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+      if (s.blind) wrap.className += ' blind';
+      if (picked === s.hi && !s.blind) wrap.className += ' hit';
+      if (freshKey === s.hi) wrap.className += ' fresh';
+
+      var eq = document.createElement('div');
+      eq.className = 'bar-eq';
+      eq.textContent = fmt(s.eq);
+
+      var bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.height = scale(s.eq) + 'px';
+
+      var key = document.createElement('div');
+      key.className = 'bar-key';
+      key.textContent = s.hi.slice(5);
+
+      wrap.appendChild(eq);
+      wrap.appendChild(bar);
+      wrap.appendChild(key);
+      histEl.appendChild(wrap);
+    });
+
+    qDateEl.textContent = picked ? picked : '—';
+    modEl.textContent = fmt(modCounter);
+    modEl.className = modCounter >= THRESHOLD ? 'bad' : '';
+
+    if (picked) {
+      var est = estimateFor(picked);
+      var act = actualFor(picked);
+      estEl.textContent = fmt(est);
+      actEl.textContent = fmt(act);
+      var off = act > 0 && (act / est >= 10 || est / Math.max(act, 1) >= 10);
+      estEl.className = off ? 'bad' : 'ok';
+      actEl.className = '';
+      planEl.innerHTML = 'الخطة المختارة: <span class="op">' + lastPlan.op + '</span> — ' + lastPlan.why +
+        (off ? ' <b>التقدير غلط ' + Math.round(act / est) + ' ضعف — الخطة دي هتولّع.</b>' : '');
+    } else {
+      estEl.textContent = '—'; actEl.textContent = '—';
+      estEl.className = ''; actEl.className = '';
+      planEl.textContent = 'اختار تاريخ من تحت عشان تشوف الخطة اللي هتتولد.';
+    }
+
+    if (modCounter >= THRESHOLD) {
+      badgeEl.textContent = '⚠️ modification_counter عدّى ' + fmt(THRESHOLD) +
+        ' — الـ auto-update هيولع مع أول استعلام جاي على العمود ده.';
+      badgeEl.className = 'badge show';
+    } else if (freshKey) {
+      badgeEl.textContent = '✅ الـ statistics اتحدّثت: خطوة جديدة لـ ' + freshKey + ' بقت في الـ histogram.';
+      badgeEl.className = 'badge show';
+    } else {
+      badgeEl.className = 'badge';
+    }
+  }
+
+  function updateStats() {
+    if (actualToday > 0) {
+      var found = false;
+      for (var i = 0; i < hist.length; i++) if (hist[i].hi === TODAY) { hist[i].eq = actualToday; found = true; }
+      if (!found) hist.push({ hi: TODAY, eq: actualToday });
+      freshKey = TODAY;
+    }
+    modCounter = 0;
+    if (picked) { lastPlan = planFor(estimateFor(picked), actualFor(picked)); }
+    draw();
+  }
+
+  function loadRows(n) {
+    actualToday += n;
+    modCounter += n;
+    freshKey = null;
+    if (picked) { lastPlan = planFor(estimateFor(picked), actualFor(picked)); }
+    draw();
+  }
+
+  function pick(date) {
+    // الاستعلام هو اللي بيولّع الـ auto-update — بيتحقق من العتبة قبل التخطيط
+    if (modCounter >= THRESHOLD) updateStats();
+    picked = date;
+    lastPlan = planFor(estimateFor(date), actualFor(date));
+    draw();
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-date]'), function (b) {
+    b.addEventListener('click', function () { pick(b.getAttribute('data-date')); });
+  });
+  document.getElementById('loadBtn').addEventListener('click', function () { loadRows(12000); });
+  document.getElementById('updBtn').addEventListener('click', updateStats);
+  document.getElementById('resetBtn').addEventListener('click', resetStats);
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      text: 'الحالة الابتدائية: جدول ٢ مليون صف، والـ histogram بيوصفه صح لحد 2026-09-30 — دي آخر RANGE_HI_KEY فيه.',
+      run: function () { resetStats(); }
+    },
+    {
+      text: 'استعلام على 2026-09-14. التاريخ ده جوّه الـ histogram، فالـ optimizer بياخد EQ_ROWS = 1,010 كتقدير. تقدير صح.',
+      run: function () { pick('2026-09-14'); }
+    },
+    {
+      text: 'من التقدير ده اتولدت الخطة: Index Seek + Key Lookup، والذاكرة (memory grant) اتحجزت على مقاس ١,٠١٠ صف. القرار كله مبني على رقم جاي من الرسم، مش من الجدول.',
+      run: function () { /* نفس حالة الخطوة السابقة — الكلام هنا على الخطة */ }
+    },
+    {
+      text: 'دلوقتي data load: ١٢ ألف صف بتاريخ 2026-10-08. الصفوف دخلت الجدول فعلاً، بس الـ histogram زي ما هو — العمود المتقطّع الأحمر هو الداتا اللي الـ stats معماها.',
+      run: function () { loadRows(12000); }
+    },
+    {
+      text: 'استعلام على 2026-10-08: مفيش خطوة في الـ histogram تغطي التاريخ ده، فالتقدير = صف واحد. الخطة بقت Nested Loops، وهي هتلف فعلياً ١٢ ألف مرة. دي مشكلة الـ ascending date بالحرف.',
+      run: function () { pick(TODAY); }
+    },
+    {
+      text: 'UPDATE STATISTICS: خطوة جديدة اتضافت للـ histogram بالقيمة الحقيقية، والـ modification_counter رجع صفر. نفس الاستعلام بقى تقديره مظبوط، والخطة اتقلبت لـ Hash Match. مفيش سطر كود اتغيّر.',
+      run: function () { updateStats(); }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح مش مجرد تراجع
+    resetStats();
+    for (var i = 0; i <= step; i++) steps[i].run();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

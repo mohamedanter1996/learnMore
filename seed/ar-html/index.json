@@ -164,6 +164,11 @@
       "topic": "Design Patterns",
       "title": "Singleton: The Pattern You Should Rarely Hand-Roll",
       "file": "2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Statistics: What the Optimizer Actually Knows",
+      "file": "3-sql-optimization/statistics-what-the-optimizer-actually-knows.html"
     }
   ]
 }

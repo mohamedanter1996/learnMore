@@ -71,8 +71,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Design Patterns` — Singleton: The Pattern You Should Rarely Hand-Roll → `2-design-patterns/singleton-the-pattern-you-should-rarely-hand-r.html`
 
-## Queue (120)
-- [ ] 29. `SQL Server Optimization` — Statistics: What the Optimizer Actually Knows → `3-sql-optimization/statistics-what-the-optimizer-actually-knows.html`
+- [x] `SQL Server Optimization` — Statistics: What the Optimizer Actually Knows → `3-sql-optimization/statistics-what-the-optimizer-actually-knows.html`
+
+## Queue (119)
 - [ ] 30. `System Design` — CDNs and Static Content Strategy → `4-system-design/cdns-and-static-content-strategy.html`
 - [ ] 31. `Frontend Engineering` — Angular Change Detection: Zone.js and OnPush → `5-frontend/angular-change-detection-zone-js-and-onpush.html`
 - [ ] 32. `Data Structures & Algorithms` — Binary Search: Beyond Finding an Element → `1-dsa/binary-search-beyond-finding-an-element.html`
