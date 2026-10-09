@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDNs and Static Content Strategy — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .net { width: 100%; height: 200px; min-width: 520px; }
+  .pkt-hit { animation: hop 1.6s ease-in-out infinite; }
+  @keyframes hop {
+    0%   { transform: translateX(0); opacity: 0; }
+    12%  { opacity: 1; }
+    48%  { transform: translateX(-48px); opacity: 1; }
+    88%  { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(0); opacity: 0; }
+  }
+  .pkt-miss { animation: trek 4.4s ease-in-out infinite; }
+  @keyframes trek {
+    0%   { transform: translateX(0); opacity: 0; }
+    8%   { opacity: 1; }
+    42%  { transform: translateX(-80px); opacity: 1; }
+    58%  { transform: translateX(-80px); opacity: 1; }
+    92%  { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(0); opacity: 0; }
+  }
+  .paused .pkt-hit, .paused .pkt-miss { animation-play-state: paused; }
+
+  .flow { display: flex; flex-direction: row-reverse; gap: 12px; min-width: 640px; }
+  .box {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; background: var(--surface-2); transition: border-color .3s;
+  }
+  .box h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); text-align: center; }
+  .box.hot { border-color: var(--primary); animation: pulse .6s ease; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(56,189,248,.5); } 100% { box-shadow: 0 0 0 14px rgba(56,189,248,0); } }
+  .rows { display: flex; flex-direction: column; gap: 6px; min-height: 104px; }
+  .row {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    background: #0b1220; border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 8px; font-size: 12px;
+  }
+  .row.fresh { animation: pop .35s ease; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  .url { font-family: Consolas, monospace; direction: ltr; font-size: 12px; }
+  .cc { color: #64748b; font-size: 10px; display: block; direction: ltr; }
+  .badge { font-size: 11px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .badge.hit { color: #d1fae5; border-color: var(--success); background: rgba(52,211,153,.14); }
+  .badge.miss { color: #fecaca; border-color: var(--danger); background: rgba(248,113,113,.14); }
+  .badge.warn { color: #fde68a; border-color: var(--warning); background: rgba(251,191,36,.14); }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .pick > span { color: var(--text-dim); font-size: 13px; }
+  .btn.sel { background: var(--primary); color: #0c2431; border-color: var(--primary); }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🌐 System Design · درس مصري مفصّل</div>
+  <h1>مش بتسرّع الشبكة — بتقرّب الملف. وعقد اسم الملف هو اللي بيخلي ده آمن</h1>
+  <div class="en">CDNs and Static Content Strategy</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك Angular app مبنية بـ <code>ng build</code>: مجلد <code>dist/</code> فيه <b>٢.٤ ميجا</b> على
+    <b>٣٨ طلب</b> (bundles + خطوط + صور)، وبتخدمها من الـ ASP.NET نفسه بـ
+    <code>app.UseStaticFiles()</code> على سيرفر في فرانكفورت. مستخدم من القاهرة: الـ RTT لوحده
+    <b>~٩٠ ملي ثانية</b>، فأول تحميل بيطلع حوالي <b>٢.٦ ثانية</b> قبل ما يشوف أي حرف.
+  </p>
+  <p>
+    حطّيت نفس المجلد على Blob Storage ورا CDN: الـ edge في القاهرة RTT <b>~١٢ ملي ثانية</b>، نفس الـ ٣٨
+    طلب خلّصوا في <b>~٦٠٠ ملي ثانية</b>. ومع ٤٠ ألف مستخدم في اليوم، كان سيرفرك بيطلّع
+    <b>~٩٦ جيجا</b> بايتات في اليوم؛ بقى بيطلّع أقل من <b>١٠ جيجا</b> والباقي من الـ edge.
+  </p>
+  <div class="callout info">
+    الفيزيا هي العقبة الوحيدة اللي مش بتتحل بكود: الإشارة في الألياف بتمشي بحوالي ٢٠٠ ألف كم/ث، فمسافة
+    القاهرة–فرانكفورت لها حد أدنى مهما حسّنت السيرفر. الـ <strong>CDN</strong> مش بيسرّع الشبكة —
+    بيحط <strong>نسخة من الملف قريب من المستخدم</strong> فالمسافة نفسها تقل.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتكاش <code>index.html</code> غلط فالمستخدمين يفضلوا على نسخة
+    قديمة و«اعمل Hard refresh» تبقى هي خطة الدعم عندك، أو هتخاف وتعمل <code>no-cache</code> على كل حاجة
+    فتضيّع فايدة الـ CDN بالكامل، أو — الأسوأ — تكاش رد API فيه داتا مستخدم فيوصل لمستخدم تاني.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: الطلب بيخلص فين؟</h2></div>
+  <div class="stage" id="busStage">
+    <svg class="net" viewBox="0 0 480 200">
+      <rect x="370" y="68" width="98" height="58" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="419" y="92" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">المستخدم</text>
+      <text x="419" y="111" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">القاهرة</text>
+
+      <rect x="196" y="68" width="124" height="58" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="258" y="92" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Edge — القاهرة</text>
+      <text x="258" y="111" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">RTT ~12 ms</text>
+
+      <rect x="12" y="68" width="124" height="58" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="74" y="92" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Origin</text>
+      <text x="74" y="111" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">Frankfurt ~90 ms</text>
+
+      <line x1="320" y1="97" x2="370" y2="97" stroke="#334155" stroke-width="2"/>
+      <line x1="136" y1="97" x2="196" y2="97" stroke="#334155" stroke-width="2" stroke-dasharray="5 4"/>
+
+      <g class="pkt-hit">
+        <rect x="322" y="36" width="46" height="24" rx="6" fill="#34d399"/>
+        <text x="345" y="53" fill="#06281c" font-size="11" text-anchor="middle" font-family="Segoe UI">HIT</text>
+      </g>
+      <g class="pkt-miss">
+        <rect x="140" y="140" width="52" height="24" rx="6" fill="#fbbf24"/>
+        <text x="166" y="157" fill="#2b1c02" font-size="11" text-anchor="middle" font-family="Segoe UI">MISS</text>
+      </g>
+
+      <text x="300" y="26" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        ٩٢٪ من الطلبات بتخلص عند الـ edge
+      </text>
+      <text x="168" y="186" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        ٨٪ بس بتكمل للأصل — وده اللي بيورّم سيرفرك
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="busToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    اللي بيعدي على الـ CDN: الـ <b>static assets</b> في المقام الأول (الـ Angular bundle، الصور، الخطوط،
+    الفيديو) — ٩٠٪ من الحالة. وبعدها ردود <code>GET</code> <b>عامة ومتطابقة للكل</b> (كتالوج منتجات،
+    ملف إعدادات) بـ <code>Cache-Control</code> صريح. اللي <b>مش</b> بيعدي: أي رد شخصي أو ورا
+    مصادقة.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: حياة ملف على الـ edge</h2></div>
+
+  <div class="stage">
+    <div class="flow">
+      <div class="box" id="userBox">
+        <h4>👤 المستخدم (القاهرة)</h4>
+        <div class="rows" id="userRows"></div>
+      </div>
+      <div class="box" id="edgeBox">
+        <h4>📦 كاش الـ Edge</h4>
+        <div class="rows" id="edgeRows"></div>
+      </div>
+      <div class="box" id="originBox">
+        <h4>🏠 Origin (Frankfurt)</h4>
+        <div class="rows">
+          <div class="row"><span>طلبات وصلت للأصل</span><b id="originReads">0</b></div>
+          <div class="row"><span>النسخة المنشورة</span><b id="originVer">v1</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> HIT — من الـ edge</span>
+      <span><i class="swatch" style="background:#f87171"></i> MISS — رحلة للأصل</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> نسخة قديمة / مراجعة</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: عقد الـ cache-busting</h2></div>
+
+  <p>
+    ده قلب الدرس. Angular بيعمل الجزء الأول لوحده (<code>outputHashing: "all"</code> في إعداد
+    الـ production)، وإنت مسؤول عن الجزء التاني — الهيدرز:
+  </p>
+<pre><code><span class="c">// الملفات المهاشة: الاسم بيتغير مع المحتوى → الكاش صالح للأبد</span>
+main.3f8a2b.js
+Cache-Control: public, max-age=31536000, immutable
+
+<span class="c">// index.html: هو اللي بيشاور على الأسماء دي → لازم يتراجع كل مرة</span>
+index.html
+Cache-Control: no-cache</code></pre>
+
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ قبل</strong> — هيدر واحد لكل حاجة</div>
+<pre><code><span class="c">// Program.cs — الافتراضي: مفيش Cache-Control خالص</span>
+app.<span class="k">UseStaticFiles</span>();
+<span class="c">// النتيجة: كل deploy = المتصفح والـ edge
+// بيخمّنوا. ساعة بـ hard refresh وساعة
+// نسخة قديمة. و 96 GB/day من سيرفرك.</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ بعد</strong> — هيدر حسب نوع الملف</div>
+<pre><code><span class="k">app</span>.UseStaticFiles(<span class="k">new</span> StaticFileOptions
+{
+  OnPrepareResponse = ctx =&gt;
+  {
+    <span class="k">var</span> res = ctx.Context.Response;
+    <span class="k">if</span> (ctx.File.Name == <span class="s">"index.html"</span>)
+      res.Headers.CacheControl = <span class="s">"no-cache"</span>;
+    <span class="k">else</span>
+      res.Headers.CacheControl =
+        <span class="s">"public,max-age=31536000,immutable"</span>;
+  }
+});</code></pre>
+    </div>
+  </div>
+  <p class="note">
+    <code>Response.Headers.CacheControl</code> خاصية موجودة على <code>IHeaderDictionary</code> من .NET 7،
+    و<code>OnPrepareResponse</code> بينفّذ على كل ملف قبل ما يتبعت.
+  </p>
+
+  <h3>جرّب بنفسك: اختار السياسة وبعدين انشر v2</h3>
+  <div class="stage">
+    <div class="pick">
+      <span><code>index.html</code>:</span>
+      <button class="btn ghost sel" data-idx="no-cache">no-cache</button>
+      <button class="btn ghost" data-idx="3600">max-age=3600</button>
+      <button class="btn ghost" data-idx="year">max-age=سنة</button>
+    </div>
+    <div class="pick">
+      <span>الملفات المهاشة:</span>
+      <button class="btn ghost sel" data-asset="immutable">immutable سنة</button>
+      <button class="btn ghost" data-asset="no-cache">no-cache</button>
+    </div>
+    <div class="controls">
+      <button class="btn" id="deployBtn">🚀 انشر v2</button>
+      <button class="btn ghost" id="resetDemo">↺ إعادة</button>
+    </div>
+    <div class="counters">
+      <span>👤 المستخدم شايف: <b id="seesVer">v1</b></span>
+      <span>🏠 طلبات توصل للأصل / ١٠٠٠ مستخدم: <b id="originCalls">1038</b></span>
+      <span>🎯 نسبة الـ hit: <b id="hitRatio">97.3%</b></span>
+    </div>
+    <div class="callout good" id="verdict"></div>
+  </div>
+
+  <div class="callout info">
+    <strong>Deploy = أسماء جديدة = URLs جديدة.</strong> الـ edges بتجيب الملفات الجديدة طبيعي من غير أي
+    <code>purge</code>، والملف القديم بيقعد في الكاش لحد ما يختفي — محدش بيشاور عليه، فمش بيضر.
+  </div>
+  <div class="callout">
+    <strong>الـ purge موجود، بس كمخرج طوارئ.</strong>
+    <code>az cdn endpoint purge --content-paths "/index.html"</code> بياخد من ثواني لدقايق لحد ما يوصل
+    لآلاف الـ edges. حاجة تعتمد عليها لما تغلط، مش استراتيجية أساسية.
+  </div>
+  <div class="callout good">
+    <strong>مكسبان مجانيان:</strong> <b>request collapsing</b> (آلاف الـ misses على نفس الـ URL بيتجمعوا
+    في طلب واحد للأصل)، و<b>امتصاص الـ DDoS</b> — الضرب بيروح على سعة الـ edge مش سعة سيرفرك.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>كاش طويل على <code>index.html</code></b> — دي السبب الحقيقي ورا ٩٠٪ من بلاغات «المستخدم شايف
+      نسخة قديمة». الملفات المهاشة بريئة؛ الصفحة اللي بتشاور عليهم هي المكاشة.</li>
+    <li><b>الـ purge كخطة أساسية</b> — تنشر، تفتكر الـ purge، تستناه يوصل. أول ما تنسى مرة واحدة يبوظ
+      الـ deploy. الأسماء المهاشة بتخلّي الـ purge حاجة مش محتاجة أصلاً.</li>
+    <li><b>تكاش رد فيه داتا مستخدم</b> — <code>GET /api/me</code> بـ <code>public, max-age=60</code>
+      معناه إن مستخدم تاني على نفس الـ edge ياخد بياناتك. أي حاجة ورا <code>Authorization</code>
+      خليها <code>private</code> أو <code>no-store</code>.</li>
+    <li><b>Versioning بـ query string</b> (<code>main.js?v=2</code>) — بعض إعدادات الـ CDN بتتجاهل الـ
+      query string في مفتاح الكاش، فتفضل تاخد الملف القديم. حُط الهاش في <b>اسم الملف</b>.</li>
+    <li><b>تقيس من مكانك بس</b> — إنت قريب من edge فشايف ١٢ ملي ثانية وفاكر الدنيا تمام. افتح
+      DevTools → Network وبصّ على <code>x-cache</code> و<code>age</code>، وقيس من منطقة تانية قبل ما
+      تحكم.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. أسماء ملفات فيها hash + <code>immutable, max-age=سنة</code> آمنة لأن:</div>
+    <button class="opt">الـ CDN بيحدّث نفسه كل ساعة على أي حال</button>
+    <button class="opt">أي تغيير في المحتوى بيولّد اسم/URL جديد — والقديم محدش بيشاور عليه تاني</button>
+    <button class="opt">المتصفحات بتتجاهل <code>max-age</code> الطويل</button>
+    <button class="opt">الـ CDN بيقارن محتوى الملفات ويكتشف التغيير</button>
+    <div class="feedback">
+      الـ URL بقى عنوان للمحتوى نفسه: نفس الـ URL = نفس البايتات للأبد. فالكاش صالح دايماً، والنسخة
+      الجديدة بتيجي على URL تاني خالص.
+    </div>
+  </div>
+
+  <div class="q" data-correct="0">
+    <div class="qt">2. المستخدمين بيشتكوا إنهم شايفين نسخة قديمة من الـ app والـ Hard refresh بيصلّحها. أقرب سبب؟</div>
+    <button class="opt"><code>index.html</code> اتكاش مدة طويلة، فلسه بيشاور على الأسماء المهاشة القديمة</button>
+    <button class="opt">الملفات المهاشة محتاجة <code>purge</code> بعد كل deploy</button>
+    <button class="opt">الـ <code>outputHashing</code> لازم يتقفل</button>
+    <button class="opt">الـ CDN بيكاش حسب الـ IP فمحتاج إعادة تشغيل</button>
+    <div class="feedback">
+      الـ Hard refresh بيتخطى الكاش ويجيب <code>index.html</code> جديد — وده بالظبط اللي بيكشف إن
+      الصفحة هي المكاشة. العقد: <code>no-cache</code> على <code>index.html</code>، immutable على الباقي.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ CDN مش بيسرّع شبكتك — بيقصّر المسافة، وده الجزء الوحيد من اللاتنسي اللي كودك مش بيقدر يحله.</li>
+    <li>العقد بسيط وكله: hash في اسم الملف + <code>immutable</code> لسنة، و<code>no-cache</code> على
+      <code>index.html</code> اللي بيشاور عليهم.</li>
+    <li>الـ URLs المرقّمة بتخلّي الـ purge حدث نادر للطوارئ، مش خطوة في كل deploy.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram toggle
+  var busStage = document.getElementById('busStage');
+  var busToggle = document.getElementById('busToggle');
+  busToggle.addEventListener('click', function () {
+    var paused = busStage.classList.toggle('paused');
+    busToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- edge flow (stepper)
+  var userRows = document.getElementById('userRows');
+  var edgeRows = document.getElementById('edgeRows');
+  var originReads = document.getElementById('originReads');
+  var originVer = document.getElementById('originVer');
+  var originBox = document.getElementById('originBox');
+  var st;
+
+  function resetFlow() {
+    st = { origin: 0, ver: 'v1', edge: [], user: [], touched: false };
+  }
+  function rowEl(main, sub, badge, cls, fresh) {
+    var d = document.createElement('div');
+    d.className = 'row' + (fresh ? ' fresh' : '');
+    var left = document.createElement('span');
+    left.innerHTML = '<span class="url">' + main + '</span>' + (sub ? '<span class="cc">' + sub + '</span>' : '');
+    var b = document.createElement('span');
+    b.className = 'badge' + (cls ? ' ' + cls : '');
+    b.textContent = badge;
+    d.appendChild(left);
+    d.appendChild(b);
+    return d;
+  }
+  function drawFlow() {
+    edgeRows.innerHTML = '';
+    if (!st.edge.length) {
+      edgeRows.appendChild(rowEl('— الكاش فاضي —', '', 'empty', ''));
+    } else {
+      st.edge.forEach(function (e) {
+        edgeRows.appendChild(rowEl(e.url, e.cc, e.badge, e.cls, e.fresh));
+        e.fresh = false;
+      });
+    }
+    userRows.innerHTML = '';
+    if (!st.user.length) {
+      userRows.appendChild(rowEl('— لسه مطلبش حاجة —', '', '…', ''));
+    } else {
+      st.user.forEach(function (u) {
+        userRows.appendChild(rowEl(u.text, u.sub, u.badge, u.cls));
+      });
+    }
+    originReads.textContent = st.origin;
+    originVer.textContent = st.ver;
+    originBox.classList.remove('hot');
+    if (st.touched) {
+      // re-trigger the pulse on the frame after the class is dropped
+      void originBox.offsetWidth;
+      originBox.classList.add('hot');
+    }
+  }
+
+  var steps = [
+    {
+      text: 'البداية: الـ edge في القاهرة لسه ما شافش التطبيق ده. الكاش فاضي، والنسخة المنشورة على الأصل هي v1.',
+      run: function () { }
+    },
+    {
+      text: 'أول مستخدم بيفتح الصفحة: index.html و main.3f8a2b.js مش في الكاش → MISS الاتنين. الـ edge بيجيبهم من فرانكفورت مرة واحدة ويخزّنهم. المستخدم ده بيستحمل الـ ~90ms كاملة.',
+      run: function () {
+        st.edge.push({ url: 'index.html', cc: 'no-cache', badge: 'MISS', cls: 'miss', fresh: true });
+        st.edge.push({ url: 'main.3f8a2b.js', cc: 'public, max-age=1y, immutable', badge: 'MISS', cls: 'miss', fresh: true });
+        st.origin += 2;
+        st.touched = true;
+        st.user = [{ text: 'استلم v1', sub: 'عبر الأصل — ~2.6s', badge: 'MISS', cls: 'miss' }];
+      }
+    },
+    {
+      text: 'مستخدم تاني على نفس الـ edge: الملف المهاش HIT مباشر. وindex.html بـ no-cache فالـ edge بيسأل الأصل "اتغير؟" ويرجع 304 صغيرة — فالصفحة لسه بتجي من القاهرة.',
+      run: function () {
+        st.edge[0].badge = '304';
+        st.edge[0].cls = 'warn';
+        st.edge[1].badge = 'HIT';
+        st.edge[1].cls = 'hit';
+        st.origin += 1;
+        st.touched = true;
+        st.user = [{ text: 'استلم v1', sub: 'من الـ edge — ~600ms', badge: 'HIT', cls: 'hit' }];
+      }
+    },
+    {
+      text: 'حملة إعلانية: 5000 مستخدم في نفس اللحظة طلبوا styles.7d21c9.css اللي مش مكاش. الـ edge مبيعملش 5000 رحلة — بيجمّعهم في طلب واحد للأصل (request collapsing / origin shield).',
+      run: function () {
+        st.edge.push({ url: 'styles.7d21c9.css', cc: 'public, max-age=1y, immutable', badge: 'MISS ×1', cls: 'miss', fresh: true });
+        st.origin += 1;
+        st.touched = true;
+        st.user = [{ text: '5000 مستخدم استلموا', sub: 'طلب واحد بس وصل للأصل', badge: 'HIT', cls: 'hit' }];
+      }
+    },
+    {
+      text: 'نشرت v2: index.html اتغير وبقى بيشاور على main.9c1d4e.js. لأن index.html بـ no-cache، الـ edge بيراجع فياخد الصفحة الجديدة، وبعدها الملف الجديد MISS مرة واحدة بس.',
+      run: function () {
+        st.ver = 'v2';
+        st.edge[0].badge = 'جديد';
+        st.edge[0].cls = 'hit';
+        st.edge[1].badge = 'ميت';
+        st.edge[1].cls = 'warn';
+        st.edge[1].cc = 'محدش بيشاور عليه — مفيش purge';
+        st.edge.push({ url: 'main.9c1d4e.js', cc: 'public, max-age=1y, immutable', badge: 'MISS ×1', cls: 'miss', fresh: true });
+        st.origin += 2;
+        st.touched = true;
+        st.user = [{ text: 'استلم v2', sub: 'من غير purge ومن غير hard refresh', badge: 'HIT', cls: 'hit' }];
+      }
+    },
+    {
+      text: 'العقد مكسور: لو كنت حاطط max-age=3600 على index.html، الـ edge والمتصفح هيفضلوا يرجّعوا صفحة v1 القديمة لمدة ساعة — بتشاور على main.3f8a2b.js القديم. التطبيق شغال، بس النسخة قديمة، والـ Hard refresh هو اللي "بيصلّحها". ده الباج اللي كل حد شافه.',
+      run: function () {
+        st.edge[0].cc = 'public, max-age=3600  ← الغلط';
+        st.edge[0].badge = 'HIT قديم';
+        st.edge[0].cls = 'warn';
+        st.edge[1].badge = 'HIT';
+        st.edge[1].cls = 'warn';
+        st.edge[1].cc = 'لسه مطلوب — الصفحة القديمة بتشاور عليه';
+        st.edge[3].badge = 'متجاهل';
+        st.edge[3].cls = 'warn';
+        st.touched = false;
+        st.user = [{ text: 'شايف v1 لحد ساعة', sub: 'والأصل عليه v2 من ساعة', badge: 'قديم', cls: 'warn' }];
+      }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح
+    resetFlow();
+    for (var i = 0; i <= step; i++) steps[i].run();
+    drawFlow();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  resetFlow();
+  render();
+
+  // ---------------------------------------------------------------- cache-policy demo
+  var idxPolicy = 'no-cache', assetPolicy = 'immutable', deployed = false;
+  var seesVer = document.getElementById('seesVer');
+  var originCalls = document.getElementById('originCalls');
+  var hitRatio = document.getElementById('hitRatio');
+  var verdict = document.getElementById('verdict');
+  var USERS = 1000, ASSETS = 38;
+
+  function recompute() {
+    // لكل 1000 مستخدم أول تحميل: طلب index.html + 38 ملف لكل واحد
+    var idxOrigin = idxPolicy === 'no-cache' ? USERS : 1;
+    var assetOrigin = assetPolicy === 'immutable' ? ASSETS : ASSETS * USERS;
+    var total = idxOrigin + assetOrigin;
+    var all = USERS * (ASSETS + 1);
+    var ratio = Math.round((1 - total / all) * 1000) / 10;
+
+    seesVer.textContent = !deployed ? 'v1'
+      : idxPolicy === 'no-cache' ? 'v2 فوراً'
+      : idxPolicy === '3600' ? 'v1 لحد ساعة'
+      : 'v1 لحد ما يعمل Hard refresh';
+    originCalls.textContent = total;
+    hitRatio.textContent = Math.max(0, ratio) + '%';
+
+    var cls = 'good', msg;
+    if (assetPolicy === 'no-cache') {
+      cls = 'bad';
+      msg = 'ملف اسمه فيه hash ومستحيل يتغير، وإنت بتسأل عنه الأصل في كل طلب. ضيّعت الـ CDN بالكامل: '
+          + total + ' طلب على الأصل من كل ' + all + '.';
+    } else if (idxPolicy === 'no-cache') {
+      cls = 'good';
+      msg = 'ده العقد الصحيح. index.html بيتراجع كل مرة (304 صغيرة)، والملفات المهاشة بتتخزن سنة. '
+          + 'كل deploy = أسماء جديدة = المستخدم ياخد v2 فوراً من غير purge.';
+    } else if (idxPolicy === '3600') {
+      cls = 'bad';
+      msg = 'شغّال بس الـ deploy بياخد لحد ساعة لحد ما يوصل للمستخدمين. لو عندك fix عاجل هتستنى الساعة '
+          + 'أو تعمل purge في كل مرة — والاتنين مش مقبولين.';
+    } else {
+      cls = 'bad';
+      msg = 'دي بالظبط الحالة اللي ورا «اعمل Hard refresh»: المتصفح ماسك index.html لسنة، '
+          + 'فالمستخدم عالق على v1 ومش شايف أي deploy.';
+    }
+    verdict.className = 'callout ' + cls;
+    verdict.textContent = msg;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-idx]'), function (b) {
+    b.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-idx]'), function (o) {
+        o.classList.remove('sel');
+      });
+      b.classList.add('sel');
+      idxPolicy = b.getAttribute('data-idx');
+      recompute();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-asset]'), function (b) {
+    b.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-asset]'), function (o) {
+        o.classList.remove('sel');
+      });
+      b.classList.add('sel');
+      assetPolicy = b.getAttribute('data-asset');
+      recompute();
+    });
+  });
+  document.getElementById('deployBtn').addEventListener('click', function () {
+    deployed = true;
+    recompute();
+  });
+  document.getElementById('resetDemo').addEventListener('click', function () {
+    deployed = false;
+    idxPolicy = 'no-cache';
+    assetPolicy = 'immutable';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-idx],[data-asset]'), function (o) {
+      o.classList.remove('sel');
+    });
+    document.querySelector('[data-idx="no-cache"]').classList.add('sel');
+    document.querySelector('[data-asset="immutable"]').classList.add('sel');
+    recompute();
+  });
+  recompute();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

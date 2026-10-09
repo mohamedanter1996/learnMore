@@ -169,6 +169,11 @@
       "topic": "SQL Server Optimization",
       "title": "Statistics: What the Optimizer Actually Knows",
       "file": "3-sql-optimization/statistics-what-the-optimizer-actually-knows.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "CDNs and Static Content Strategy",
+      "file": "4-system-design/cdns-and-static-content-strategy.html"
     }
   ]
 }
