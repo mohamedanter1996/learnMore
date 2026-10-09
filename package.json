@@ -1,6 +1,6 @@
 {
   "name": "learnmore",
-  "version": "1.9.6",
+  "version": "1.9.7",
   "description": "Daily tech-skill trainer desktop app",
   "author": "Anter",
   "main": "electron/main.js",
