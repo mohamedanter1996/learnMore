@@ -174,6 +174,11 @@
       "topic": "System Design",
       "title": "CDNs and Static Content Strategy",
       "file": "4-system-design/cdns-and-static-content-strategy.html"
+    },
+    {
+      "topic": "Frontend Engineering",
+      "title": "Angular Change Detection: Zone.js and OnPush",
+      "file": "5-frontend/angular-change-detection-zone-js-and-onpush.html"
     }
   ]
 }

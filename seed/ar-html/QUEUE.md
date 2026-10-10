@@ -75,8 +75,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `System Design` — CDNs and Static Content Strategy → `4-system-design/cdns-and-static-content-strategy.html`
 
-## Queue (118)
-- [ ] 31. `Frontend Engineering` — Angular Change Detection: Zone.js and OnPush → `5-frontend/angular-change-detection-zone-js-and-onpush.html`
+- [x] `Frontend Engineering` — Angular Change Detection: Zone.js and OnPush → `5-frontend/angular-change-detection-zone-js-and-onpush.html`
+
+## Queue (117)
 - [ ] 32. `Data Structures & Algorithms` — Binary Search: Beyond Finding an Element → `1-dsa/binary-search-beyond-finding-an-element.html`
 - [ ] 33. `Design Patterns` — Adapter: Making Incompatible Interfaces Fit → `2-design-patterns/adapter-making-incompatible-interfaces-fit.html`
 - [ ] 34. `SQL Server Optimization` — Join Operators: Nested Loops, Hash, Merge → `3-sql-optimization/join-operators-nested-loops-hash-merge.html`
