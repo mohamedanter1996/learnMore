@@ -179,6 +179,11 @@
       "topic": "Frontend Engineering",
       "title": "Angular Change Detection: Zone.js and OnPush",
       "file": "5-frontend/angular-change-detection-zone-js-and-onpush.html"
+    },
+    {
+      "topic": "Data Structures & Algorithms",
+      "title": "Binary Search: Beyond Finding an Element",
+      "file": "1-dsa/binary-search-beyond-finding-an-element.html"
     }
   ]
 }

@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary Search: Beyond Finding an Element — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  /* ---- شريط المقارنة: نص نص مقابل واحد واحد ---- */
+  .cmp-row { margin-bottom: 16px; }
+  .cmp-row .lbl { color: var(--text-dim); font-size: 13px; margin-bottom: 6px; }
+  .track {
+    position: relative; height: 30px; direction: ltr; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .remain { position: absolute; top: 0; height: 100%; background: var(--primary); opacity: .75; animation: halve 5s infinite; }
+  @keyframes halve {
+    0%,  12%  { left: 0;     width: 100%; }
+    20%, 32%  { left: 50%;   width: 50%; }
+    40%, 52%  { left: 50%;   width: 25%; }
+    60%, 72%  { left: 62.5%; width: 12.5%; }
+    80%, 100% { left: 62.5%; width: 6.25%; }
+  }
+  .scan { position: absolute; top: 0; height: 100%; width: 6.25%; background: var(--warning); opacity: .85; animation: crawl 5s steps(16) infinite; }
+  @keyframes crawl { from { left: 0; } to { left: 100%; } }
+  .ticks { display: flex; justify-content: space-between; direction: ltr; margin-top: 6px; font-family: Consolas, monospace; font-size: 12px; }
+  .tick { color: var(--text-dim); animation: glow 5s infinite; }
+  @keyframes glow { 0%, 8% { color: var(--text-dim); } 12%, 20% { color: var(--primary); } 26%, 100% { color: var(--text-dim); } }
+  .ticks .tick:nth-child(2) { animation-delay: 1s; }
+  .ticks .tick:nth-child(3) { animation-delay: 2s; }
+  .ticks .tick:nth-child(4) { animation-delay: 3s; }
+  .ticks .tick:nth-child(5) { animation-delay: 4s; }
+  .paused .remain, .paused .scan, .paused .tick { animation-play-state: paused; }
+
+  /* ---- شريط العناصر ---- */
+  .cells { display: grid; grid-template-columns: repeat(16, 42px); gap: 5px; direction: ltr; min-width: 620px; }
+  .cell {
+    border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2);
+    font-family: Consolas, monospace; font-size: 13px; text-align: center; padding: 5px 0;
+    color: var(--text); transition: background .22s, border-color .22s, opacity .22s, transform .18s;
+  }
+  .cell .ix { display: block; font-size: 10px; color: #64748b; }
+  .cell.dropped { opacity: .3; }
+  .cell.mid { background: #14384d; border-color: var(--primary); color: #bae6fd; transform: translateY(-3px); }
+  .cell.found { background: rgba(52,211,153,.2); border-color: var(--success); color: #d1fae5; transform: translateY(-3px); }
+  .cell.probe { background: rgba(251,191,36,.18); border-color: var(--warning); color: #fde68a; }
+  .cell.insert { border-style: dashed; border-color: var(--success); color: #d1fae5; }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  /* ---- ديمو أول build مكسور ---- */
+  .builds { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; direction: ltr; min-width: 560px; }
+  .bld {
+    height: 26px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border);
+    font-family: Consolas, monospace; font-size: 10px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); transition: background .2s, border-color .2s;
+  }
+  .bld.good { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .bld.bad { background: rgba(248,113,113,.18); border-color: var(--danger); color: #fecaca; }
+  .bld.probing { background: #14384d; border-color: var(--primary); color: #bae6fd; }
+  .bld.answer { background: var(--warning); color: #2b1d02; border-color: var(--warning); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧮 Data Structures &amp; Algorithms · درس مصري مفصّل</div>
+  <h1>الـ Binary Search مش «دوّر على رقم» — دي أداة بتسأل سؤال واحد وترمي نص الاحتمالات</h1>
+  <div class="en">Binary Search: Beyond Finding an Element</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك <code>Dictionary</code> كبير في الـ cache بتاع الـ API: قايمة <code>List&lt;PricePoint&gt;</code>
+    فيها ٢ مليون صف مترتّبين بالتاريخ، وendpoint في ASP.NET Core بيرجّع سعر يوم معيّن. كتبتها
+    <code>prices.FirstOrDefault(p =&gt; p.Day == day)</code> فبقت ٩ ملي ثانية للريكوست الواحد. مع ٣٠٠
+    ريكوست في الثانية ده بياكل أكتر من ٢ ثانية CPU كل ثانية — الـ thread pool بيختنق وأنت لسه مش
+    بتعمل أي حاجة غير بحث.
+  </p>
+  <p>
+    نفس الداتا، نفس الترتيب، <code>prices.BinarySearch(...)</code> = <b>٢١ مقارنة</b> بدل ٢ مليون.
+    وده أقل جزء مهم في الدرس. الجزء التاني: نفس الفكرة بتحل أسئلة ملهاش علاقة بـ array خالص —
+    «أول commit كسر الـ build من ٤٢٠ commit»، أو «أكبر batch size يخلّص الـ import قبل الـ
+    command timeout» — بدل ما تجرب ٤٢٠ مرة، تجرب ٩.
+  </p>
+  <div class="callout info">
+    الشرط الوحيد مش «array مترتّب» — الشرط هو إن الإجابة <strong>monotonic</strong>: يعني الشرط بيقلب
+    من <code>false</code> لـ <code>true</code> مرة واحدة بس وميرجعش. الترتيب مجرد أشهر حالة من الحالات دي.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفضل تعمل <code>OrderBy</code> + لفّة كاملة على داتا مترتّبة
+    أصلاً، وهتكتب <code>(lo + hi) / 2</code> اللي بيعمل overflow على مصفوفات كبيرة، وهتقرا الرقم السالب
+    اللي <code>BinarySearch</code> بترجّعه غلط فتفقد مكان الإدخال المجاني اللي كان في إيدك.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: مساحة البحث بتتنص كل خطوة</h2></div>
+  <div class="stage" id="halveStage">
+    <div class="cmp-row">
+      <div class="lbl">Binary search — كل مقارنة بترمي نص المساحة اللي فاضلة</div>
+      <div class="track"><div class="remain"></div></div>
+      <div class="ticks">
+        <span class="tick">16 عنصر</span>
+        <span class="tick">8</span>
+        <span class="tick">4</span>
+        <span class="tick">2</span>
+        <span class="tick">1</span>
+      </div>
+    </div>
+    <div class="cmp-row">
+      <div class="lbl">Linear scan — كل مقارنة بتشيل عنصر واحد بس</div>
+      <div class="track"><div class="scan"></div></div>
+    </div>
+    <div class="controls">
+      <button class="btn ghost" id="halveToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    الفرق مش في السرعة — في <b>شكل النمو</b>. ١٦ عنصر = ٤ خطوات، ١٠٢٤ = ١٠ خطوات، مليون = ٢٠،
+    مليار = ٣٠. لما تضاعف الداتا، الـ linear scan بياخد الضعف والـ binary search بياخد
+    <b>خطوة واحدة زيادة</b>.
+  </p>
+  <p class="note">
+    ودي بالظبط نفس حكاية الـ B-tree index في SQL Server: كل مستوى بتنزله بيرمي معظم الصفوف، عشان كده
+    seek على جدول ٥ مليون صف بيكلّف ٣–٤ قراءات بس.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة على مصفوفة حقيقية</h2></div>
+
+  <div class="stage">
+    <div class="cells" id="arr"></div>
+    <div class="counters">
+      <span>🔍 عدد المقارنات: <b id="cmp">0</b></span>
+      <span>🎯 الوضع: <b id="mode">—</b></span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#283548"></i> لسه داخل المدى</span>
+      <span><i class="swatch" style="background:#14384d"></i> الـ mid الحالي</span>
+      <span><i class="swatch" style="background:#34d399"></i> لقيناه</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> قراءة linear scan</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn" data-target="61">🔎 Binary على 61</button>
+    <button class="btn" data-target="14">🔎 Binary على 14</button>
+    <button class="btn" data-target="60">🔎 Binary على 60 (مش موجود)</button>
+    <button class="btn ghost" id="runLin">🐌 Linear scan على 84</button>
+    <button class="btn ghost" id="resetArr">↺ إعادة</button>
+  </div>
+  <p class="note">
+    شغّل الاتنين وبصّ على عداد المقارنات. أسوأ حالة للـ binary هنا ٤ مقارنات؛ الـ linear على آخر
+    عنصر بياخد ١٥.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. بحث في cache مترتّب جوّه ASP.NET Core</h3>
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ قبل</strong> — لفّة كاملة على كل ريكوست</div>
+<pre><code><span class="c">// prices: List&lt;PricePoint&gt; مترتّبة بالـ Day، 2M صف</span>
+<span class="k">var</span> row = prices.FirstOrDefault(p =&gt; p.Day == day);
+<span class="c">// ~9.4 ms · 2,000,000 مقارنة · 0 allocation بس CPU مقتول</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ بعد</strong> — نفس الليستة، نفس الترتيب</div>
+<pre><code><span class="k">int</span> i = prices.BinarySearch(
+        <span class="k">new</span> PricePoint { Day = day }, DayComparer.Instance);
+<span class="k">var</span> row = i &gt;= 0 ? prices[i] : <span class="k">null</span>;
+<span class="c">// ~0.0009 ms · 21 مقارنة · نفس النتيجة</span></code></pre>
+    </div>
+  </div>
+  <div class="callout info">
+    <strong>الرقم السالب هدية مش خطأ:</strong> <code>List&lt;T&gt;.BinarySearch</code> لما ملاقيش بترجّع
+    <code>~insertionPoint</code> (المكمّل). يعني <code>int ip = i &lt; 0 ? ~i : i;</code> بيعطيك
+    <b>مكان الإدخال الصح</b> على طول — ده هو الـ <code>lower_bound</code> مجاناً، ومفيد جداً لو بتدوّر
+    على «أقرب تاريخ قبل كذا».
+  </div>
+
+  <h3>ب. الاستخدام اللي بيفرق فعلاً: ابحث في مساحة الإجابات</h3>
+<pre><code><span class="c">// أول قيمة الشرط بيبقى فيها true — طول ما الشرط monotonic</span>
+<span class="k">static</span> <span class="k">int</span> FirstTrue(<span class="k">int</span> lo, <span class="k">int</span> hi, Func&lt;<span class="k">int</span>, <span class="k">bool</span>&gt; condition)
+{
+    <span class="k">while</span> (lo &lt; hi)                       <span class="c">// الاتفاق: الإجابة في [lo, hi]</span>
+    {
+        <span class="k">int</span> mid = lo + (hi - lo) / 2;    <span class="c">// بيمنع الـ int overflow</span>
+        <span class="k">if</span> (condition(mid)) hi = mid;    <span class="c">// mid نفسه لسه مرشّح</span>
+        <span class="k">else</span> lo = mid + 1;              <span class="c">// mid خرج من اللعبة</span>
+    }
+    <span class="k">return</span> lo;
+}
+
+<span class="c">// 1) أول commit كسر الـ build: 9 محاولات بدل 420</span>
+<span class="k">int</span> firstBad = FirstTrue(1, 420, v =&gt; IsBuildBroken(v));
+
+<span class="c">// 2) أكبر batch size يخلّص قبل الـ 25 ثانية (SqlCommand.CommandTimeout = 30)</span>
+<span class="k">int</span> tooSlow = FirstTrue(100, 50_000, n =&gt; MeasureImport(n) &gt; 25_000);
+<span class="k">int</span> best = tooSlow - 1;                 <span class="c">// 16 قياس بدل ما تجرب بالعين</span></code></pre>
+
+  <div class="stage">
+    <p class="note" style="margin-top:0">
+      ديمو: ٣٢ نسخة build. أول نسخة مكسورة بتتحدد عشوائي، و<code>FirstTrue</code> بيلاقيها بـ ٥ محاولات.
+    </p>
+    <div class="builds" id="builds"></div>
+    <div class="counters">
+      <span>🧪 محاولات binary: <b id="probes">0</b></span>
+      <span>🐌 لو مشيت واحد واحد: <b id="linProbes">—</b></span>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn" id="runFirstTrue">▶ شغّل FirstTrue</button>
+    <button class="btn ghost" id="pickRandom">🎲 اختار أول نسخة مكسورة تانية</button>
+    <button class="btn ghost" id="resetBuilds">↺ إعادة</button>
+  </div>
+  <div class="callout good">
+    <strong>الحاجة اللي بتفتح دماغك:</strong> لو الشرط بتاعك بيتحقق مرة واحدة ومبيرجعش، إنت عندك
+    binary search مستني — حتى لو مفيش array في المسألة أصلاً.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b><code>mid = (lo + hi) / 2</code></b> — على مصفوفة كبيرة (أو لما تبحث في مساحة قيم كبيرة)
+      الجمع بيتعدى <code>int.MaxValue</code> فيبقى سالب والـ index يرمي exception. اكتب
+      <code>lo + (hi - lo) / 2</code> دايماً — نفس النتيجة رياضياً، من غير overflow.</li>
+    <li><b>بحث ثنائي على داتا مش مترتّبة</b> — <code>BinarySearch</code> <u>مش</u> بترمي exception،
+      بترجّع نتيجة غلط بهدوء. ولو عملت <code>OrderBy</code> قبل كل بحث، الـ O(n log n) بتاع الترتيب
+      بياكل كل الكسب — رتّب مرة واحدة واحفظ الترتيب.</li>
+    <li><b>خلط الاتفاقين</b> — <code>while (lo &lt;= hi)</code> لازم يمشي مع
+      <code>hi = mid - 1</code>، و<code>while (lo &lt; hi)</code> لازم يمشي مع <code>hi = mid</code>.
+      خلطهم = loop لا نهائي أو إجابة ناقصة عنصر. اختار اتفاق واحد وثبّت عليه.</li>
+    <li><b>قراءة الرقم السالب كـ «مش موجود» وبس</b> — <code>~i</code> هو مكان الإدخال؛ لو رميته
+      بترجع تلف على الليستة تاني عشان تلاقي أقرب عنصر كنت ماسكه خلاص.</li>
+    <li><b>استخدامها على شرط مش monotonic</b> — «أول يوم المبيعات فيه فوق المتوسط» بيقلب true/false
+      كذا مرة، فالـ binary search هترجّع واحد منهم عشوائي. monotonic = شرط للصحة، مش تفصيلة.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. ليه نكتب <code>mid = lo + (hi - lo) / 2</code> بدل <code>(lo + hi) / 2</code>؟</div>
+    <button class="opt">لأنها أسرع في التنفيذ</button>
+    <button class="opt">لأنها بتمنع الـ integer overflow لما <code>lo + hi</code> يتعدى <code>int.MaxValue</code></button>
+    <button class="opt">لأنها بتجبر الكسر لفوق بدل تحت</button>
+    <div class="feedback">
+      الاتنين متساويين رياضياً، بس <code>lo + hi</code> ممكن يعمل overflow على indices كبيرة فيطلع رقم
+      سالب. الصيغة التانية مبتجمعش رقمين كبيرين خالص.
+    </div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. إيه الشرط اللي لازم يتحقق عشان تستخدم binary search على «مساحة الإجابات» مش على array؟</div>
+    <button class="opt">إن القيم تكون أرقام صحيحة</button>
+    <button class="opt">إن المساحة تكون في الذاكرة كلها</button>
+    <button class="opt">إن الشرط يكون monotonic — يقلب من false لـ true مرة واحدة ومايرجعش</button>
+    <div class="feedback">
+      الترتيب نفسه مجرد حالة خاصة من الـ monotonicity. طول ما <code>condition(x)</code> بيقلب مرة واحدة
+      بس، كل مقارنة بتستبعد نص المساحة بثقة — ودي الحاجة الوحيدة اللي الخوارزمية محتاجاها.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>Binary search مش بتقلل الخطوات — بتغيّر شكل النمو: مضاعفة الداتا = خطوة واحدة زيادة بس.</li>
+    <li>الشرط الحقيقي هو الـ monotonicity، فأي سؤال شكله «أول قيمة الشرط بيتحقق عندها» ينفع فيه.</li>
+    <li>ثبّت اتفاق واحد للمدى واكتب <code>lo + (hi - lo) / 2</code> — كل باجات الدرس ده بتيجي من <code>±1</code> وoverflow.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- halving animation toggle
+  var halveStage = document.getElementById('halveStage');
+  var halveToggle = document.getElementById('halveToggle');
+  halveToggle.addEventListener('click', function () {
+    var paused = halveStage.classList.toggle('paused');
+    halveToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- sorted array stage
+  var VALUES = [3, 8, 14, 21, 27, 33, 38, 42, 49, 55, 61, 66, 70, 77, 84, 91];
+  var arrEl = document.getElementById('arr');
+  var cmpEl = document.getElementById('cmp'), modeEl = document.getElementById('mode');
+  var cells = [], timer = null;
+
+  VALUES.forEach(function (v, i) {
+    var c = document.createElement('div');
+    c.className = 'cell';
+    c.innerHTML = v + '<span class="ix">' + i + '</span>';
+    arrEl.appendChild(c);
+    cells.push(c);
+  });
+
+  function paint(st) {
+    cells.forEach(function (c, i) {
+      c.className = 'cell';
+      if (st.lo !== undefined && (i < st.lo || i > st.hi)) c.classList.add('dropped');
+      if (i === st.mid) c.classList.add('mid');
+      if (i === st.found) c.classList.add('found');
+      if (i === st.probe) c.classList.add('probe');
+      if (i === st.insert) c.classList.add('insert');
+    });
+    cmpEl.textContent = st.cmp === undefined ? '0' : st.cmp;
+    modeEl.textContent = st.mode || '—';
+  }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+  function resetArr() {
+    stop();
+    paint({ lo: 0, hi: VALUES.length - 1, cmp: 0, mode: '—' });
+  }
+
+  // كل الحالات محسوبة قبل العرض، فالرجوع والتشغيل بيبنيوا من الأول
+  function binaryStates(target) {
+    var lo = 0, hi = VALUES.length - 1, cmp = 0, out = [];
+    while (lo <= hi) {
+      var mid = lo + ((hi - lo) >> 1);
+      cmp++;
+      if (VALUES[mid] === target) {
+        out.push({ lo: lo, hi: hi, mid: mid, found: mid, cmp: cmp, mode: 'Binary Search · لقيناه' });
+        return out;
+      }
+      out.push({ lo: lo, hi: hi, mid: mid, cmp: cmp, mode: 'Binary Search' });
+      if (VALUES[mid] < target) lo = mid + 1; else hi = mid - 1;
+    }
+    out.push({ lo: lo, hi: hi, insert: lo, cmp: cmp, mode: 'مش موجود · مكان الإدخال = ' + lo });
+    return out;
+  }
+  function play(states, ms) {
+    stop();
+    var i = 0;
+    paint(states[0]);
+    i = 1;
+    timer = setInterval(function () {
+      if (i >= states.length) { stop(); return; }
+      paint(states[i++]);
+    }, ms);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-target]'), function (b) {
+    b.addEventListener('click', function () {
+      play(binaryStates(parseInt(b.getAttribute('data-target'), 10)), 750);
+    });
+  });
+  document.getElementById('runLin').addEventListener('click', function () {
+    var states = [], target = 84;
+    for (var i = 0; i < VALUES.length; i++) {
+      var hit = VALUES[i] === target;
+      states.push({
+        probe: hit ? undefined : i, found: hit ? i : undefined,
+        cmp: i + 1, mode: hit ? 'Linear Scan · لقيناه' : 'Linear Scan'
+      });
+      if (hit) break;
+    }
+    play(states, 160);
+  });
+  document.getElementById('resetArr').addEventListener('click', resetArr);
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    { state: { lo: 0, hi: 15, cmp: 0, mode: '—' },
+      text: 'الهدف 61. الاتفاق: الإجابة لازم تكون في المدى [lo, hi] — يعني lo = 0 و hi = 15، والمساحة 16 عنصر.' },
+    { state: { lo: 0, hi: 15, mid: 7, cmp: 1, mode: 'Binary Search' },
+      text: 'مقارنة 1: mid = 0 + (15-0)/2 = 7، والقيمة 42. أصغر من 61 → كل اللي على شمال 7 (والـ 7 نفسه) خرجوا. lo = 8.' },
+    { state: { lo: 8, hi: 15, mid: 11, cmp: 2, mode: 'Binary Search' },
+      text: 'مقارنة 2: فاضل 8 عناصر. mid = 8 + (15-8)/2 = 11، والقيمة 66. أكبر من 61 → hi = 10. المساحة بقت 3.' },
+    { state: { lo: 8, hi: 10, mid: 9, cmp: 3, mode: 'Binary Search' },
+      text: 'مقارنة 3: mid = 8 + (10-8)/2 = 9، والقيمة 55. أصغر من 61 → lo = 10. فاضل عنصر واحد.' },
+    { state: { lo: 10, hi: 10, mid: 10, found: 10, cmp: 4, mode: 'Binary Search · لقيناه' },
+      text: 'مقارنة 4: mid = 10، والقيمة 61 = الهدف. خلصنا بـ 4 مقارنات لـ 16 عنصر — بالظبط log₂(16).' },
+    { state: { lo: 10, hi: 9, insert: 10, cmp: 4, mode: 'مش موجود · مكان الإدخال = 10' },
+      text: 'ولو الهدف كان 60؟ نفس المشي بالظبط، وفي الآخر lo (10) يعدّي hi (9) فالمدى يفضى → مش موجود. لاحظ إن lo واقف على مكان الإدخال الصح — ده اللي BinarySearch بترجّعه كـ ~10 = -11.' }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stop();
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    paint(steps[step].state);     // الحالة كاملة لكل خطوة، فالرجوع بيبني من الأول مش بيلغي فريم
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- FirstTrue demo
+  var N = 32;
+  var buildsEl = document.getElementById('builds');
+  var probesEl = document.getElementById('probes'), linProbesEl = document.getElementById('linProbes');
+  var blds = [], firstBad = 19, bTimer = null;
+
+  for (var v = 0; v < N; v++) {
+    var b = document.createElement('div');
+    b.className = 'bld';
+    b.textContent = 'v' + (v + 1);
+    buildsEl.appendChild(b);
+    blds.push(b);
+  }
+  function resetBuilds() {
+    if (bTimer) { clearInterval(bTimer); bTimer = null; }
+    blds.forEach(function (b) { b.className = 'bld'; });
+    probesEl.textContent = '0';
+    linProbesEl.textContent = '—';
+  }
+  function runFirstTrue() {
+    resetBuilds();
+    var lo = 0, hi = N - 1, probes = 0, frames = [];
+    while (lo < hi) {
+      var mid = lo + ((hi - lo) >> 1);
+      probes++;
+      var broken = mid >= firstBad;
+      frames.push({ mid: mid, broken: broken, probes: probes });
+      if (broken) hi = mid; else lo = mid + 1;
+    }
+    frames.push({ answer: lo, probes: probes });
+    var i = 0;
+    bTimer = setInterval(function () {
+      if (i >= frames.length) { clearInterval(bTimer); bTimer = null; return; }
+      var f = frames[i++];
+      if (f.answer !== undefined) {
+        blds[f.answer].className = 'bld answer';
+        linProbesEl.textContent = (firstBad + 1) + ' محاولة';
+      } else {
+        blds[f.mid].className = 'bld probing';
+        setTimeout(function (m, bad) {
+          return function () { if (blds[m].className === 'bld probing') blds[m].className = 'bld ' + (bad ? 'bad' : 'good'); };
+        }(f.mid, f.broken), 320);
+      }
+      probesEl.textContent = f.probes;
+    }, 650);
+  }
+  document.getElementById('runFirstTrue').addEventListener('click', runFirstTrue);
+  document.getElementById('pickRandom').addEventListener('click', function () {
+    firstBad = 3 + Math.floor(Math.random() * (N - 4));
+    resetBuilds();
+  });
+  document.getElementById('resetBuilds').addEventListener('click', resetBuilds);
+  resetBuilds();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
