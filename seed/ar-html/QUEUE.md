@@ -79,8 +79,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `Data Structures & Algorithms` — Binary Search: Beyond Finding an Element → `1-dsa/binary-search-beyond-finding-an-element.html`
 
-## Queue (116)
-- [ ] 33. `Design Patterns` — Adapter: Making Incompatible Interfaces Fit → `2-design-patterns/adapter-making-incompatible-interfaces-fit.html`
+- [x] `Design Patterns` — Adapter: Making Incompatible Interfaces Fit → `2-design-patterns/adapter-making-incompatible-interfaces-fit.html`
+
+## Queue (115)
 - [ ] 34. `SQL Server Optimization` — Join Operators: Nested Loops, Hash, Merge → `3-sql-optimization/join-operators-nested-loops-hash-merge.html`
 - [ ] 35. `System Design` — Database Replication: Read Replicas and Failover → `4-system-design/database-replication-read-replicas-and-failove.html`
 - [ ] 36. `Frontend Engineering` — Angular Signals: Fine-Grained Reactivity → `5-frontend/angular-signals-fine-grained-reactivity.html`

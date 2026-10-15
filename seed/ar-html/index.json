@@ -184,6 +184,11 @@
       "topic": "Data Structures & Algorithms",
       "title": "Binary Search: Beyond Finding an Element",
       "file": "1-dsa/binary-search-beyond-finding-an-element.html"
+    },
+    {
+      "topic": "Design Patterns",
+      "title": "Adapter: Making Incompatible Interfaces Fit",
+      "file": "2-design-patterns/adapter-making-incompatible-interfaces-fit.html"
     }
   ]
 }

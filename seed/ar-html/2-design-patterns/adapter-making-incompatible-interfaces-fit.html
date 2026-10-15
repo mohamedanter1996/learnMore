@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adapter: Making Incompatible Interfaces Fit — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  /* ---- خط سير النداء: كودك ← الـ adapter ← الـ SDK ---- */
+  .flowwrap { min-width: 660px; }
+  .flow { display: flex; flex-direction: row-reverse; gap: 12px; width: 624px; }
+  .fbox {
+    width: 200px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-2); padding: 10px 8px; text-align: center;
+    animation: fglow 4s infinite;
+  }
+  .fbox .ttl { font-family: Consolas, monospace; font-size: 13px; direction: ltr; color: var(--text); }
+  .fbox .sub { display: block; font-size: 11px; color: #64748b; margin-top: 4px; }
+  @keyframes fglow {
+    0%, 4%          { border-color: var(--border); background: var(--surface-2); }
+    6%, 20%         { border-color: var(--primary); background: #14384d; }
+    24%, 100%       { border-color: var(--border); background: var(--surface-2); }
+  }
+  .flow .fbox:nth-of-type(2) { animation-delay: -1.36s; }
+  .flow .fbox:nth-of-type(3) { animation-delay: -2.72s; }
+
+  .rail { position: relative; width: 624px; height: 30px; margin-top: 8px; }
+  .rail::before {
+    content: ''; position: absolute; top: 14px; left: 4px; right: 4px;
+    border-top: 1px dashed var(--border);
+  }
+  .rail .rl { position: absolute; top: 0; font-size: 11px; color: var(--text-dim); }
+  .dot {
+    position: absolute; top: 2px; white-space: nowrap; direction: ltr;
+    font-family: Consolas, monospace; font-size: 10px; border-radius: 10px; padding: 3px 8px;
+  }
+  .dot.call { background: var(--primary); color: #0c2431; animation: runout 4s ease-in-out infinite; }
+  .dot.err  { background: var(--danger);  color: #2b0a0a; animation: runback 4s ease-in-out infinite; }
+  @keyframes runout {
+    0%        { right: 70px;  opacity: 0; }
+    6%, 20%   { right: 70px;  opacity: 1; }
+    40%, 54%  { right: 282px; opacity: 1; }
+    74%, 90%  { right: 494px; opacity: 1; }
+    96%, 100% { right: 494px; opacity: 0; }
+  }
+  @keyframes runback {
+    0%, 70%   { right: 470px; opacity: 0; }
+    76%, 86%  { right: 470px; opacity: 1; }
+    94%, 100% { right: 250px; opacity: 1; }
+  }
+  .paused .fbox, .paused .dot { animation-play-state: paused; }
+
+  /* ---- مكتب الترجمة: نوعك مقابل نوعهم ---- */
+  .board { min-width: 600px; }
+  .bhead, .trow {
+    display: grid; grid-template-columns: 1fr 44px 1fr; gap: 10px; align-items: center;
+  }
+  .bhead { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; text-align: center; }
+  .trow {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+    padding: 8px 10px; margin-bottom: 7px; opacity: .45; transition: opacity .25s, border-color .25s;
+  }
+  .trow .side { font-family: Consolas, monospace; font-size: 12px; direction: ltr; color: var(--text-dim); }
+  .trow .mid { text-align: center; color: #64748b; font-size: 14px; }
+  .trow .why { grid-column: 1 / -1; font-size: 12px; color: #64748b; display: none; }
+  .trow.lit { opacity: 1; border-color: var(--primary); }
+  .trow.lit .side { color: #bae6fd; }
+  .trow.lit .why { display: block; }
+  .trow.err.lit { border-color: var(--danger); }
+  .trow.err.lit .side { color: #fecaca; }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .codeline {
+    font-family: Consolas, monospace; font-size: 12px; direction: ltr; text-align: left;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; margin-top: 10px; color: #bae6fd; min-height: 20px; overflow-x: auto;
+  }
+
+  /* ---- ديمو تبديل المزود ---- */
+  .swap .big { font-family: Consolas, monospace; font-size: 22px; }
+  .swap .big.warn { color: var(--warning); }
+  .swap .big.danger { color: var(--danger); }
+  .swap .big.ok { color: var(--success); }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🧩 Design Patterns · درس مصري مفصّل</div>
+  <h1>مش بتصلّح مكتبة الغير ولا بتعدّل كودك — بتحط وصلة في النص</h1>
+  <div class="en">Adapter: Making Incompatible Interfaces Fit</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك ASP.NET Core API، و<code>OrderService</code> بينادي <code>TwilioClient</code> مباشرة
+    في ٦ أماكن. الإدارة قررت تنقل لمزود محلي أرخص. عملت
+    <code>grep "Twilio."</code> على الـ solution: <b>٢٣ ملف</b> بيستوردوا أنواع المزود —
+    فيهم controllers وملفين tests. وفوق ده، الـ unit tests بتاعة <code>OrderService</code>
+    بتاخد <b>٤.٢ ثانية</b> لأنها بتضرب HTTP حقيقي، وبتفشل عشوائي مرة من كل عشر runs.
+  </p>
+  <div class="callout info">
+    الحل مش إنك تعدّل في الـ SDK (مش بتاعك) ولا تعدّل كودك على مزاجهم. كودك بيعرّف
+    <strong>الـ port اللي هو محتاجه</strong> — <code>ISmsSender</code> — وclass واحد صغير
+    اسمه الـ <strong>adapter</strong> بيعمل implement للـ port ده وبيلفّ الـ SDK جوّاه ويترجم.
+    نفس فكرة وصلة الكهربا بتاعة السفر: الجهاز ما اتغيرش، الفيشة ما اتغيرتش، الوصلة في النص هي اللي بتترجم.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> أنواع المزود هتتسرّب في كل طبقات المشروع، تبديل المزود
+    يبقى عملية جراحية في ٢٣ ملف بدل ملف واحد، والـ tests بتاعتك هتفضل بطيئة ومتقلّبة لأنها مش
+    قادرة تستبدل المزود بـ fake.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: النداء رايح، والترجمة في النص</h2></div>
+  <div class="stage" id="flowStage">
+    <div class="flowwrap">
+      <div class="flow">
+        <div class="fbox">
+          <span class="ttl">OrderService</span>
+          <span class="sub">كودك — شايف الـ port بس</span>
+        </div>
+        <div class="fbox">
+          <span class="ttl">TwilioSmsAdapter</span>
+          <span class="sub">: ISmsSender — المترجم</span>
+        </div>
+        <div class="fbox">
+          <span class="ttl">TwilioClient</span>
+          <span class="sub">SDK — مكتوب على مزاجهم</span>
+        </div>
+      </div>
+      <div class="rail">
+        <span class="dot call">SendAsync(phone, message)</span>
+      </div>
+      <div class="rail">
+        <span class="dot err">SmsDeliveryException ◀ MessageStatus.Failed</span>
+      </div>
+    </div>
+    <div class="controls" style="margin-top:12px">
+      <button class="btn ghost" id="flowToggle">⏸ وقف الحركة</button>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#38bdf8"></i> النداء بشكل كودك</span>
+      <span><i class="swatch" style="background:#f87171"></i> الخطأ مترجم لنوعك</span>
+    </div>
+  </div>
+  <p>
+    بصّ على الاتجاهين. النداء رايح من اليمين للشمال: <code>OrderService</code> بينادي شكل واحد بس
+    هو <code>SendAsync(phone, message)</code>، والـ adapter بيحوّله لشكل الـ SDK. والخطأ جاي راجع:
+    <code>MessageStatus.Failed</code> بيتحوّل جوّه الـ adapter لـ <code>SmsDeliveryException</code>
+    قبل ما يطلع. <b>الصندوق الشمال ما بيتعدّاش الصندوق اللي في النص أبداً</b> — لا أنواعه ولا exceptions
+    بتاعته. دي حدود الـ adapter.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: إيه اللي بيحصل جوّه الملف ده بالظبط</h2></div>
+
+  <div class="stage">
+    <div class="board">
+      <div class="bhead">
+        <span>الشكل بتاعك (الـ port)</span>
+        <span>↔</span>
+        <span>الشكل بتاعهم (الـ SDK)</span>
+      </div>
+      <div class="trow" id="r0">
+        <span class="side">string phone</span>
+        <span class="mid">▶</span>
+        <span class="side">PhoneNumber to</span>
+        <span class="why">تحويل نوع: الـ port بياخد string عادي، الـ SDK عايز نوعه الخاص.</span>
+      </div>
+      <div class="trow" id="r1">
+        <span class="side">string message</span>
+        <span class="mid">▶</span>
+        <span class="side">string body</span>
+        <span class="why">نفس الحاجة باسم مختلف — ترجمة أسماء، أرخص حتة في الـ adapter.</span>
+      </div>
+      <div class="trow" id="r2">
+        <span class="side">(مش موجود في الـ port)</span>
+        <span class="mid">▶</span>
+        <span class="side">string from</span>
+        <span class="why">رقم المُرسِل تفصيلة مزود — الـ adapter بيجيبها من IOptions&lt;TwilioOptions&gt;.</span>
+      </div>
+      <div class="trow" id="r3">
+        <span class="side">Task (بلا قيمة راجعة)</span>
+        <span class="mid">◀</span>
+        <span class="side">Task&lt;MessageResource&gt;</span>
+        <span class="why">نوع المزود الراجع بيتبلع هنا — لو خرج من الملف ده، الحدود اتخرقت.</span>
+      </div>
+      <div class="trow err" id="r4">
+        <span class="side">SmsDeliveryException</span>
+        <span class="mid">◀</span>
+        <span class="side">MessageStatus.Failed</span>
+        <span class="why">ترجمة الأخطاء: كودك بيـ catch نوع بتاعه، مش ApiException بتاعتهم.</span>
+      </div>
+    </div>
+    <div class="codeline" id="codeLine">—</div>
+    <div class="counters">
+      <span>🔁 صفوف مترجمة: <b id="rowsDone">0</b></span>
+      <span>🚨 أنواع vendor ظاهرة في كودك: <b id="leaks">0</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">
+    لاحظ إن عدّاد الـ leaks فضل صفر من أول خطوة لآخرها — ده المقياس الحقيقي لنجاح الـ adapter،
+    مش عدد الأسطر اللي كتبتها.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي من شغلك</h2></div>
+
+  <h3>أ. قبل: الـ SDK متغلغل في منطق الشغل</h3>
+<pre><code><span class="k">public class</span> OrderService(TwilioClient twilio, IConfiguration cfg)
+{
+    <span class="k">public async</span> Task ConfirmAsync(Order order)
+    {
+        <span class="c">// منطق business + تفاصيل مزود في نفس الميثود</span>
+        <span class="k">var</span> res = <span class="k">await</span> twilio.CreateMessage(
+            <span class="k">new</span> PhoneNumber(order.Phone),
+            cfg[<span class="s">"Twilio:From"</span>],
+            $<span class="s">"طلبك {order.Id} اتأكد"</span>);
+
+        <span class="k">if</span> (res.Status == MessageStatus.Failed)
+            <span class="k">throw new</span> Exception(res.ErrorMessage);   <span class="c">// نوع مزود طالع بره</span>
+    }
+}
+<span class="c">// الـ unit test لازم يضرب HTTP حقيقي  → 4.2 s، وبيفشل 1 من 10 runs</span>
+<span class="c">// تبديل المزود → 23 ملف فيهم using Twilio;</span></code></pre>
+
+  <h3>ب. بعد: الـ port بتاعك + adapter واحد</h3>
+<pre><code><span class="c">// 1) الـ port — الشكل اللي كودك محتاجه فعلاً، مفيش أي كلمة Twilio</span>
+<span class="k">public interface</span> ISmsSender
+{
+    Task SendAsync(<span class="k">string</span> phone, <span class="k">string</span> message, CancellationToken ct = <span class="k">default</span>);
+}
+
+<span class="c">// 2) الـ adapter — الملف الوحيد في المشروع اللي يعرف إن Twilio موجودة</span>
+<span class="k">public class</span> TwilioSmsAdapter(TwilioClient client, IOptions&lt;TwilioOptions&gt; opt) : ISmsSender
+{
+    <span class="k">public async</span> Task SendAsync(<span class="k">string</span> phone, <span class="k">string</span> message, CancellationToken ct = <span class="k">default</span>)
+    {
+        <span class="k">var</span> result = <span class="k">await</span> client.CreateMessage(
+            <span class="k">new</span> PhoneNumber(phone), opt.Value.FromNumber, message);
+
+        <span class="k">if</span> (result.Status == MessageStatus.Failed)
+            <span class="k">throw new</span> SmsDeliveryException(result.ErrorMessage);   <span class="c">// ترجمة الخطأ</span>
+    }
+}
+
+<span class="c">// 3) منطق الشغل بقى نضيف — ومبيعرفش حتى اسم المزود</span>
+<span class="k">public class</span> OrderService(ISmsSender sms)
+{
+    <span class="k">public</span> Task ConfirmAsync(Order order) =&gt;
+        sms.SendAsync(order.Phone, $<span class="s">"طلبك {order.Id} اتأكد"</span>);
+}
+<span class="c">// الـ unit test بيحقن FakeSmsSender → 0.08 s، صفر شبكة، صفر تقلّب</span></code></pre>
+
+  <h3>ج. جرّب التبديل بنفسك</h3>
+  <div class="stage swap">
+    <div class="controls">
+      <button class="btn" data-v="twilio">🔌 Twilio</button>
+      <button class="btn" data-v="misr">🔌 مزود محلي</button>
+      <button class="btn" data-v="fake">🧪 Fake (للتستات)</button>
+      <button class="btn ghost" data-v="none">🚫 من غير adapter خالص</button>
+    </div>
+    <div class="codeline" id="regCode">—</div>
+    <div class="counters">
+      <span>📄 ملفات هتتغير: <b class="big" id="filesChanged">—</b></span>
+      <span>🧪 زمن الـ unit tests: <b class="big" id="testTime">—</b></span>
+      <span>🚨 أنواع vendor في كودك: <b class="big" id="vendorTypes">—</b></span>
+    </div>
+    <p class="note" id="swapNote">دوس على مزود عشان تشوف التكلفة الحقيقية للتبديل.</p>
+  </div>
+  <div class="callout good">
+    التبديل كله سطر واحد في <code>Program.cs</code>، وملف adapter جديد. <code>OrderService</code>
+    والـ controllers والـ tests ما اتغيروش ولا حرف — لأنهم أصلاً مش شايفين غير <code>ISmsSender</code>.
+  </div>
+  <div class="callout info">
+    <strong>الفريمورك مليان adapters:</strong> <code>StreamReader</code> adapter بيحوّل
+    <code>Stream</code> (بايتات) لـ <code>TextReader</code> (حروف)، وكل logging provider بيحوّل
+    Serilog أو NLog لـ <code>ILogger</code>، وكل EF Core database provider هو adapter بين موديل
+    EF وقاعدة بيانات معيّنة.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>adapter بيسرّب أنواع المزود في الـ signature</b> — زي
+      <code>Task&lt;MessageResource&gt; SendAsync(...)</code>. كل كود بيستهلك الـ port بقى مربوط
+      بالمزود، والحدود بقت ديكور.</li>
+    <li><b>الـ port مرسوم على شكل الـ SDK</b> — نفس الأسماء ونفس الـ parameters ونفس الترتيب.
+      ده مش adapter، ده pass-through؛ أول مزود تاني هتعيد كتابة كل حاجة.</li>
+    <li><b>منطق business جوّه الـ adapter</b> — حساب خصم، قرار «نبعت ولا لأ»، retry policy بتاعة
+      الدومين. الـ adapter ترجمة بس؛ أي قرار بيروح للدومين.</li>
+    <li><b>exceptions المزود بتفلت زي ما هي</b> — <code>ApiException</code> أو
+      <code>HttpRequestException</code> طالعة لـ controller. نص فايدة الـ adapter في ترجمة الأخطاء،
+      ولو سيبتها كودك هيـ catch أنواع vendor.</li>
+    <li><b>خلط Adapter مع Decorator وFacade</b> — الـ Adapter بيغيّر الشكل لـ interface عندك،
+      الـ Decorator بيحافظ على <u>نفس</u> الـ interface ويضيف سلوك (caching، logging)، والـ Facade
+      بيبسّط subsystem كبير في باب واحد.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. الفايدة المعمارية الأساسية من adapter حوالين SDK خارجي إيه؟</div>
+    <button class="opt">الأداء بيبقى أحسن</button>
+    <button class="opt">أنواع المزود وexceptions بتاعته بتقف عند الحدود — فتبديل المزود بيلمس class واحد</button>
+    <button class="opt">عدد حزم NuGet بيقل</button>
+    <button class="opt">الـ retries بتحصل أوتوماتيك</button>
+    <div class="feedback">
+      الدومين بيعتمد على الـ port بتاعه، والـ adapter هو الملف الوحيد اللي يعرف إن المزود موجود.
+      الأداء وال retries حاجات تانية خالص.
+    </div>
+  </div>
+
+  <div class="q" data-correct="0">
+    <div class="qt">2. إيه الفرق بين Adapter وDecorator؟</div>
+    <button class="opt">الـ Adapter بيغيّر الـ interface للشكل اللي كودك عايزه، والـ Decorator بيحافظ على نفس الـ interface ويضيف سلوك</button>
+    <button class="opt">العكس بالظبط</button>
+    <button class="opt">مفيش فرق، أسماء مختلفة لنفس الحاجة</button>
+    <div class="feedback">
+      <code>TwilioSmsAdapter</code> بيحوّل شكل لشكل تاني. لكن
+      <code>CachingSmsSender : ISmsSender</code> اللي بياخد <code>ISmsSender</code> جوّاه ويضيف cache
+      = decorator، لأن الداخل والخارج نفس الـ interface.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>كودك بيعرّف الـ port اللي هو محتاجه، والـ adapter بيلفّ المكتبة الجاهزة ويترجم — ومحدش من
+      الطرفين بيتغير.</li>
+    <li>الـ adapter مش بيترجم أسماء methods بس: الأنواع، الـ DTOs، الـ exceptions، وأسلوب الـ retry
+      والـ paging كلهم بيتحوّلوا لأسلوبك.</li>
+    <li>القاعدة الحديدية: أنواع المزود تقف عند حدود الـ adapter — لو <code>TwilioClient</code> ظهر
+      في controller، الحدود اتخرقت.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- flow animation toggle
+  var flowStage = document.getElementById('flowStage');
+  var flowToggle = document.getElementById('flowToggle');
+  flowToggle.addEventListener('click', function () {
+    var paused = flowStage.classList.toggle('paused');
+    flowToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- translation board + stepper
+  var rows = [];
+  for (var i = 0; i < 5; i++) rows.push(document.getElementById('r' + i));
+  var rowsDoneEl = document.getElementById('rowsDone');
+  var leaksEl = document.getElementById('leaks');
+  var codeLine = document.getElementById('codeLine');
+
+  function clearBoard() {
+    rows.forEach(function (r) { r.classList.remove('lit'); });
+    rowsDoneEl.textContent = '0';
+    leaksEl.textContent = '0';
+    codeLine.textContent = '—';
+  }
+  function light(idx) { rows[idx].classList.add('lit'); }
+  function countLit() {
+    var n = 0;
+    rows.forEach(function (r) { if (r.classList.contains('lit')) n++; });
+    rowsDoneEl.textContent = n;
+  }
+
+  var steps = [
+    {
+      text: 'البداية: الحدود مرسومة. OrderService شايف ISmsSender وبس — مفيش أي نوع من Twilio ' +
+            'عابر الحد ده، لا في parameter ولا في قيمة راجعة ولا في exception.',
+      code: 'public interface ISmsSender { Task SendAsync(string phone, string message, CancellationToken ct = default); }',
+      rows: []
+    },
+    {
+      text: 'النداء: سطر واحد في منطق الشغل. مفيش أرقام مُرسِل، مفيش config، مفيش أنواع مزود — ' +
+            'الدومين بيطلب اللي هو عايزه بالشكل بتاعه.',
+      code: 'await sms.SendAsync(order.Phone, $"طلبك {order.Id} اتأكد");',
+      rows: []
+    },
+    {
+      text: 'الـ DI container بيركّب TwilioSmsAdapter على ISmsSender، فالنداء وصل للـ adapter. ' +
+            'أول شغل: ترجمة الشكل — string phone بيتحوّل لـ PhoneNumber، والـ message اسمه عندهم body.',
+      code: 'var to = new PhoneNumber(phone);   // message ← body',
+      rows: [0, 1]
+    },
+    {
+      text: 'حاجات الـ adapter بيزوّدها من عنده: رقم المُرسِل تفصيلة مزود مش موجودة في الـ port أصلاً، ' +
+            'فبييجي من IOptions<TwilioOptions>. نفس الحكاية لو الـ SDK مبياخدش CancellationToken — ' +
+            'الـ adapter هو اللي يتصرّف.',
+      code: 'var from = opt.Value.FromNumber;   // من الـ configuration، مش من كودك',
+      rows: [0, 1, 2]
+    },
+    {
+      text: 'النداء الحقيقي على الـ SDK. بيرجع MessageResource — نوع بتاعهم. النوع ده بيموت جوّه ' +
+            'الملف ده ومبيخرجش منه، عشان كده الـ port راجع Task بلا قيمة.',
+      code: 'var result = await client.CreateMessage(to, from, body);',
+      rows: [0, 1, 2, 3]
+    },
+    {
+      text: 'ترجمة الخطأ: حالة MessageStatus.Failed بتتحوّل لـ SmsDeliveryException بتاعتك. ' +
+            'النتيجة النهائية: ٥ صفوف مترجمة، وصفر أنواع vendor في كودك — وتبديل المزود بقى adapter جديد وسطر تسجيل.',
+      code: 'if (result.Status == MessageStatus.Failed) throw new SmsDeliveryException(result.ErrorMessage);',
+      rows: [0, 1, 2, 3, 4]
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    var s = steps[step];
+    stepBox.textContent = s.text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من الصفر عشان الرجوع يبقى صح مش مجرد تراجع فريم
+    clearBoard();
+    s.rows.forEach(light);
+    countLit();
+    codeLine.textContent = s.code;
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- vendor swap demo
+  var vendors = {
+    twilio: {
+      code: 'builder.Services.AddScoped<ISmsSender, TwilioSmsAdapter>();',
+      files: '1', time: '0.08 s', types: '0', cls: 'ok',
+      note: 'ملف الـ adapter + سطر التسجيل. OrderService والـ controllers والـ tests ما اتغيروش.'
+    },
+    misr: {
+      code: 'builder.Services.AddScoped<ISmsSender, MisrSmsAdapter>();',
+      files: '1', time: '0.08 s', types: '0', cls: 'ok',
+      note: 'مزود جديد = adapter جديد + نفس السطر بنوع تاني. الدومين ما حسّش بحاجة.'
+    },
+    fake: {
+      code: 'builder.Services.AddScoped<ISmsSender, FakeSmsSender>();',
+      files: '1', time: '0.02 s', types: '0', cls: 'ok',
+      note: 'نفس الـ port، implementation بتخزّن الرسايل في List. صفر شبكة، صفر تقلّب في الـ tests.'
+    },
+    none: {
+      code: '// OrderService بيعمل new TwilioClient(...) جوّاه — مفيش port ولا adapter',
+      files: '23', time: '4.2 s', types: '14', cls: 'danger',
+      note: 'تبديل المزود بقى جراحة في 23 ملف، والـ tests مربوطة بشبكة حقيقية وبتفشل 1 من 10 runs.'
+    }
+  };
+  var regCode = document.getElementById('regCode');
+  var filesEl = document.getElementById('filesChanged');
+  var timeEl = document.getElementById('testTime');
+  var typesEl = document.getElementById('vendorTypes');
+  var noteEl = document.getElementById('swapNote');
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-v]'), function (b) {
+    b.addEventListener('click', function () {
+      var v = vendors[b.getAttribute('data-v')];
+      regCode.textContent = v.code;
+      filesEl.textContent = v.files;
+      timeEl.textContent = v.time;
+      typesEl.textContent = v.types;
+      [filesEl, timeEl, typesEl].forEach(function (el) {
+        el.classList.remove('ok', 'warn', 'danger');
+        el.classList.add(v.cls);
+      });
+      noteEl.textContent = v.note;
+    });
+  });
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
