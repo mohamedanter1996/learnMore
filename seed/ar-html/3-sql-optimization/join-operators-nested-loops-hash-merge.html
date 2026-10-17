@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join Operators: Nested Loops, Hash, Merge — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  /* ---- الرسم المتحرك: التلات خوارزميات جنب بعض ---- */
+  .diag { display: flex; gap: 10px; direction: ltr; min-width: 640px; }
+  .panel {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 10px 16px; position: relative; min-height: 180px;
+  }
+  .panel .pt { font-family: Consolas, monospace; font-size: 12px; color: var(--primary); text-align: center; margin-bottom: 10px; }
+  .panel .cap { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #64748b; }
+  .cols { display: flex; justify-content: space-between; }
+  .col { display: flex; flex-direction: column; gap: 4px; width: 60px; }
+  .mini {
+    border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2);
+    font-family: Consolas, monospace; font-size: 11px; color: var(--text-dim);
+    padding: 2px 4px; text-align: center;
+  }
+  .mini.idx { border-color: var(--primary); color: #bae6fd; }
+  .nl-dot {
+    position: absolute; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--warning); left: 24px; top: 42px; animation: nlwalk 3.4s linear infinite;
+  }
+  @keyframes nlwalk {
+    0%   { transform: translate(0, 0); }
+    12%  { transform: translate(74px, 0); }
+    25%  { transform: translate(0, 0); }
+    37%  { transform: translate(74px, 23px); }
+    50%  { transform: translate(0, 23px); }
+    62%  { transform: translate(74px, 46px); }
+    75%  { transform: translate(0, 46px); }
+    87%  { transform: translate(74px, 69px); }
+    100% { transform: translate(0, 69px); }
+  }
+  .h-chip {
+    position: absolute; left: 14px; width: 48px; text-align: center;
+    background: #14384d; color: #bae6fd; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 10px; animation: build 3.4s ease-in-out infinite;
+  }
+  @keyframes build {
+    0%   { transform: translateY(0); opacity: 0; }
+    10%  { opacity: 1; }
+    45%  { transform: translateY(66px); opacity: 1; }
+    100% { transform: translateY(66px); opacity: 1; }
+  }
+  .h-probe {
+    position: absolute; right: 14px; width: 48px; text-align: center;
+    background: rgba(251,191,36,.22); color: #fde68a; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 10px; animation: probe 3.4s ease-in-out infinite;
+  }
+  @keyframes probe {
+    0%, 50% { transform: translate(0, 0); opacity: 0; }
+    60%     { opacity: 1; }
+    100%    { transform: translate(-56px, 46px); opacity: 1; }
+  }
+  .mg-ptr { position: absolute; font-size: 13px; color: var(--warning); animation: walk 3.4s steps(5) infinite; }
+  @keyframes walk { from { transform: translateY(0); } to { transform: translateY(110px); } }
+  .paused * { animation-play-state: paused; }
+
+  /* ---- معمل الـ join ---- */
+  .jlab { display: flex; gap: 12px; direction: ltr; min-width: 620px; align-items: flex-start; }
+  .side { flex: 1; }
+  .side-h { direction: rtl; text-align: center; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .rows { display: flex; flex-direction: column; gap: 4px; }
+  .row {
+    border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2);
+    font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim);
+    padding: 4px 6px; text-align: center; transition: background .25s, border-color .25s, color .25s, transform .18s;
+  }
+  .row.active { background: #14384d; border-color: var(--primary); color: #bae6fd; transform: translateX(4px); }
+  .row.probe  { background: rgba(251,191,36,.18); border-color: var(--warning); color: #fde68a; }
+  .row.match  { background: rgba(52,211,153,.18); border-color: var(--success); color: #d1fae5; }
+  .row.done   { opacity: .45; }
+  .opbox { flex: 1.2; background: var(--surface-2); border-radius: 8px; padding: 10px; min-height: 170px; }
+  .op-name { font-family: Consolas, monospace; font-size: 13px; color: var(--primary); text-align: center; }
+  .op-phase { direction: rtl; font-size: 12px; color: var(--text-dim); min-height: 40px; margin: 6px 0; text-align: center; }
+  .buckets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .bucket { border: 1px dashed var(--border); border-radius: 6px; min-height: 48px; padding: 3px; }
+  .bucket .bl { display: block; font-family: Consolas, monospace; font-size: 10px; color: #64748b; text-align: center; }
+  .bucket.hit { border-style: solid; border-color: var(--success); background: rgba(52,211,153,.12); }
+  .chip {
+    display: inline-block; background: #14384d; color: #bae6fd; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 10px; padding: 0 4px; margin: 1px; animation: pop .35s ease;
+  }
+  @keyframes pop { from { transform: scale(.5); opacity: 0; } to { transform: none; opacity: 1; } }
+  .counters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+
+  /* ---- مقارنة التكلفة ---- */
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 110px; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .bar-row span { font-family: Consolas, monospace; font-size: 12px; color: var(--text-dim); }
+  .bar { background: var(--surface-2); border-radius: 6px; height: 18px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--border); transition: width .3s ease, background .3s ease; }
+  .bar-row.win i { background: var(--success); }
+  .bar-row.win span { color: #d1fae5; }
+  .bar-row b { font-family: Consolas, monospace; font-size: 12px; text-align: left; direction: ltr; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🗄️ SQL Server Optimization · درس مصري مفصّل</div>
+  <h1>إنت بتكتب <b>نية</b>، والـ optimizer هو اللي بيختار الخوارزمية</h1>
+  <div class="en">Join Operators: Nested Loops, Hash, Merge</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    تقرير مبيعات بيعمل <code>JOIN</code> بين <code>Orders</code> (٢ مليون صف) و<code>Customers</code>
+    (٢٠٠ ألف صف). على الـ staging بيخلص في ٤٠٠ ملي ثانية، على الإنتاج بياخد <b>٢٨ ثانية</b>.
+    نفس الكود، نفس الفهارس، نفس الإصدار. تفتح الـ actual plan تلاقي
+    <code>Nested Loops</code> ومكتوب جنبه <code>Actual Number of Executions = 184,000</code>
+    والتقدير كان <code>12</code>.
+  </p>
+  <div class="callout info">
+    الـ <code>JOIN</code> اللي بتكتبه <strong>منطقي</strong> — بيقول «وصّل الصفوف دي بدي». الـ optimizer
+    بيختار واحدة من <strong>تلات خوارزميات فيزيائية</strong>: Nested Loops، Hash Match، Merge Join.
+    وهم حرفياً تلات حاجات إنت عارفهم من الـ DSA: الـ nested for loop، الـ Dictionary، وخطوة الدمج في MergeSort.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهمه:</strong> هتبص على الخطة وتقول «المشكلة إن فيه Nested Loops» وتحطّ
+    <code>OPTION (HASH JOIN)</code> عشان تهرب — فتثبّت قرار كان صح لحجم داتا واحد، وتكسر كل
+    الاستعلامات الصغيرة اللي كانت شغالة. المشكلة مش العامل، المشكلة <b>التقدير اللي اختاره</b>.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة</h2></div>
+  <div class="stage" id="diagStage">
+    <div class="diag">
+      <div class="panel">
+        <div class="pt">Nested Loops</div>
+        <div class="cols">
+          <div class="col">
+            <div class="mini">o#1</div><div class="mini">o#2</div>
+            <div class="mini">o#3</div><div class="mini">o#4</div>
+          </div>
+          <div class="col">
+            <div class="mini idx">seek</div><div class="mini idx">seek</div>
+            <div class="mini idx">seek</div><div class="mini idx">seek</div>
+          </div>
+        </div>
+        <div class="nl-dot"></div>
+        <div class="cap">لكل صف برّا → نزلة في شجرة الفهرس جوّا</div>
+      </div>
+
+      <div class="panel">
+        <div class="pt">Hash Match</div>
+        <div class="cols">
+          <div class="col">
+            <div class="mini">build</div><div class="mini">&nbsp;</div>
+            <div class="mini">&nbsp;</div><div class="mini idx">hash</div>
+          </div>
+          <div class="col">
+            <div class="mini">probe</div><div class="mini">&nbsp;</div>
+            <div class="mini">&nbsp;</div><div class="mini">&nbsp;</div>
+          </div>
+        </div>
+        <div class="h-chip">c:1</div>
+        <div class="h-chip" style="animation-delay:.4s">c:2</div>
+        <div class="h-probe">o:2</div>
+        <div class="cap">ابني جدول hash مرة، وبعدين بص فيه مرة لكل صف</div>
+      </div>
+
+      <div class="panel">
+        <div class="pt">Merge Join</div>
+        <div class="cols">
+          <div class="col">
+            <div class="mini">1</div><div class="mini">3</div><div class="mini">4</div>
+            <div class="mini">7</div><div class="mini">9</div>
+          </div>
+          <div class="col">
+            <div class="mini">1</div><div class="mini">2</div><div class="mini">4</div>
+            <div class="mini">7</div><div class="mini">8</div>
+          </div>
+        </div>
+        <div class="mg-ptr" style="left:4px; top:40px">◀</div>
+        <div class="mg-ptr" style="right:4px; top:40px">▶</div>
+        <div class="cap">مدخلين مترتبين + مؤشرين = مرور واحد على الاتنين</div>
+      </div>
+    </div>
+    <div class="controls" style="margin-top:14px; margin-bottom:0">
+      <button class="btn ghost" id="diagToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p class="note">
+    التلاتة بيطلّعوا <b>نفس النتيجة بالظبط</b>. الفرق في العملة اللي بتدفعها: Nested Loops بتدفع
+    <b>نزلة في الشجرة لكل صف خارجي</b>، Hash بيدفع <b>ذاكرة</b>، وMerge بيدفع <b>شرط إن المدخلين مترتبين</b>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة جوّه العامل نفسه</h2></div>
+
+  <div class="stage">
+    <div class="jlab">
+      <div class="side">
+        <div class="side-h">Outer — Orders (CustomerId)</div>
+        <div class="rows" id="outerRows"></div>
+      </div>
+      <div class="opbox">
+        <div class="op-name" id="opName">—</div>
+        <div class="op-phase" id="opPhase">دوس «التالي» أو شغّل خوارزمية من تحت.</div>
+        <div class="buckets" id="buckets"></div>
+      </div>
+      <div class="side">
+        <div class="side-h">Inner — Customers (Id)</div>
+        <div class="rows" id="innerRows"></div>
+      </div>
+    </div>
+    <div class="counters">
+      <span>🔁 لمسات الجدول الداخلي: <b id="touches">0</b></span>
+      <span>🧠 Memory grant: <b id="grantLab">0</b></span>
+      <span>🔀 محتاج ترتيب؟ <b id="sortNeed">—</b></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+
+  <div class="controls" style="margin-top:14px">
+    <button class="btn ghost" id="runNL">▶ شغّل Nested Loops</button>
+    <button class="btn ghost" id="runHash">▶ شغّل Hash Match</button>
+    <button class="btn ghost" id="runMerge">▶ شغّل Merge Join</button>
+    <button class="btn ghost" id="resetLab">↺ إعادة</button>
+  </div>
+  <p class="note">
+    بصّ على عداد «لمسات الجدول الداخلي»: Nested Loops بيلمسه مرة لكل صف خارجي، وHash وMerge
+    بيلمسوه <b>مرة واحدة</b> مهما كان عدد الصفوف الخارجية.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: نفس الاستعلام، خطتين</h2></div>
+
+<pre><code>SET STATISTICS IO, TIME ON;
+
+<span class="c">-- إحصائيات قديمة: المحرك قدّر 12 صف من Orders، الحقيقة 184,000</span>
+SELECT c.Name, SUM(o.Total)
+FROM Orders o JOIN Customers c ON c.Id = o.CustomerId
+WHERE o.CreatedAt &gt;= <span class="s">'2026-01-01'</span>
+GROUP BY c.Name;
+
+<span class="c">-- Plan: Nested Loops، Actual Number of Executions = 184,000</span>
+<span class="c">-- Table 'Customers'. Scan count 184000, logical reads 552,418</span>
+<span class="c">-- Table 'Orders'.    Scan count 1,      logical reads 21,690</span>
+<span class="c">-- CPU time = 24,331 ms,  elapsed time = 28,114 ms</span></code></pre>
+
+<pre><code><span class="c">-- نفس الاستعلام بالحرف، بس بعد ما الإحصائيات بقت صح</span>
+UPDATE STATISTICS Orders WITH FULLSCAN;
+
+<span class="c">-- Plan: Hash Match (build على Customers الأصغر، probe بـ Orders)</span>
+<span class="c">-- Table 'Customers'. Scan count 1, logical reads 1,432</span>
+<span class="c">-- Table 'Orders'.    Scan count 1, logical reads 21,690</span>
+<span class="c">-- CPU time = 812 ms,  elapsed time = 430 ms        ← 65× أسرع</span></code></pre>
+
+  <div class="callout good">
+    لاحظ إن <b>إحنا مغيرناش الاستعلام ولا ضفنا hint</b>. غيّرنا المعلومة اللي الـ optimizer بيقرر بيها،
+    فهو لوحده سابّ الـ Nested Loops واختار Hash Match. ده الشكل الصح للإصلاح.
+  </div>
+
+  <h3>امتى كل واحد فيهم بيكسب؟ حرّك الشريط</h3>
+  <div class="controls">
+    <label class="note" for="outerRange">عدد الصفوف الخارجية:</label>
+    <input type="range" id="outerRange" min="0" max="5" step="1" value="1">
+    <b class="mono" id="outerVal">10</b>
+    <label class="note" style="margin-right:12px">
+      <input type="checkbox" id="sortedCk" checked> الفهارس بتدي الترتيب على مفتاح الـ join
+    </label>
+  </div>
+  <div class="stage">
+    <div class="bar-row" id="rowNL"><span>Nested Loops</span><div class="bar"><i id="barNL"></i></div><b id="costNL">—</b></div>
+    <div class="bar-row" id="rowHash"><span>Hash Match</span><div class="bar"><i id="barHash"></i></div><b id="costHash">—</b></div>
+    <div class="bar-row" id="rowMerge"><span>Merge Join</span><div class="bar"><i id="barMerge"></i></div><b id="costMerge">—</b></div>
+    <div class="counters">
+      <span>🏆 الفايز: <b id="winner">—</b></span>
+      <span>🧠 Memory grant: <b id="grantCost">—</b></span>
+    </div>
+    <p class="note" style="margin-top:10px; margin-bottom:0">
+      أرقام تقريبية للتوضيح (الجدول الداخلي ٢٠٠ ألف صف ≈ ١٤٣٢ صفحة، وارتفاع الفهرس ٣).
+      نقطة الانقلاب بتيجي حوالي ٥٠٠ صف خارجي — بعدها تكلفة الـ seek المتكررة بتعدّي مسح كامل مرة واحدة.
+    </p>
+  </div>
+
+  <div class="callout">
+    <strong>قراءة سريعة للخطة:</strong> سهم خارجي تخين داخل على Nested Loops = التقدير كدب.
+    علامة ⚠ على Hash Match = <code>spill</code> للـ tempdb لأن الـ memory grant طلع أقل من اللازم.
+    <code>Sort</code> ظاهر فجأة قبل Merge Join = الترتيب مش جاي من فهرس، فكّر في فهرس يدّيه مجاناً.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>استخدام join hints كعلاج</b> — <code>OPTION (HASH JOIN)</code> أو <code>LOOP JOIN</code> بيجمّد
+      قرار كان صح لحجم داتا واحد. بكرة الداتا تكبر أو تصغر والـ hint يفضل مكانه. صلّح الـ estimates والفهارس وسيب الاختيار للمحرك.</li>
+    <li><b>اعتبار Nested Loops هي المشكلة</b> — هي <u>عرض</u>، مش مرض. السبب إن المحرك فاكر الصفوف قليلة
+      (إحصائيات قديمة، أو predicate مش SARGable، أو متغير محلي مبيعرفش قيمته).</li>
+    <li><b>تجاهل علامة الـ spill على Hash Match</b> — الصفراء دي معناها إن جزء من الـ hash table نزل
+      الـ tempdb. العلاج تصليح التقدير، مش زيادة الذاكرة ولا تغيير الـ MAXDOP.</li>
+    <li><b>«Hash Match معناها خطة وحشة»</b> — لأ. لتقرير بيجمع مليون صف، الـ Hash هو العامل الصح،
+      والـ Nested Loops في مكانه ده هي الكارثة.</li>
+    <li><b>الحكم من الـ estimated plan بس</b> — الـ estimated بيوريك قرار المحرك، والـ <b>actual</b> بيوريك
+      هل القرار ده كان مبني على حقيقة ولا على وهم. قارن Estimated Rows بـ Actual Rows — الفرق هو كل الحكاية.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. Nested Loops بتوصّل ٥٠,٠٠٠ صف خارجي بـ seek على الجدول الداخلي. ليه ده بطيء؟</div>
+    <button class="opt">لأن الـ loops مش بتعرف تستخدم الفهارس</button>
+    <button class="opt">٥٠,٠٠٠ نزلة منفصلة في شجرة الفهرس (random I/O) — الـ hash كان هيبني مرة ويمشي probe واحد</button>
+    <button class="opt">لأنها بتطلب مدخلات مترتبة</button>
+    <div class="feedback">الـ loops بتلمع لما المدخل الخارجي صغير. على الكميات، الـ seek لكل صف بيخسر قدام بناء hash مرة واحدة + مسح متدفق.</div>
+  </div>
+
+  <div class="q" data-correct="2">
+    <div class="qt">2. شفت ⚠ على Hash Match في الـ actual plan. أقرب تفسير إيه؟</div>
+    <button class="opt">الاستعلام ناقصه فهرس على كل أعمدة الـ SELECT</button>
+    <button class="opt">السيرفر مفيهوش رام خالص</button>
+    <button class="opt">الـ memory grant طلع أصغر من اللازم لأن التقدير كان أقل من الحقيقة، فالـ hash اتسرّب للـ tempdb</button>
+    <div class="feedback">الـ grant بيتحسب من التقدير قبل ما الاستعلام يشتغل. تقدير أقل من الحقيقة = ذاكرة أقل = spill على الديسك. العلاج عند التقدير نفسه.</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ <code>JOIN</code> نية منطقية — المحرك بينفّذها بواحدة من تلاتة: loop لكل صف، hash في الذاكرة، أو مرور على مدخلين مترتبين.</li>
+    <li>كل واحد بيكسب في مكانه: Loops لمدخل خارجي صغير وجوّا مفهرس، Hash للكميات الكبيرة غير المرتبة، Merge لما الترتيب جاهز مجاناً.</li>
+    <li>إنت مبتختارش العامل — إنت بتخلّي الاختيار الصح ممكن: إحصائيات محدّثة، predicates قابلة للـ seek، وفهارس مفيدة. الـ hints آخر حاجة، مش أولها.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram pause
+  var diagStage = document.getElementById('diagStage');
+  var diagToggle = document.getElementById('diagToggle');
+  diagToggle.addEventListener('click', function () {
+    var paused = diagStage.classList.toggle('paused');
+    diagToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- join lab
+  var OUTER = [3, 7, 1, 7, 4, 2];            // Orders.CustomerId
+  var INNER = [1, 2, 3, 4, 5, 6, 7, 8];      // Customers.Id (مترتب بالفهرس الـ clustered)
+  var BUCKETS = 4;
+
+  var outerEl = document.getElementById('outerRows');
+  var innerEl = document.getElementById('innerRows');
+  var bucketsEl = document.getElementById('buckets');
+  var opName = document.getElementById('opName'), opPhase = document.getElementById('opPhase');
+  var touchesEl = document.getElementById('touches'), grantLabEl = document.getElementById('grantLab');
+  var sortNeedEl = document.getElementById('sortNeed');
+  var outerNodes = [], innerNodes = [], bucketNodes = [], touches = 0, timer = null;
+
+  function buildLab() {
+    outerEl.innerHTML = ''; innerEl.innerHTML = ''; bucketsEl.innerHTML = '';
+    outerNodes = []; innerNodes = []; bucketNodes = [];
+    OUTER.forEach(function (v, i) {
+      var d = document.createElement('div');
+      d.className = 'row';
+      d.textContent = 'o#' + (i + 1) + ' → ' + v;
+      outerEl.appendChild(d); outerNodes.push(d);
+    });
+    INNER.forEach(function (v) {
+      var d = document.createElement('div');
+      d.className = 'row';
+      d.textContent = 'c:' + v;
+      innerEl.appendChild(d); innerNodes.push(d);
+    });
+    for (var b = 0; b < BUCKETS; b++) {
+      var k = document.createElement('div');
+      k.className = 'bucket';
+      k.innerHTML = '<span class="bl">bucket ' + b + '</span>';
+      bucketsEl.appendChild(k); bucketNodes.push(k);
+    }
+  }
+  function clearMarks() {
+    outerNodes.concat(innerNodes).forEach(function (n) {
+      n.classList.remove('active', 'probe', 'match', 'done');
+    });
+    bucketNodes.forEach(function (k) {
+      k.classList.remove('hit');
+      k.innerHTML = '<span class="bl">bucket ' + bucketNodes.indexOf(k) + '</span>';
+    });
+  }
+  function resetLab() {
+    if (timer) { clearInterval(timer); timer = null; }
+    clearMarks();
+    touches = 0;
+    touchesEl.textContent = '0';
+    grantLabEl.textContent = '0';
+    sortNeedEl.textContent = '—';
+    opName.textContent = '—';
+    opPhase.textContent = 'دوس «التالي» أو شغّل خوارزمية من تحت.';
+  }
+  function addChip(bucket, text) {
+    var c = document.createElement('span');
+    c.className = 'chip';
+    c.textContent = text;
+    bucketNodes[bucket].appendChild(c);
+  }
+  function innerIndexOf(key) {
+    for (var i = 0; i < INNER.length; i++) if (INNER[i] === key) return i;
+    return -1;
+  }
+
+  // خطوات ثابتة (من غير مؤقتات) عشان الرجوع في الـ stepper يبني الحالة من الأول
+  function nlRow(i) {
+    outerNodes.forEach(function (n, j) { n.classList.remove('active'); if (j < i) n.classList.add('done'); });
+    innerNodes.forEach(function (n) { n.classList.remove('probe', 'match'); });
+    outerNodes[i].classList.add('active');
+    var hit = innerIndexOf(OUTER[i]);
+    if (hit >= 0) innerNodes[hit].classList.add('match');
+    touches += 3;                                  // ارتفاع شجرة الفهرس = ٣ قراءات لكل seek
+    touchesEl.textContent = String(touches);
+  }
+  function hashBuild() {
+    opName.textContent = 'Hash Match — build phase';
+    OUTER.forEach(function (v, i) {
+      outerNodes[i].classList.add('active');
+      addChip(v % BUCKETS, 'o#' + (i + 1) + ':' + v);
+    });
+    grantLabEl.textContent = (OUTER.length * 0.4).toFixed(1) + ' MB';
+  }
+  function hashProbe() {
+    opName.textContent = 'Hash Match — probe phase';
+    innerNodes.forEach(function (n, i) {
+      n.classList.add('probe');
+      var b = INNER[i] % BUCKETS;
+      bucketNodes[b].classList.add('hit');
+      if (OUTER.indexOf(INNER[i]) >= 0) n.classList.add('match');
+      touches += 1;                                // مسح واحد للجدول الداخلي
+    });
+    touchesEl.textContent = String(touches);
+  }
+  function mergeWalk() {
+    opName.textContent = 'Merge Join';
+    var sorted = OUTER.slice().sort(function (a, b) { return a - b; });
+    outerNodes.forEach(function (n, i) { n.textContent = 'o→ ' + sorted[i]; n.classList.add('active'); });
+    innerNodes.forEach(function (n, i) {
+      n.classList.add('active');
+      if (sorted.indexOf(INNER[i]) >= 0) n.classList.add('match');
+      touches += 1;
+    });
+    touchesEl.textContent = String(touches);
+    grantLabEl.textContent = '0';
+    sortNeedEl.textContent = 'لأ — الفهرس مترتب أصلاً';
+  }
+
+  buildLab();
+
+  // تشغيل متحرك بالمؤقت
+  function runNested() {
+    resetLab(); buildLab();
+    opName.textContent = 'Nested Loops';
+    opPhase.textContent = 'لكل صف خارجي: نزلة كاملة في شجرة الفهرس الداخلي (٣ قراءات في المرة).';
+    sortNeedEl.textContent = 'لأ';
+    var i = 0;
+    timer = setInterval(function () {
+      if (i >= OUTER.length) { clearInterval(timer); timer = null; return; }
+      nlRow(i++);
+    }, 600);
+  }
+  function runHash() {
+    resetLab(); buildLab();
+    opPhase.textContent = 'مرحلة ١: ابني hash table من المدخل الأصغر. مرحلة ٢: امسح الأكبر مرة واحدة وابحث في الـ hash.';
+    sortNeedEl.textContent = 'لأ';
+    var i = 0;
+    timer = setInterval(function () {
+      if (i === 0) { hashBuild(); i++; return; }
+      if (i === 1) { hashProbe(); i++; return; }
+      clearInterval(timer); timer = null;
+    }, 900);
+  }
+  function runMerge() {
+    resetLab(); buildLab();
+    opPhase.textContent = 'المدخلين مترتبين على مفتاح الـ join، فمؤشرين بيمشوا مرة واحدة من فوق لتحت.';
+    var i = 0;
+    timer = setInterval(function () {
+      if (i >= 1) { clearInterval(timer); timer = null; return; }
+      mergeWalk(); i++;
+    }, 500);
+  }
+  document.getElementById('runNL').addEventListener('click', runNested);
+  document.getElementById('runHash').addEventListener('click', runHash);
+  document.getElementById('runMerge').addEventListener('click', runMerge);
+  document.getElementById('resetLab').addEventListener('click', function () { resetLab(); buildLab(); });
+
+  // ---------------------------------------------------------------- stepper
+  var steps = [
+    {
+      text: 'الاستعلام: SELECT … FROM Orders o JOIN Customers c ON c.Id = o.CustomerId WHERE o.Id = 5. صف خارجي واحد بس.',
+      run: function () {
+        opName.textContent = 'Nested Loops';
+        opPhase.textContent = 'مدخل خارجي صغير + فهرس على الداخلي = الاختيار المثالي.';
+        sortNeedEl.textContent = 'لأ';
+        nlRow(0);
+      }
+    },
+    {
+      text: 'الـ seek الواحد ده كلّف ٣ قراءات (ارتفاع الشجرة). لو وقفنا هنا، Nested Loops هي أرخص خطة ممكنة — مفيش ذاكرة ومفيش انتظار.',
+      run: function () { opPhase.textContent = 'صف واحد × ٣ قراءات = ٣. مفيش أرخص من كده.'; }
+    },
+    {
+      text: 'دلوقتي شيلنا الفلتر. المدخل الخارجي بقى ٦ صفوف — ونفس الخطة اتنفّذت. كل صف بيعيد النزلة من أول الشجرة.',
+      run: function () { for (var i = 1; i < OUTER.length; i++) nlRow(i); opPhase.textContent = '٦ صفوف × ٣ قراءات = ١٨. اضرب في ٥٠ ألف صف وشوف.'; }
+    },
+    {
+      text: 'الـ build phase في الـ Hash Match: المحرك بياخد المدخل الأصغر ويعمله hash على مفتاح الـ join ويحطه في الذاكرة (memory grant). الإخراج لسه مبدأش.',
+      run: function () { clearMarks(); touches = 0; touchesEl.textContent = '0'; hashBuild(); opPhase.textContent = 'كل صف بيروح bucket حسب hash(CustomerId). ده الجزء اللي بياكل ذاكرة.'; }
+    },
+    {
+      text: 'الـ probe phase: المدخل التاني بيتمسح مرة واحدة، وكل صف بيسأل الـ hash table سؤال واحد. لمسة واحدة للجدول الداخلي بدل لمسة لكل صف.',
+      run: function () { hashProbe(); opPhase.textContent = 'مسح واحد + بحث O(1) لكل صف. لو الـ grant قلّ → spill للـ tempdb.'; }
+    },
+    {
+      text: 'الـ Merge Join: لو المدخلين مترتبين أصلاً على مفتاح الـ join (clustered index على الطرفين)، مؤشرين بيمشوا مرة واحدة. صفر ذاكرة وصفر إعادة. لو الترتيب مش موجود، هيظهر Sort قبله — وساعتها اسأل نفسك عن فهرس ناقص.',
+      run: function () { clearMarks(); touches = 0; touchesEl.textContent = '0'; mergeWalk(); opPhase.textContent = 'مرور واحد على الاتنين. الشرط الوحيد: الترتيب.'; }
+    }
+  ];
+  var step = 0;
+  var stepBox = document.getElementById('stepBox'), stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    resetLab();
+    buildLab();                                   // إعادة بناء كاملة عشان الرجوع يبقى صح
+    for (var i = 0; i <= step; i++) steps[i].run();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  render();
+
+  // ---------------------------------------------------------------- cost comparison
+  var SIZES = [1, 10, 100, 1000, 20000, 200000];
+  var INNER_PAGES = 1432, SEEK_DEPTH = 3;
+  var rangeEl = document.getElementById('outerRange'), outerValEl = document.getElementById('outerVal');
+  var sortedCk = document.getElementById('sortedCk');
+  var bars = { NL: document.getElementById('barNL'), Hash: document.getElementById('barHash'), Merge: document.getElementById('barMerge') };
+  var costs = { NL: document.getElementById('costNL'), Hash: document.getElementById('costHash'), Merge: document.getElementById('costMerge') };
+  var rows = { NL: document.getElementById('rowNL'), Hash: document.getElementById('rowHash'), Merge: document.getElementById('rowMerge') };
+  var winnerEl = document.getElementById('winner'), grantCostEl = document.getElementById('grantCost');
+
+  function fmt(n) { return n.toLocaleString('en-US'); }
+
+  function drawCost() {
+    var n = SIZES[parseInt(rangeEl.value, 10)];
+    var sorted = sortedCk.checked;
+    var outerPages = Math.max(1, Math.ceil(n / 120));
+    var c = {
+      NL: n * SEEK_DEPTH,
+      Hash: INNER_PAGES + outerPages,
+      Merge: sorted ? INNER_PAGES + outerPages
+                    : INNER_PAGES + outerPages + Math.ceil(n * Math.log(n + 2) / Math.LN2 / 120)
+    };
+    var max = Math.max(c.NL, c.Hash, c.Merge);
+    var best = 'NL';
+    ['Hash', 'Merge'].forEach(function (k) { if (c[k] < c[best]) best = k; });
+
+    ['NL', 'Hash', 'Merge'].forEach(function (k) {
+      bars[k].style.width = Math.max(2, Math.round(c[k] / max * 100)) + '%';
+      costs[k].textContent = fmt(c[k]) + ' reads';
+      rows[k].classList.toggle('win', k === best);
+    });
+    outerValEl.textContent = fmt(n);
+    winnerEl.textContent = best === 'NL' ? 'Nested Loops' : (best === 'Hash' ? 'Hash Match' : 'Merge Join');
+    var buildRows = Math.min(n, 200000);
+    var grantMb = Math.max(1, Math.round(buildRows * 120 / 1048576));
+    grantCostEl.textContent = best === 'Merge' && sorted ? '0 MB' : grantMb + ' MB';
+  }
+  rangeEl.addEventListener('input', function () { drawCost(); postHeight(); });
+  sortedCk.addEventListener('change', drawCost);
+  drawCost();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

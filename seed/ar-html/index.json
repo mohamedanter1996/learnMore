@@ -189,6 +189,11 @@
       "topic": "Design Patterns",
       "title": "Adapter: Making Incompatible Interfaces Fit",
       "file": "2-design-patterns/adapter-making-incompatible-interfaces-fit.html"
+    },
+    {
+      "topic": "SQL Server Optimization",
+      "title": "Join Operators: Nested Loops, Hash, Merge",
+      "file": "3-sql-optimization/join-operators-nested-loops-hash-merge.html"
     }
   ]
 }
