@@ -194,6 +194,11 @@
       "topic": "SQL Server Optimization",
       "title": "Join Operators: Nested Loops, Hash, Merge",
       "file": "3-sql-optimization/join-operators-nested-loops-hash-merge.html"
+    },
+    {
+      "topic": "System Design",
+      "title": "Database Replication: Read Replicas and Failover",
+      "file": "4-system-design/database-replication-read-replicas-and-failove.html"
     }
   ]
 }

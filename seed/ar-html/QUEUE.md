@@ -83,8 +83,9 @@ Authoring standard: `seed/ar-html/AUTHORING.md`. Registration: one entry in `see
 
 - [x] `SQL Server Optimization` — Join Operators: Nested Loops, Hash, Merge → `3-sql-optimization/join-operators-nested-loops-hash-merge.html`
 
-## Queue (114)
-- [ ] 35. `System Design` — Database Replication: Read Replicas and Failover → `4-system-design/database-replication-read-replicas-and-failove.html`
+- [x] `System Design` — Database Replication: Read Replicas and Failover → `4-system-design/database-replication-read-replicas-and-failove.html`
+
+## Queue (113)
 - [ ] 36. `Frontend Engineering` — Angular Signals: Fine-Grained Reactivity → `5-frontend/angular-signals-fine-grained-reactivity.html`
 - [ ] 37. `Data Structures & Algorithms` — Recursion: Base Case, Progress, Trust → `1-dsa/recursion-base-case-progress-trust.html`
 - [ ] 38. `Design Patterns` — Facade: One Simple Door to a Complex Subsystem → `2-design-patterns/facade-one-simple-door-to-a-complex-subsystem.html`

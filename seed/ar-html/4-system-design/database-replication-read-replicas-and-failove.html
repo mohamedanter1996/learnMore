@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Replication: Read Replicas and Failover — شرح بالمصري</title>
+<link rel="stylesheet" href="/api/ar-html/shared.css">
+<link rel="stylesheet" href="../_shared/lesson.css">
+<style>
+  .rep { width: 100%; height: 232px; min-width: 520px; }
+  .pkt-sync { animation: syncTrip 2.4s ease-in-out infinite; }
+  @keyframes syncTrip {
+    0%   { transform: translateX(62px); opacity: 0; }
+    14%  { opacity: 1; }
+    44%  { transform: translateX(-10px); opacity: 1; }
+    56%  { transform: translateX(-10px); opacity: 1; }
+    86%  { transform: translateX(62px); opacity: 1; }
+    100% { transform: translateX(62px); opacity: 0; }
+  }
+  .pkt-async { animation: asyncTrip 4.4s linear infinite; }
+  @keyframes asyncTrip {
+    0%   { transform: translateX(62px); opacity: 0; }
+    10%  { opacity: 1; }
+    58%  { transform: translateX(-10px); opacity: 1; }
+    78%  { transform: translateX(-10px); opacity: .9; }
+    100% { transform: translateX(-10px); opacity: 0; }
+  }
+  .paused .pkt-sync, .paused .pkt-async { animation-play-state: paused; }
+
+  .flow { display: flex; flex-direction: row-reverse; gap: 10px; min-width: 700px; }
+  .box {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; background: var(--surface-2); transition: border-color .3s;
+  }
+  .box h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); text-align: center; }
+  .box.hot { border-color: var(--primary); animation: pulse .6s ease; }
+  .box.gone { border-color: var(--danger); opacity: .55; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(56,189,248,.5); } 100% { box-shadow: 0 0 0 14px rgba(56,189,248,0); } }
+  .rows { display: flex; flex-direction: column; gap: 6px; min-height: 104px; }
+  .row {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+    padding: 5px 8px; font-size: 12px;
+  }
+  .row.fresh { animation: pop .35s ease; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  .val { font-family: Consolas, monospace; direction: ltr; font-size: 12px; }
+  .badge { font-size: 11px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .badge.hit { color: #d1fae5; border-color: var(--success); background: rgba(52,211,153,.14); }
+  .badge.miss { color: #fecaca; border-color: var(--danger); background: rgba(248,113,113,.14); }
+  .badge.warn { color: #fde68a; border-color: var(--warning); background: rgba(251,191,36,.14); }
+  .step-box { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-height: 76px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .pick > span { color: var(--text-dim); font-size: 13px; }
+  .btn.sel { background: var(--primary); color: #0c2431; border-color: var(--primary); }
+  .counters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 12px; font-size: 15px; }
+  .counters b { font-family: Consolas, monospace; }
+  input[type=range] { accent-color: var(--primary); width: 190px; }
+</style>
+</head>
+<body>
+
+<section class="card hero">
+  <div class="kicker">🌐 System Design · درس مصري مفصّل</div>
+  <h1>الـ replica مش نسخة من داتاك — دي داتاك بتاعة ثانيتين فاتوا</h1>
+  <div class="en">Database Replication: Read Replicas and Failover</div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">1</span><h2>ليه الدرس ده مهم؟</h2></div>
+  <p>
+    عندك ASP.NET Core API على SQL Server. الـ primary <b>٨ vCPU</b>، بيشيل
+    <b>٢٤٠٠ قراءة/ث</b> و<b>١٥٠ كتابة/ث</b> — يعني <b>٩٤٪</b> من الشغل قراءة. الـ CPU ثابت على
+    <b>٨٨٪</b> و<code>GET /api/orders</code> الـ p95 بتاعه <b>٤٢٠ ملي ثانية</b>.
+  </p>
+  <p>
+    ضفت <b>readable secondary</b> ووجّهت الاستعلامات عليه: الـ CPU نزل لـ <b>٣٣٪</b> والـ p95 بقى
+    <b>١١٠ ملي ثانية</b> — من غير ما تكبّر السيرفر. وبعد يومين جه بلاغ: مستخدم عدّل عنوانه، الصفحة
+    رجّعت له <b>العنوان القديم</b>. مفيش غلط في الكود — الـ replica كان متأخر <b>١.٤ ثانية</b>.
+  </p>
+  <div class="callout info">
+    الـ replication بيخدم <strong>هدفين مختلفين</strong>، ومتخلطش بينهم:
+    <b>(١) High availability</b> — الـ primary وقع، replica بيتـ promote في ثواني بدل ساعات
+    (SQL Server: Availability Groups). <b>(٢) توسيع القراءة</b> — الـ SELECTs على النسخ، والـ primary
+    يفضل فاضي للكتابة. والدايل الوحيد اللي بيحكم الاتنين: <strong>sync ولا async</strong>.
+  </div>
+  <div class="callout bad">
+    <strong>لو مش فاهم الدرس ده:</strong> هتفتكر الـ replica نسخة احتياطية (وهو بينسخ الـ
+    <code>DELETE</code> الغلط في نفس الثانية)، أو هتعمل failover على replica متأخر وتخسر آخر ثواني من
+    الأوردرات، أو هتخاف من الـ lag فتسيب كل القراءة على الـ primary وتدفع سيرفر أكبر على الفاضي.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">2</span><h2>الفكرة في صورة: مين بيستنى مين؟</h2></div>
+  <div class="stage" id="busStage">
+    <svg class="rep" viewBox="0 0 480 232">
+      <rect x="330" y="86" width="136" height="58" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+      <text x="398" y="110" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Primary</text>
+      <text x="398" y="129" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">الكتابة كلها هنا</text>
+
+      <rect x="14" y="14" width="152" height="58" rx="10" fill="#1e293b" stroke="#34d399"/>
+      <text x="90" y="38" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Sync replica</text>
+      <text x="90" y="57" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">نفس الـ region · RPO = 0</text>
+
+      <rect x="14" y="158" width="152" height="58" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+      <text x="90" y="182" fill="#e2e8f0" font-size="13" text-anchor="middle" font-family="Segoe UI">Async replica</text>
+      <text x="90" y="201" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="Segoe UI">للقراءة · متأخر ~1.4s</text>
+
+      <path d="M330 115 H254 V43 H166" fill="none" stroke="#334155" stroke-width="2"/>
+      <path d="M330 115 H254 V187 H166" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="5 4"/>
+
+      <g class="pkt-sync">
+        <rect x="178" y="31" width="58" height="24" rx="6" fill="#34d399"/>
+        <text x="207" y="48" fill="#06281c" font-size="11" text-anchor="middle" font-family="Segoe UI">log + ACK</text>
+      </g>
+      <g class="pkt-async">
+        <rect x="178" y="175" width="58" height="24" rx="6" fill="#fbbf24"/>
+        <text x="207" y="192" fill="#2b1c02" font-size="11" text-anchor="middle" font-family="Segoe UI">log</text>
+      </g>
+
+      <text x="250" y="86" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        الـ commit بيستنى الـ ACK → +1.8 ms على كل كتابة
+      </text>
+      <text x="250" y="150" fill="#94a3b8" font-size="12" text-anchor="middle" font-family="Segoe UI">
+        مفيش استنى — بس اللي بيقرا منه بيقرا الماضي
+      </text>
+      <text x="240" y="228" fill="#64748b" font-size="11" text-anchor="middle" font-family="Segoe UI">
+        نفس سجل الـ transaction log بيتبعت للاتنين. الفرق الوحيد: مين بيستنى مين
+      </text>
+    </svg>
+    <div class="controls">
+      <button class="btn ghost" id="busToggle">⏸ وقف الحركة</button>
+    </div>
+  </div>
+  <p>
+    <b>Synchronous</b>: الـ <code>COMMIT</code> ميرجعش للتطبيق غير لما الـ replica يكتب السجل على ديسكه
+    ويأكد. صفر فقدان (<b>RPO = 0</b>) مقابل round-trip زيادة على كل كتابة — نفس سكة الـ
+    <code>WRITELOG</code> اللي عرفتها في درس الـ transaction log.
+    <b>Asynchronous</b>: الـ primary بيـ commit على طول والسجل ماشي ورا — الكتابة مش بتتأثر، بس عند
+    الـ failover بتخسر آخر ثواني. الوصفة النموذجية: <b>sync واحد جنبك للـ failover + async للقراءة والـ DR</b>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">3</span><h2>خطوة بخطوة: كتابة واحدة وهي بتتنقل</h2></div>
+
+  <div class="stage">
+    <div class="flow">
+      <div class="box" id="userBox">
+        <h4>👤 المستخدم</h4>
+        <div class="rows" id="userRows"></div>
+      </div>
+      <div class="box" id="priBox">
+        <h4>🟦 Primary</h4>
+        <div class="rows" id="priRows"></div>
+      </div>
+      <div class="box" id="syncBox">
+        <h4>🟩 Sync replica</h4>
+        <div class="rows" id="syncRows"></div>
+      </div>
+      <div class="box" id="asyncBox">
+        <h4>🟨 Async replica</h4>
+        <div class="rows" id="asyncRows"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#34d399"></i> متطابق مع الـ primary</span>
+      <span><i class="swatch" style="background:#fbbf24"></i> متأخر — داتا قديمة</span>
+      <span><i class="swatch" style="background:#f87171"></i> فقدان / عطل</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ السابق</button>
+    <button class="btn" id="next">التالي ▶</button>
+    <span class="step-label" id="stepLabel">خطوة 1 من 6</span>
+  </div>
+  <div class="step-box" id="stepBox"></div>
+  <p class="note">
+    الـ <code>LSN</code> هو رقم السجل في الـ transaction log. الفرق بين LSN الـ primary وLSN أي replica
+    <b>هو</b> الـ lag — مش تقدير، ده رقم تقدر تقراه من <code>sys.dm_hadr_database_replica_states</code>.
+  </p>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">4</span><h2>مثال واقعي: توجيه القراءة من غير ما تكسر المستخدم</h2></div>
+
+  <div class="grid2">
+    <div>
+      <div class="callout bad" style="margin-top:0"><strong>❌ قبل</strong> — كل حاجة على الـ primary</div>
+<pre><code><span class="c">// Program.cs</span>
+builder.Services.<span class="k">AddDbContext</span>&lt;AppDbContext&gt;(o =&gt;
+  o.UseSqlServer(cfg.GetConnectionString(<span class="s">"Primary"</span>)));
+
+<span class="c">// 2400 read/s + 150 write/s على سيرفر واحد
+// CPU 88%  ·  p95 = 420 ms  ·  الحل الوحيد: سيرفر أكبر</span></code></pre>
+    </div>
+    <div>
+      <div class="callout good" style="margin-top:0"><strong>✅ بعد</strong> — context للكتابة وcontext للقراءة</div>
+<pre><code>builder.Services.<span class="k">AddDbContext</span>&lt;AppDbContext&gt;(o =&gt;
+  o.UseSqlServer(cfg.GetConnectionString(<span class="s">"Primary"</span>)));
+
+builder.Services.<span class="k">AddDbContext</span>&lt;ReadDbContext&gt;(o =&gt;
+  o.UseSqlServer(cfg.GetConnectionString(<span class="s">"Replica"</span>)));
+
+<span class="c">// CPU 33%  ·  p95 = 110 ms  ·  نفس الهاردوير</span></code></pre>
+    </div>
+  </div>
+
+<pre><code><span class="c">-- appsettings.json: الـ listener بيوجّه لوحده للـ secondary القابل للقراءة</span>
+"Replica": "Server=tcp:ag-listener,1433;Database=Shop;ApplicationIntent=ReadOnly;Encrypt=True"</code></pre>
+
+  <p>
+    الـ <code>ApplicationIntent=ReadOnly</code> مع <b>AG listener</b> بيتعامل مع الـ read-only routing
+    list ويرمي الاتصال على secondary تلقائياً. ودي البيت الطبيعي للـ CQRS: query handlers على
+    <code>ReadDbContext</code>، وcommand handlers على <code>AppDbContext</code>.
+  </p>
+
+  <h3>والـ ١.٤ ثانية بتاعة الـ lag؟ sticky-after-write</h3>
+<pre><code><span class="c">// بعد أي كتابة: علّم المستخدم ده لمدة 10 ثواني</span>
+Response.Cookies.<span class="k">Append</span>(<span class="s">"rp"</span>,
+  DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds().ToString());
+
+<span class="c">// وقت القراءة: اختار المصدر على أساس العلامة دي</span>
+<span class="k">var</span> readPrimary =
+  Request.Cookies.TryGetValue(<span class="s">"rp"</span>, <span class="k">out</span> <span class="k">var</span> v) &amp;&amp;
+  <span class="k">long</span>.TryParse(v, <span class="k">out</span> <span class="k">var</span> until) &amp;&amp;
+  DateTimeOffset.UtcNow.ToUnixTimeSeconds() &lt; until;
+
+<span class="k">var</span> orders = readPrimary
+  ? <span class="k">await</span> writeDb.Orders.AsNoTracking().ToListAsync()
+  : <span class="k">await</span> readDb.Orders.AsNoTracking().ToListAsync();</code></pre>
+  <p class="note">
+    ٦٪ بس من القراءات بتقع في نافذة الـ ١٠ ثواني دي — يعني ٩٤٪ من الحمل بيتشال عن الـ primary
+    و<b>صفر</b> قراءة قديمة للمستخدم اللي لسه كاتب.
+  </p>
+
+  <h3>جرّب بنفسك: غيّر سياسة التوجيه والتأخير</h3>
+  <div class="stage">
+    <div class="pick">
+      <span>القراءات بتروح فين؟</span>
+      <button class="btn ghost sel" data-pol="replica">كله على الـ replica</button>
+      <button class="btn ghost" data-pol="sticky">sticky-after-write 10s</button>
+      <button class="btn ghost" data-pol="primary">كله على الـ primary</button>
+    </div>
+    <div class="pick">
+      <span>تأخير الـ replica:</span>
+      <input type="range" id="lagRange" min="0" max="8" step="0.2" value="1.4">
+      <b class="val" id="lagVal">1.4s</b>
+    </div>
+    <div class="controls">
+      <button class="btn" id="saveBtn">✍️ احفظ العنوان وافتح الصفحة</button>
+      <button class="btn ghost" id="resetDemo">↺ إعادة</button>
+    </div>
+    <div class="counters">
+      <span>👤 المستخدم شاف: <b id="sawVal">—</b></span>
+      <span>📉 قراءات اتشالت عن الـ primary: <b id="offload">100%</b></span>
+      <span>🔥 CPU الـ primary: <b id="cpu">30%</b></span>
+      <span>⏱ p95: <b id="p95">110ms</b></span>
+    </div>
+    <div class="callout good" id="verdict"></div>
+  </div>
+
+  <div class="callout info">
+    <strong>قيس الـ lag، متخمّنش:</strong>
+    <code>SELECT * FROM sys.dm_hadr_database_replica_states</code> فيها
+    <code>redo_queue_size</code> و<code>last_commit_time</code>. الفرق بين
+    <code>last_commit_time</code> بتاع الـ primary والـ replica هو تأخيرك بالثواني — حطّه على لوحة
+    مراقبة وعلى alert، لأنه بيكبر فجأة تحت الحمل وده بالظبط وقت ظهور الباج.
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">5</span><h2>غلطات بتحصل كتير</h2></div>
+  <ul class="mistakes">
+    <li><b>«عندنا replication يبقى عندنا backup»</b> — الـ replication بينسخ كل حاجة <u>فوراً</u>، بما
+      فيها <code>DELETE</code> من غير <code>WHERE</code>. الـ backup بيحميك من الغلط البشري، الـ replica
+      بينشره. محتاج الاتنين.</li>
+    <li><b>كل القراءات على الـ replica من غير sticky</b> — المسارات اللي بتقرا بعد الكتابة على طول
+      (حفظ → redirect → عرض) هي اللي بتكسر. والباج ده بيعدي من الـ staging لأن مفيش حمل فمفيش lag.</li>
+    <li><b>sync replica في region تانية</b> — كل <code>COMMIT</code> بياخد الـ RTT كاملة (٨٠ ملي ثانية
+      مثلاً)، فالكتابة بتموت. الـ sync لجارك في نفس الـ region، والـ async للبعيد.</li>
+    <li><b>failover تلقائي على replica غير متزامن</b> — بتوعد نفسك بـ RPO صفر وبتخسر آخر ثواني فعلياً.
+      التلقائي للـ sync بس؛ الـ async promotion قرار بشري بتقبل فيه الفقدان.</li>
+    <li><b>تفتكر إنك على replica وإنت لأ</b> — <code>ApplicationIntent=ReadOnly</code> من غير listener
+      وread-only routing list بيوصلك للـ primary وخلاص. اتأكد بـ
+      <code>SELECT DATABASEPROPERTYEX(DB_NAME(),'Updateability')</code>.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">6</span><h2>اختبر نفسك</h2></div>
+
+  <div class="q" data-correct="1">
+    <div class="qt">1. مستخدم حفظ داتا وبعدها على طول شاف النسخة القديمة في الصفحة اللي بعدها. السبب الكلاسيكي في نظام فيه replicas؟</div>
+    <button class="opt">الـ transaction اترجع (rollback)</button>
+    <button class="opt">القراءة راحت لـ async replica لسه متأخر ثواني عن الـ primary — انتهاك read-your-own-writes</button>
+    <button class="opt">الكاش كان جديد أوي</button>
+    <button class="opt">مستوى عزل (isolation level) غلط</button>
+    <div class="feedback">
+      الكتابة راحت للـ primary والقراءة اللي بعدها راحت لـ replica لسه مـ applied-ش السجل. الحل: وجّه
+      قراءات ما بعد الكتابة للـ primary لفترة قصيرة، أو استنى الـ replica يلحق الـ LSN بتاعك.
+    </div>
+  </div>
+
+  <div class="q" data-correct="0">
+    <div class="qt">2. عايز <b>RPO = 0</b> (مفيش أي فقدان عند الـ failover). إيه اللي بتدفعه مقابله؟</div>
+    <button class="opt">كل <code>COMMIT</code> بيستنى الـ replica يأكد → round-trip زيادة على كل كتابة</button>
+    <button class="opt">القراءة من الـ replicas بتبقى ممنوعة</button>
+    <button class="opt">لازم تقفل الفهارس على الـ secondary</button>
+    <button class="opt">مفيش مقابل — الـ sync أسرع من الـ async</button>
+    <div class="feedback">
+      صفر فقدان معناه إن السجل اتكتب في مكانين قبل ما يترد على التطبيق. فالـ sync بيزوّد latency
+      الكتابة بمقدار الـ round-trip — وعشان كده بيكون في نفس الـ region، والـ async للمسافات البعيدة.
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="sec-title"><span class="n">7</span><h2>الخلاصة في ٣ نقاط</h2></div>
+  <ol class="summary">
+    <li>الـ replication بيحل هدفين منفصلين — بقاء الخدمة وتوسيع القراءة — والدايل اللي بيحكمهم هو
+      sync (صفر فقدان، latency زيادة) مقابل async (كتابة أسرع، ممكن تخسر آخر ثواني).</li>
+    <li>الـ lag مش حالة استثنائية، ده وضع التشغيل العادي: قسّم الـ endpoints لـ «لازم primary» (قراءة
+      بعد كتابة) و«replica-safe» (قوايم، بحث، تقارير).</li>
+    <li>الـ replica مش backup — بينسخ غلطاتك في نفس الثانية، وfailover على replica متأخر يعني فقدان
+      معلن سلفاً.</li>
+  </ol>
+</section>
+
+<script>
+(function () {
+  // ---------------------------------------------------------------- height reporting
+  function postHeight() {
+    parent.postMessage({ type: 'lm-ar-height', height: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', postHeight);
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  document.addEventListener('click', function () { setTimeout(postHeight, 300); });
+
+  // ---------------------------------------------------------------- diagram toggle
+  var busStage = document.getElementById('busStage');
+  var busToggle = document.getElementById('busToggle');
+  busToggle.addEventListener('click', function () {
+    var paused = busStage.classList.toggle('paused');
+    busToggle.textContent = paused ? '▶ شغّل الحركة' : '⏸ وقف الحركة';
+  });
+
+  // ---------------------------------------------------------------- replication stepper
+  var userRows = document.getElementById('userRows');
+  var priRows = document.getElementById('priRows');
+  var syncRows = document.getElementById('syncRows');
+  var asyncRows = document.getElementById('asyncRows');
+  var priBox = document.getElementById('priBox');
+  var st;
+
+  function resetFlow() {
+    st = {
+      pLsn: 1000, sLsn: 1000, aLsn: 1000,
+      pVal: 'شارع 9', sVal: 'شارع 9', aVal: 'شارع 9',
+      pBadge: ['حي', 'hit'], sBadge: ['متطابق', 'hit'], aBadge: ['متطابق', 'hit'],
+      role: { p: '🟦 Primary', s: '🟩 Sync replica', a: '🟨 Async replica' },
+      dead: false, hot: false,
+      user: [{ k: 'الحالة', v: 'لسه مكتبش حاجة', badge: '…', cls: '' }]
+    };
+  }
+  function rowEl(k, v, badge, cls, fresh) {
+    var d = document.createElement('div');
+    d.className = 'row' + (fresh ? ' fresh' : '');
+    var left = document.createElement('span');
+    left.textContent = k;
+    var right = document.createElement('span');
+    if (badge) {
+      right.className = 'badge' + (cls ? ' ' + cls : '');
+      right.textContent = badge;
+    } else {
+      right.className = 'val';
+      right.textContent = v;
+    }
+    d.appendChild(left);
+    d.appendChild(right);
+    return d;
+  }
+  function fillNode(el, lsn, val, badge) {
+    el.innerHTML = '';
+    el.appendChild(rowEl('LSN', String(lsn), '', ''));
+    el.appendChild(rowEl('العنوان', val, '', ''));
+    el.appendChild(rowEl('الحالة', '', badge[0], badge[1]));
+  }
+  function drawFlow() {
+    fillNode(priRows, st.pLsn, st.pVal, st.pBadge);
+    fillNode(syncRows, st.sLsn, st.sVal, st.sBadge);
+    fillNode(asyncRows, st.aLsn, st.aVal, st.aBadge);
+    document.getElementById('priBox').querySelector('h4').textContent = st.role.p;
+    document.getElementById('syncBox').querySelector('h4').textContent = st.role.s;
+    document.getElementById('asyncBox').querySelector('h4').textContent = st.role.a;
+    document.getElementById('priBox').classList.toggle('gone', st.dead);
+
+    userRows.innerHTML = '';
+    st.user.forEach(function (u) {
+      userRows.appendChild(rowEl(u.k, u.v, u.badge, u.cls));
+    });
+
+    priBox.classList.remove('hot');
+    if (st.hot && !st.dead) {
+      void priBox.offsetWidth;   // إعادة تشغيل الـ pulse بعد ما الكلاس اتشال
+      priBox.classList.add('hot');
+    }
+  }
+
+  var steps = [
+    {
+      text: 'البداية: التلاتة متطابقين على LSN 1000. الـ sync replica في نفس الـ region، والـ async في region تانية وبيخدم القراءة.',
+      run: function () { }
+    },
+    {
+      text: 'المستخدم بعت UPDATE على عنوانه. الـ primary كتب السجل LSN 1001 في الـ transaction log — بس لسه مردّش على التطبيق: لازم الـ sync replica يأكد الأول.',
+      run: function () {
+        st.pLsn = 1001; st.pVal = 'شارع 12';
+        st.pBadge = ['مستني ACK', 'warn'];
+        st.hot = true;
+        st.user = [{ k: 'الحالة', v: '', badge: 'SaveAddress… مستني', cls: 'warn' }];
+      }
+    },
+    {
+      text: 'الـ sync replica كتب نفس السجل على ديسكه وبعت ACK → الـ COMMIT رجع للتطبيق. الكتابة كلفت +1.8 ms زيادة، ومقابلها: السجل ده موجود في مكانين دلوقتي.',
+      run: function () {
+        st.pLsn = 1001; st.pVal = 'شارع 12'; st.pBadge = ['حي', 'hit'];
+        st.sLsn = 1001; st.sVal = 'شارع 12'; st.sBadge = ['متطابق', 'hit'];
+        st.hot = true;
+        st.user = [{ k: 'الحالة', v: '', badge: '✓ اتحفظ (1.8ms زيادة)', cls: 'hit' }];
+      }
+    },
+    {
+      text: 'الـ async replica لسه على LSN 1000. الـ primary ما استناهوش — فهو متأخر 1.4 ثانية. ده مش عطل، ده وضع التشغيل العادي للـ async.',
+      run: function () {
+        st.pLsn = 1001; st.pVal = 'شارع 12'; st.pBadge = ['حي', 'hit'];
+        st.sLsn = 1001; st.sVal = 'شارع 12'; st.sBadge = ['متطابق', 'hit'];
+        st.aBadge = ['متأخر 1.4s', 'warn'];
+        st.hot = false;
+        st.user = [{ k: 'الحالة', v: '', badge: '✓ اتحفظ', cls: 'hit' }];
+      }
+    },
+    {
+      text: 'الـ redirect حصل وصفحة العرض قرأت من الـ async replica (ApplicationIntent=ReadOnly) → رجّعت «شارع 9». المستخدم بيقول الموقع ضيّع تعديله. ده انتهاك read-your-own-writes — والكود كله سليم.',
+      run: function () {
+        steps[3].run();
+        st.user = [
+          { k: 'كتب', v: '', badge: 'شارع 12', cls: 'hit' },
+          { k: 'شاف', v: '', badge: 'شارع 9 ✗', cls: 'miss' }
+        ];
+      }
+    },
+    {
+      text: 'الـ primary وقع. تعمل promote لمين؟ الـ sync replica عنده LSN 1001 → صفر فقدان (RPO=0) والتعديل موجود. الـ async عنده 1000 → كنت هتخسر الكتابة دي وكل اللي بعدها. الـ sticky-after-write هو اللي كان هيمنع مشهد الخطوة اللي فاتت من الأساس.',
+      run: function () {
+        steps[3].run();
+        st.dead = true;
+        st.pBadge = ['وقع ✗', 'miss'];
+        st.role.p = '🟥 Primary (وقع)';
+        st.role.s = '🟦 Primary الجديد';
+        st.sBadge = ['اتعمل promote · RPO 0', 'hit'];
+        st.aBadge = ['لو اتعمل له promote: فقدان 1.4s', 'miss'];
+        st.hot = false;
+        st.user = [
+          { k: 'كتب', v: '', badge: 'شارع 12', cls: 'hit' },
+          { k: 'بعد الـ failover', v: '', badge: 'شارع 12 ✓', cls: 'hit' }
+        ];
+      }
+    }
+  ];
+
+  var step = 0;
+  var stepBox = document.getElementById('stepBox');
+  var stepLabel = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next');
+
+  function render() {
+    stepBox.textContent = steps[step].text;
+    stepLabel.textContent = 'خطوة ' + (step + 1) + ' من ' + steps.length;
+    prevBtn.disabled = step === 0;
+    nextBtn.disabled = step === steps.length - 1;
+    // إعادة بناء الحالة من أول خطوة عشان الرجوع يبقى صح
+    resetFlow();
+    for (var i = 0; i <= step; i++) steps[i].run();
+    drawFlow();
+  }
+  prevBtn.addEventListener('click', function () { if (step > 0) { step--; render(); } });
+  nextBtn.addEventListener('click', function () { if (step < steps.length - 1) { step++; render(); } });
+  resetFlow();
+  render();
+
+  // ---------------------------------------------------------------- routing demo
+  var READS = 2400, STICKY_SHARE = 0.06, STICKY_WINDOW = 10;
+  var policy = 'replica', lag = 1.4, tested = false;
+  var lagRange = document.getElementById('lagRange');
+  var lagVal = document.getElementById('lagVal');
+  var sawVal = document.getElementById('sawVal');
+  var offload = document.getElementById('offload');
+  var cpuEl = document.getElementById('cpu');
+  var p95El = document.getElementById('p95');
+  var verdict = document.getElementById('verdict');
+
+  function recompute() {
+    var toPrimary = policy === 'primary' ? READS
+                  : policy === 'sticky' ? Math.round(READS * STICKY_SHARE)
+                  : 0;
+    var cpu = Math.round(30 + (toPrimary / READS) * 58);
+    var stale = policy === 'replica' && lag > 0;
+
+    lagVal.textContent = lag.toFixed(1) + 's';
+    offload.textContent = Math.round((1 - toPrimary / READS) * 100) + '%';
+    cpuEl.textContent = cpu + '%';
+    p95El.textContent = (policy === 'primary' ? 420 : policy === 'sticky' ? 115 : 110) + 'ms';
+    sawVal.textContent = !tested ? '—' : (stale ? 'شارع 9 (قديم) ✗' : 'شارع 12 ✓');
+
+    var cls, msg;
+    if (policy === 'replica' && lag > 0) {
+      cls = 'bad';
+      msg = 'شلت 100% من القراءة عن الـ primary، بس القراءة اللي بعد الكتابة على طول راحت لـ replica '
+          + 'متأخر ' + lag.toFixed(1) + ' ثانية → المستخدم شاف عنوانه القديم. read-your-own-writes مكسور.';
+    } else if (policy === 'replica') {
+      cls = 'info';
+      msg = 'تأخير صفر دلوقتي فالدنيا شكلها تمام — وده بالظبط سبب إن الباج ده بيعدي من staging. أول ما '
+          + 'الـ redo queue يتأخر تحت حمل الإنتاج، كل قراءة بعد كتابة تبقى قابلة للكسر.';
+    } else if (policy === 'sticky') {
+      cls = 'good';
+      msg = 'النافذة ' + STICKY_WINDOW + ' ثواني بتغطي تأخير ' + lag.toFixed(1) + ' ثانية بفارق أمان كبير: '
+          + Math.round(READS * STICKY_SHARE) + ' قراءة/ث بس بترجع للـ primary (CPU ' + cpu + '%)، '
+          + 'والباقي على الـ replicas — وصفر داتا قديمة للمستخدم اللي لسه كاتب.';
+    } else {
+      cls = 'bad';
+      msg = 'صح بس غالي: صفر offload، CPU ' + cpu + '% وp95 = 420ms. بتدفع سيرفر أكبر عشان تحمي 6% من '
+          + 'الطلبات — نفس الحماية بتاخدها بـ sticky-after-write.';
+    }
+    verdict.className = 'callout ' + cls;
+    verdict.textContent = msg;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-pol]'), function (b) {
+    b.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-pol]'), function (o) {
+        o.classList.remove('sel');
+      });
+      b.classList.add('sel');
+      policy = b.getAttribute('data-pol');
+      recompute();
+    });
+  });
+  lagRange.addEventListener('input', function () {
+    lag = parseFloat(lagRange.value);
+    recompute();
+    postHeight();
+  });
+  document.getElementById('saveBtn').addEventListener('click', function () {
+    tested = true;
+    recompute();
+  });
+  document.getElementById('resetDemo').addEventListener('click', function () {
+    tested = false; policy = 'replica'; lag = 1.4;
+    lagRange.value = '1.4';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-pol]'), function (o) {
+      o.classList.remove('sel');
+    });
+    document.querySelector('[data-pol="replica"]').classList.add('sel');
+    recompute();
+  });
+  recompute();
+
+  // ---------------------------------------------------------------- quiz
+  Array.prototype.forEach.call(document.querySelectorAll('.q'), function (q) {
+    var correct = parseInt(q.getAttribute('data-correct'), 10);
+    var opts = q.querySelectorAll('.opt');
+    Array.prototype.forEach.call(opts, function (opt, i) {
+      opt.addEventListener('click', function () {
+        Array.prototype.forEach.call(opts, function (o, j) {
+          o.classList.remove('correct', 'wrong');
+          if (j === correct) o.classList.add('correct');
+        });
+        if (i !== correct) opt.classList.add('wrong');
+        q.querySelector('.feedback').classList.add('show');
+        setTimeout(postHeight, 60);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
